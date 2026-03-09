@@ -1,8 +1,7 @@
-// Unified Utils - Collection of utility functions
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-// === String Utilities ===
-
-export function cn(...inputs: ClassValue[]): string {
+export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
@@ -124,8 +123,6 @@ export function generateId(prefix = "id"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-// === Math Utilities ===
-
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -158,7 +155,7 @@ export function calculateMaxDrawdown(equityCurve: number[]): { maxDrawdown: numb
     if (value > peak) {
       peak = value;
     }
-    const drawdown = (peak - value) / (peak || 1);
+    const drawdown = (peak - value) / peak;
     if (drawdown > maxDrawdown) {
       maxDrawdown = drawdown;
       trough = value;
@@ -195,83 +192,4 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
       setTimeout(() => (inThrottle = false), limit);
     }
   };
-}
-
-// === Array Utilities ===
-
-export function mean(values: number[]): number {
-  if (values.length === 0) return 0;
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
-
-export function stdDev(values: number[]): number {
-  if (values.length < 2) return 0;
-  const avg = mean(values);
-  const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / (values.length - 1);
-  return Math.sqrt(variance);
-}
-
-export function variance(values: number[]): number {
-  if (values.length < 2) return 0;
-  const avg = mean(values);
-  return values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / (values.length - 1);
-}
-
-export function ema(values: number[], period: number): number[] {
-  if (values.length === 0 || period <= 0) return [];
-
-  const k = 2 / (period + 1);
-  const emaValues: number[] = [values[0]];
-
-  for (let i = 1; i < values.length; i++) {
-    emaValues.push(values[i] * k + emaValues[i - 1] * (1 - k));
-  }
-
-  return emaValues;
-}
-
-export function sma(values: number[], period: number): number[] {
-  if (values.length === 0 || period <= 0) return [];
-
-  const result: number[] = [];
-  for (let i = 0; i < values.length; i++) {
-    if (i < period - 1) {
-      result.push(NaN);
-    } else {
-      const sum = values.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-      result.push(sum / period);
-    }
-  }
-  return result;
-}
-
-export function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = (p / 100) * (sorted.length - 1);
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  const weight = index - lower;
-
-  if (upper >= sorted.length) return sorted[lower];
-  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
-}
-
-export function zScore(value: number, values: number[]): number {
-  const avg = mean(values);
-  const sd = stdDev(values);
-  if (sd === 0) return 0;
-  return (value - avg) / sd;
-}
-
-// === Type Utilities ===
-
-type ClassValue = string | undefined | null | false;
-
-function clsx(inputs: ClassValue[]): string {
-  return inputs.filter(Boolean).join(" ");
-}
-
-function twMerge(...inputs: ClassValue[]): string {
-  return clsx(inputs);
 }

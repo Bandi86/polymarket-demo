@@ -1,0 +1,497 @@
+// SQLite Database Layer for Persistent Data Storage
+// Provides an in-memory or file-based database for storing:
+// - Market history
+// - Bot sessions
+// - Trade history
+// - User configurations
+
+import { Database } from "bun:sqlite";
+
+export interface DatabaseConfig {
+  mode: "memory" | "file";
+  filePath?: string;
+}
+
+export interface MarketRow {
+  id: string;
+  question: string;
+  description: string;
+  start_time: number;
+  end_time: number;
+  start_price: number;
+  end_price: number | null;
+  status: "active" | "settled" | "paused";
+  result: string | null;
+  outcome_yes: number;
+  outcome_no: number;
+  volume: number;
+  liquidity: number;
+  category: string;
+}
+
+export interface PositionRow {
+  id: string;
+  market_id: string;
+  outcome: string;
+  amount: number;
+  odds: number;
+  stake: number;
+  fee: number;
+  timestamp: number;
+  status: string;
+  pnl: number | null;
+  bot_id: string | null;
+  bot_name: string | null;
+}
+
+export interface BotSessionRow {
+  id: string;
+  bot_id: string;
+  bot_name: string;
+  strategy: string;
+  start_time: number;
+  end_time: number | null;
+  start_balance: number;
+  end_balance: number | null;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_pnl: number;
+  status: string;
+  max_drawdown: number;
+  sharpe_ratio: number;
+}
+
+export interface TradeRow {
+  id: string;
+  position_id: string;
+  market_id: string;
+  type: string;
+  outcome: string;
+  amount: number;
+  price: number;
+  fee: number;
+  timestamp: number;
+  bot_id: string | null;
+}
+
+export interface ConfigRow {
+  key: string;
+  value: string;
+  updated_at: number;
+}
+
+export class DatabaseService {
+  private db: Database | null = null;
+  private config: DatabaseConfig;
+  private initialized = false;
+
+  constructor(config: DatabaseConfig = { mode: "file", filePath: "./data/polymarket.db" }) {
+    this.config = config;
+  }
+
+  private ensureDataDir(): void {
+    if (this.config.mode === "file" && this.config.filePath) {
+      const dir = this.config.filePath.replace(/\/[^/]+$/, "");
+      try {
+        Bun.write(dir + "/", "");
+      } catch {
+        // Directory might already exist
+      }
+    }
+  }
+
+  connect(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+
+    this.ensureDataDir();
+
+    if (this.config.mode === "memory" || !this.config.filePath) {
+      this.db = new Database(":memory:");
+    } else {
+      this.db = new Database(this.config.filePath);
+    }
+
+    this.createSchema();
+    this.initialized = true;
+    return Promise.resolve();
+  }
+
+  private createSchema(): void {
+    if (!this.db) return;
+
+    // Markets table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS markets (
+        id TEXT PRIMARY KEY,
+        question TEXT,
+        description TEXT,
+        start_time INTEGER,
+        end_time INTEGER,
+        start_price REAL,
+        end_price REAL,
+        status TEXT,
+        result TEXT,
+        outcome_yes REAL,
+        outcome_no REAL,
+        volume REAL,
+        liquidity REAL,
+        category TEXT
+      )
+    `);
+
+    // Positions table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS positions (
+        id TEXT PRIMARY KEY,
+        market_id TEXT,
+        outcome TEXT,
+        amount REAL,
+        odds REAL,
+        stake REAL,
+        fee REAL,
+        timestamp INTEGER,
+        status TEXT,
+        pnl REAL,
+        bot_id TEXT,
+        bot_name TEXT,
+        FOREIGN KEY (market_id) REFERENCES markets(id)
+      )
+    `);
+
+    // Bot sessions table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS bot_sessions (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT,
+        bot_name TEXT,
+        strategy TEXT,
+        start_time INTEGER,
+        end_time INTEGER,
+        start_balance REAL,
+        end_balance REAL,
+        total_trades INTEGER,
+        winning_trades INTEGER,
+        losing_trades INTEGER,
+        total_pnl REAL,
+        status TEXT,
+        max_drawdown REAL,
+        sharpe_ratio REAL
+      )
+    `);
+
+    // Trades table (for detailed trade history)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS trades (
+        id TEXT PRIMARY KEY,
+        position_id TEXT,
+        market_id TEXT,
+        type TEXT,
+        outcome TEXT,
+        amount REAL,
+        price REAL,
+        fee REAL,
+        timestamp INTEGER,
+        bot_id TEXT,
+        FOREIGN KEY (position_id) REFERENCES positions(id),
+        FOREIGN KEY (market_id) REFERENCES markets(id)
+      )
+    `);
+
+    // Configuration table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at INTEGER
+      )
+    `);
+
+    // Create indexes for common queries
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_positions_bot ON positions(bot_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_bot ON bot_sessions(bot_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id)`);
+  }
+
+  // === Market Operations ===
+
+  async saveMarket(market: {
+    id: string;
+    question: string;
+    description: string;
+    startTime: number;
+    endTime: number;
+    startPrice: number;
+    endPrice: number | null;
+    status: "active" | "settled" | "paused";
+    result: "UP" | "DOWN" | null;
+    outcomeYes: number;
+    outcomeNo: number;
+    volume: number;
+    liquidity: number;
+    category?: string;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO markets
+      (id, question, description, start_time, end_time, start_price, end_price,
+       status, result, outcome_yes, outcome_no, volume, liquidity, category)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      market.id,
+      market.question,
+      market.description,
+      market.startTime,
+      market.endTime,
+      market.startPrice,
+      market.endPrice,
+      market.status,
+      market.result,
+      market.outcomeYes,
+      market.outcomeNo,
+      market.volume,
+      market.liquidity,
+      market.category || "Crypto"
+    );
+  }
+
+  async getMarket(id: string): Promise<MarketRow | null> {
+    if (!this.db) return null;
+
+    const stmt = this.db.prepare("SELECT * FROM markets WHERE id = ?");
+    return stmt.get(id) as MarketRow | null;
+  }
+
+  async getMarketHistory(limit: number = 50): Promise<MarketRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM markets ORDER BY start_time DESC LIMIT ?"
+    );
+    return stmt.all(limit) as MarketRow[];
+  }
+
+  // === Position Operations ===
+
+  async savePosition(position: {
+    id: string;
+    marketId: string;
+    outcome: "YES" | "NO";
+    amount: number;
+    odds: number;
+    stake: number;
+    fee: number;
+    timestamp: number;
+    status: "open" | "closed" | "settled";
+    pnl: number | null;
+    botId?: string | null;
+    botName?: string | null;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO positions
+      (id, market_id, outcome, amount, odds, stake, fee, timestamp, status, pnl, bot_id, bot_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      position.id,
+      position.marketId,
+      position.outcome,
+      position.amount,
+      position.odds,
+      position.stake,
+      position.fee,
+      position.timestamp,
+      position.status,
+      position.pnl,
+      position.botId || null,
+      position.botName || null
+    );
+  }
+
+  async getPosition(id: string): Promise<PositionRow | null> {
+    if (!this.db) return null;
+
+    const stmt = this.db.prepare("SELECT * FROM positions WHERE id = ?");
+    return stmt.get(id) as PositionRow | null;
+  }
+
+  async getPositionsByMarket(marketId: string): Promise<PositionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM positions WHERE market_id = ? ORDER BY timestamp DESC"
+    );
+    return stmt.all(marketId) as PositionRow[];
+  }
+
+  async getPositionsByBot(botId: string): Promise<PositionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM positions WHERE bot_id = ? ORDER BY timestamp DESC"
+    );
+    return stmt.all(botId) as PositionRow[];
+  }
+
+  // === Bot Session Operations ===
+
+  async saveBotSession(session: {
+    id: string;
+    botId: string;
+    botName: string;
+    strategy: string;
+    startTime: number;
+    endTime: number | null;
+    startBalance: number;
+    endBalance: number | null;
+    totalTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    totalPnL: number;
+    status: "running" | "completed" | "paused";
+    maxDrawdown?: number;
+    sharpeRatio?: number;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO bot_sessions
+      (id, bot_id, bot_name, strategy, start_time, end_time, start_balance,
+       end_balance, total_trades, winning_trades, losing_trades, total_pnl, status, max_drawdown, sharpe_ratio)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      session.id,
+      session.botId,
+      session.botName,
+      session.strategy,
+      session.startTime,
+      session.endTime,
+      session.startBalance,
+      session.endBalance,
+      session.totalTrades,
+      session.winningTrades,
+      session.losingTrades,
+      session.totalPnL,
+      session.status,
+      session.maxDrawdown ?? 0,
+      session.sharpeRatio ?? 0
+    );
+  }
+
+  async getBotSession(id: string): Promise<BotSessionRow | null> {
+    if (!this.db) return null;
+
+    const stmt = this.db.prepare("SELECT * FROM bot_sessions WHERE id = ?");
+    return stmt.get(id) as BotSessionRow | null;
+  }
+
+  async getBotSessions(botId: string, limit: number = 50): Promise<BotSessionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM bot_sessions WHERE bot_id = ? ORDER BY start_time DESC LIMIT ?"
+    );
+    return stmt.all(botId, limit) as BotSessionRow[];
+  }
+
+  async getAllBotSessions(limit: number = 100): Promise<BotSessionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM bot_sessions ORDER BY start_time DESC LIMIT ?"
+    );
+    return stmt.all(limit) as BotSessionRow[];
+  }
+
+  // === Trade Operations ===
+
+  async saveTrade(trade: {
+    id: string;
+    positionId: string;
+    marketId: string;
+    type: "buy" | "sell";
+    outcome: "YES" | "NO";
+    amount: number;
+    price: number;
+    fee: number;
+    timestamp: number;
+    botId?: string | null;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO trades
+      (id, position_id, market_id, type, outcome, amount, price, fee, timestamp, bot_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      trade.id,
+      trade.positionId,
+      trade.marketId,
+      trade.type,
+      trade.outcome,
+      trade.amount,
+      trade.price,
+      trade.fee,
+      trade.timestamp,
+      trade.botId || null
+    );
+  }
+
+  // === Configuration Operations ===
+
+  async getConfig(key: string): Promise<string | null> {
+    if (!this.db) return null;
+
+    const stmt = this.db.prepare("SELECT value FROM config WHERE key = ?");
+    const result = stmt.get(key) as { value: string } | null;
+    return result?.value ?? null;
+  }
+
+  async setConfig(key: string, value: string): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO config (key, value, updated_at)
+      VALUES (?, ?, ?)
+    `);
+
+    stmt.run(key, value, Date.now());
+  }
+
+  // === Database Management ===
+
+  async close(): Promise<void> {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+      this.initialized = false;
+    }
+  }
+
+  async clearData(): Promise<void> {
+    if (!this.db) return;
+
+    const tables = ["trades", "positions", "bot_sessions", "markets", "config"];
+
+    for (const table of tables) {
+      this.db.run(`DELETE FROM ${table}`);
+    }
+  }
+}
+
+// Singleton instance
+export const dbService = new DatabaseService({ mode: "file", filePath: "./data/polymarket.db" });
+
+// Initialize database eagerly
+dbService.connect().catch((e) => console.error("[Database] Auto-init error:", e));

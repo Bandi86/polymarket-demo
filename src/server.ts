@@ -1,749 +1,572 @@
+// Bun Server - Serves React app and API routes
+
 import { serve } from "bun";
-import index from "./index.html";
-import { TradingEngine, strategies, getDefaultBotConfigs, type StrategyType } from "./trading";
-import { createSession, endSession, addTrade, settleTrade, addMarketHistory, getSessions, getSessionTrades, getSessionStats, getActiveSession, getMarketHistory, db } from "./database";
-import type { Market, BotConfig, TradeRequest, TradeResponse, MarketPrice, Position } from "./types";
+import { marketEngine } from "./lib/market-engine";
+import { priceService } from "./lib/price";
+import { botManager } from "./lib/bot-manager";
+import { dbService } from "./lib/database";
+import { binanceKlineProvider } from "./lib/providers/binance-kline-provider";
+import { polymarketProvider } from "./lib/providers/polymarket-provider";
 
-const engine = new TradingEngine();
-let botConfigs = getDefaultBotConfigs();
-let botIntervals: Map<string, number> = new Map();
-let currentBitcoinMarket: Market | null = null;
-let marketStartTime = 0;
-let priceHistory: number[] = [];
-let tradeEvents: Array<{ type: string; bot?: string; outcome?: string; amount?: number; pnl?: number; time: number }> = [];
-let marketHistory: Array<{ id: string; result: 'UP' | 'DOWN'; startPrice: number; endPrice: number; startTime: number; endTime: number }> = [];
-let activeSessionId: string | null = null;
-let botStartTimes: Map<string, number> = new Map();
+const PORT = 3000;
 
-const MARKET_DURATION = 5 * 60 * 1000;
-const PRICE_UPDATE_INTERVAL = 2000;
-const BTC_API = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+// Initialize database
+dbService.connect().catch((e) => console.error("[Server] DB init error:", e));
 
-const POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com";
-const POLYMARKET_CLOB_API = "https://clob.polymarket.com";
-
-import { RealTimeDataClient, Message } from "@polymarket/real-time-data-client";
-
-interface PolymarketMarket {
-  id: string;
-  question: string;
-  description: string;
-  volumeNum: string;
-  volume?: string;
-  liquidity: string;
-  outcomes: string[];
-  endDateTimestamp: string;
-  state: string;
-  groupItemId?: string;
-  conditionId?: string;
-  tokenId?: string;
-  outcomePrices?: string;
-}
-
-let activePolymarketMarkets: PolymarketMarket[] = [];
-let liveBtcPrice = 0;
-let lastPriceUpdate = 0;
-
-function initRealTimeDataClient() {
-  try {
-    const rtClient = new RealTimeDataClient({
-      onMessage: (message: Message) => {
-        if (message.topic === "crypto_prices" && message.type === "update") {
-          const payload = message.payload as any;
-          if (payload.symbol === "BTCUSDT") {
-            liveBtcPrice = payload.value;
-            lastPriceUpdate = Date.now();
-          }
-        }
-      },
-      onConnect: (client: RealTimeDataClient) => {
-        console.log("[RTDS] Connected to Polymarket real-time data");
-        client.subscribe({
-          subscriptions: [
-            {
-              topic: "crypto_prices",
-              type: "update",
-              filters: `{"symbol":"BTCUSDT"}`,
-            },
-          ],
-        });
-      },
-    });
-    rtClient.connect();
-    console.log("[RTDS] Real-time data client initialized");
-  } catch (error) {
-    console.error("[RTDS] Failed to initialize:", error);
-  }
-}
-
-async function fetchPolymarketBitcoinMarkets(): Promise<PolymarketMarket[]> {
-  try {
-    const now = Date.now();
-    const response = await fetch(
-      `${POLYMARKET_GAMMA_API}/markets?limit=50&active=true&closed=false&order=volume`
-    );
-    const data = await response.json();
-    
-    if (!Array.isArray(data) || data.length === 0) {
-      console.log('[Polymarket] No markets returned from API');
-      return [];
-    }
-    
-    const activeMarkets = data.filter((m: PolymarketMarket) => {
-      const endTime = parseInt(m.endDateTimestamp || m.endDate) * 1000;
-      const isActive = endTime > now + 60 * 60 * 1000;
-      return isActive;
-    }).slice(0, 5);
-    
-    console.log(`[Polymarket] Found ${activeMarkets.length} active markets, using first: "${activeMarkets[0]?.question?.substring(0, 40)}..."`);
-    return activeMarkets;
-  } catch (error) {
-    console.error('[Polymarket] Failed to fetch markets:', error);
-    return [];
-  }
-}
-
-async function fetchPolymarketPrices(markets: PolymarketMarket[]): Promise<Map<string, { yes: number; no: number }>> {
-  const prices = new Map<string, { yes: number; no: number }>();
-  
-  if (markets.length === 0) return prices;
-  
-  for (const market of markets) {
-    try {
-      let yesPrice = 0.5;
-      let noPrice = 0.5;
-      
-      if (market.outcomePrices) {
-        if (typeof market.outcomePrices === 'string') {
-          const parsed = JSON.parse(market.outcomePrices);
-          yesPrice = parseFloat(parsed[0]) || 0.5;
-          noPrice = parseFloat(parsed[1]) || 0.5;
-        } else if (Array.isArray(market.outcomePrices)) {
-          yesPrice = parseFloat(market.outcomePrices[0]) || 0.5;
-          noPrice = parseFloat(market.outcomePrices[1]) || 0.5;
-        }
-      }
-      
-      prices.set(market.id, { yes: yesPrice, no: noPrice });
-    } catch (e) {
-      console.error(`[Polymarket] Failed to parse price for ${market.id}:`, e);
-    }
-  }
-  
-  console.log(`[Polymarket] Got prices for ${prices.size} markets`);
-  return prices;
-}
-
-async function fetchBitcoinPrice(): Promise<number> {
-  if (liveBtcPrice > 0 && Date.now() - lastPriceUpdate < 60000) {
-    return liveBtcPrice;
-  }
-  
-  try {
-    const response = await fetch(BTC_API);
-    const data = await response.json();
-    return data.bitcoin.usd;
-  } catch (error) {
-    console.error("Failed to fetch BTC price:", error);
-    return 67000 + Math.random() * 2000;
-  }
-}
-
-function generateMarketId(): string {
-  return `btc-5min-${Date.now()}`;
-}
-
-function calculateYesPrice(btcPrice: number, baseline: number, priceHistory: number[], elapsed: number, totalDuration: number): number {
-  const change = (btcPrice - baseline) / baseline;
-  
-  const recentPrices = priceHistory.slice(-10);
-  const volatility = recentPrices.length > 1 
-    ? recentPrices.reduce((sum, p, i) => {
-        if (i === 0) return sum;
-        return sum + Math.abs(p - recentPrices[i - 1]) / recentPrices[i - 1];
-      }, 0) / (recentPrices.length - 1)
-    : 0.01;
-  
-  const momentum = recentPrices.length >= 5 
-    ? (recentPrices[recentPrices.length - 1] - recentPrices[recentPrices.length - 5]) / recentPrices[recentPrices.length - 5]
-    : 0;
-  
-  let baseProbability = 0.5;
-  baseProbability += change * 5;
-  baseProbability += momentum * 3;
-  baseProbability += volatility * 2;
-  
-  const timeProgress = elapsed / totalDuration;
-  const timeDecay = Math.sin(timeProgress * Math.PI) * 0.1;
-  baseProbability += timeDecay;
-  
-  const marketNoise = (Math.random() - 0.5) * 0.05;
-  baseProbability += marketNoise;
-  
-  const clamped = Math.max(0.02, Math.min(0.98, baseProbability));
-  
-  const logisticFactor = 1 / (1 + Math.exp(-(clamped - 0.5) * 8));
-  return Math.max(0.02, Math.min(0.98, logisticFactor));
-}
-
-let useRealPolymarketData = true;
-let polymarketPricesCache: Map<string, { yes: number; no: number }> = new Map();
-
-async function createNewMarket(): Promise<Market> {
-  const btcPrice = await fetchBitcoinPrice();
-  marketStartTime = Date.now();
-  priceHistory = [];
-  
-  let yesPrice: number = 0.5;
-  let marketQuestion = `Will BTC go UP in the next period?`;
-  let description = `Starting price: $${btcPrice.toLocaleString()}`;
-  let volumeNum = 0;
-  let liquidity = 0;
-  let polymarketId: string | undefined;
-  
-  if (useRealPolymarketData) {
-    const markets = await fetchPolymarketBitcoinMarkets();
-    if (markets.length > 0) {
-      activePolymarketMarkets = markets;
-      const pm = markets[0];
-      
-      polymarketId = pm.id;
-      marketQuestion = pm.question;
-      
-      const vol = parseFloat((pm as any).volume || pm.volumeNum || '0');
-      const liq = parseFloat(pm.liquidity || '0');
-      description = `Vol: $${vol.toLocaleString()} | Liq: $${liq.toLocaleString()}`;
-      volumeNum = vol;
-      liquidity = liq;
-      
-      const prices = fetchPolymarketPrices(markets);
-      polymarketPricesCache = prices;
-      
-      const pmPrice = prices.get(pm.id);
-      if (pmPrice) {
-        yesPrice = pmPrice.yes;
-        console.log(`[Polymarket] Using real price: ${yesPrice.toFixed(2)} for "${pm.question}"`);
-      } else {
-        yesPrice = calculateYesPrice(btcPrice, btcPrice, priceHistory, 0, MARKET_DURATION);
-      }
-    } else {
-      yesPrice = calculateYesPrice(btcPrice, btcPrice, priceHistory, 0, MARKET_DURATION);
-    }
-  } else {
-    yesPrice = calculateYesPrice(btcPrice, btcPrice, priceHistory, 0, MARKET_DURATION);
-  }
-  
-  const newMarket: Market = {
-    id: polymarketId || generateMarketId(),
-    question: marketQuestion,
-    description: description + ` | Real Polymarket`,
-    volumeNum: volumeNum,
-    liquidity: liquidity,
-    outcomes: ["YES", "NO"],
-    endDate: new Date(marketStartTime + MARKET_DURATION).toISOString(),
-    state: "active",
-    outcomePrices: { 
-      yes: yesPrice.toFixed(2), 
-      no: (1 - yesPrice).toFixed(2) 
-    },
-    groupItemId: polymarketId ? "polymarket-real" : "bitcoin-5min",
-  };  };
-
-  priceHistory.push(yesPrice);
-  
-  currentBitcoinMarket = newMarket;
-  engine.updateMarketPrice(newMarket.id, {
-    marketId: newMarket.id,
-    yesPrice,
-    noPrice: 1 - yesPrice,
-    timestamp: Date.now(),
-  });
-
-  return newMarket;
-}
-
-async function updateMarketPrices(): Promise<void> {
-  if (!currentBitcoinMarket) {
-    await createNewMarket();
-    return;
-  }
-
-  const elapsed = Date.now() - marketStartTime;
-  
-  if (elapsed >= MARKET_DURATION) {
-    const lastPrice = priceHistory[priceHistory.length - 1];
-    const firstPrice = priceHistory[0];
-    const wentUp = lastPrice > firstPrice;
-    const winningOutcome: 'YES' | 'NO' = wentUp ? 'YES' : 'NO';
-    
-    const settled = engine.settleAllPositions(winningOutcome);
-    
-    if (currentBitcoinMarket) {
-      const historyEntry = {
-        id: currentBitcoinMarket.id,
-        result: wentUp ? 'UP' as const : 'DOWN' as const,
-        startPrice: firstPrice,
-        endPrice: lastPrice,
-        startTime: marketStartTime,
-        endTime: Date.now(),
-      };
-      marketHistory.unshift(historyEntry);
-      if (marketHistory.length > 10) marketHistory.pop();
-      
-      addMarketHistory(
-        currentBitcoinMarket.id,
-        wentUp ? 'UP' : 'DOWN',
-        firstPrice,
-        lastPrice,
-        marketStartTime,
-        Date.now()
-      );
-      
-      for (const pos of settled) {
-        settleTrade(pos.id, pos.pnl || 0, wentUp ? 'YES' : 'NO');
-      }
-    }
-    
-    tradeEvents.push({
-      type: 'market_settled',
-      outcome: winningOutcome,
-      amount: settled.length,
-      time: Date.now(),
-    });
-    
-    await createNewMarket();
-    return;
-  }
-
-  const btcPrice = await fetchBitcoinPrice();
-  
-  let yesPrice: number;
-  let noPrice: number;
-  
-  if (useRealPolymarketData && activePolymarketMarkets.length > 0) {
-    const prices = fetchPolymarketPrices(activePolymarketMarkets);
-    polymarketPricesCache = prices;
-    
-    const currentPmMarket = activePolymarketMarkets[0];
-    const pmPrice = prices.get(currentPmMarket.id);
-    
-    if (pmPrice) {
-      yesPrice = pmPrice.yes;
-      noPrice = pmPrice.no;
-      console.log(`[Polymarket] Real-time price: YES=${yesPrice.toFixed(2)} NO=${noPrice.toFixed(2)}`);
-    } else {
-      yesPrice = calculateYesPrice(btcPrice, btcPrice, priceHistory.map(p => p * 67000), elapsed, MARKET_DURATION);
-      noPrice = 1 - yesPrice;
-    }
-  } else {
-    yesPrice = calculateYesPrice(btcPrice, btcPrice, priceHistory.map(p => p * 67000), elapsed, MARKET_DURATION);
-    noPrice = 1 - yesPrice;
-  }
-  
-  priceHistory.push(yesPrice);
-  if (priceHistory.length > 50) priceHistory.shift();
-
-  const updatedMarket: Market = {
-    ...currentBitcoinMarket,
-    outcomePrices: {
-      yes: yesPrice.toFixed(2),
-      no: noPrice.toFixed(2),
-    },
-  };
-
-  currentBitcoinMarket = updatedMarket;
-  engine.updateMarketPrice(updatedMarket.id, {
-    marketId: updatedMarket.id,
-    yesPrice,
-    noPrice,
-    timestamp: Date.now(),
-  });
-}
-
-setInterval(updateMarketPrices, PRICE_UPDATE_INTERVAL);
-initRealTimeDataClient();
-createNewMarket();
-
-function getKellyBetSize(balance: number, odds: number, winRate: number, fraction = 0.25): number {
-  const b = (1 / odds) - 1;
-  const q = 1 - winRate;
-  const kelly = (b * winRate - q) / b;
-  
-  if (kelly <= 0) return 0;
-  
-  const betSize = balance * kelly * fraction;
-  return Math.max(0.1, Math.min(betSize, balance * 0.1));
-}
-
-function executeBot(bot: BotConfig): void {
-  if (!currentBitcoinMarket) return;
-  
-  const strategy = strategies[bot.type as StrategyType];
-  if (!strategy) return;
-  
-  const result = strategy.execute(engine, currentBitcoinMarket.id, bot.betSize);
-  if (!result) return;
-  
-  let betSize = bot.betSize;
-  
-  if (bot.useKelly && bot.stats) {
-    const winRate = bot.stats.winRate || 0.5;
-    const odds = result.outcome === 'YES' 
-      ? parseFloat(currentBitcoinMarket.outcomePrices?.yes || '0.5')
-      : parseFloat(currentBitcoinMarket.outcomePrices?.no || '0.5');
-    betSize = getKellyBetSize(engine.getBalance(), odds, winRate);
-    betSize = Math.min(betSize, bot.maxBet || 10);
-  }
-  
-  if (betSize < 0.1) betSize = 0.1;
-  
-  const position = engine.placeTrade(
-    currentBitcoinMarket.id,
-    result.outcome,
-    betSize,
-    bot.id
-  );
-  
-  if (position) {
-    if (activeSessionId) {
-      addTrade(activeSessionId, position.id, result.outcome, betSize, position.odds, currentBitcoinMarket.id);
-    }
-    
-    tradeEvents.unshift({
-      type: 'trade',
-      bot: bot.name,
-      outcome: result.outcome,
-      amount: betSize,
-      time: Date.now(),
-    });
-    if (tradeEvents.length > 50) tradeEvents.pop();
-  }
-}
-
-const server = serve({
-  routes: {
-    "/*": index,
-
-    "/api/market": {
-      async GET() {
-        const btcPrice = await fetchBitcoinPrice();
-        const elapsed = Date.now() - marketStartTime;
-        const remaining = Math.max(0, MARKET_DURATION - elapsed);
-        
-        return Response.json({
-          market: currentBitcoinMarket,
-          btcPrice,
-          priceHistory: priceHistory.slice(-30),
-          timeRemaining: remaining,
-          marketDuration: MARKET_DURATION,
-          startedAt: marketStartTime,
-        });
-      },
-    },
-
-    "/api/market/refresh": {
-      async POST() {
-        const openPositions = engine.getOpenPositions();
-        for (const pos of openPositions) {
-          engine.closePosition(pos.id);
-        }
-        
-        tradeEvents.unshift({ type: 'market_refresh', time: Date.now() });
-        
-        const newMarket = await createNewMarket();
-        return Response.json({ success: true, market: newMarket });
-      },
-    },
-
-    "/api/markets": {
-      async GET() {
-        return Response.json({
-          markets: currentBitcoinMarket ? [currentBitcoinMarket] : [],
-          balance: engine.getBalance(),
-        });
-      },
-    },
-
-    "/api/market/history": {
-      async GET() {
-        return Response.json(marketHistory);
-      },
-    },
-
-    "/api/portfolio": {
-      async GET() {
-        const portfolio = engine.getPortfolio();
-        const currentPrice = engine.getCurrentPrice();
-        
-        const openPositions = portfolio.positions
-          .filter(p => p.status === 'open')
-          .map(p => {
-            const currentOdds = p.outcome === 'YES' ? currentPrice?.yesPrice : currentPrice?.noPrice;
-            const currentValue = currentOdds ? p.amount * (currentOdds / p.odds) : p.amount;
-            const unrealizedPnl = currentValue - p.amount;
-            
-            return { ...p, currentOdds, currentValue, unrealizedPnl };
-          });
-
-        return Response.json({
-          ...portfolio,
-          openPositions,
-          closedPositions: portfolio.positions.filter(p => p.status === 'closed' || p.status === 'settled'),
-        });
-      },
-    },
-
-    "/api/trade": {
-      async POST(req) {
-        const body: TradeRequest = await req.json();
-        
-        if (!body.marketId || !body.outcome || !body.amount) {
-          return Response.json({ success: false, error: "Missing required fields" } as TradeResponse, { status: 400 });
-        }
-
-        const position = engine.placeTrade(body.marketId, body.outcome, body.amount);
-        
-        if (!position) {
-          return Response.json({ success: false, error: "Failed to place trade" } as TradeResponse, { status: 400 });
-        }
-
-        if (activeSessionId) {
-          addTrade(activeSessionId, position.id, body.outcome, body.amount, position.odds, body.marketId);
-        }
-
-        tradeEvents.unshift({
-          type: 'manual_trade',
-          outcome: body.outcome,
-          amount: body.amount,
-          time: Date.now(),
-        });
-
-        return Response.json({ success: true, position, balance: engine.getBalance() } as TradeResponse & { balance: number });
-      },
-    },
-
-    "/api/positions/:id/close": {
-      async POST(req) {
-        const id = req.params.id;
-        const position = engine.closePosition(id);
-        
-        if (!position) {
-          return Response.json({ error: "Position not found" }, { status: 404 });
-        }
-
-        tradeEvents.unshift({
-          type: 'position_closed',
-          outcome: position.outcome,
-          pnl: position.pnl,
-          time: Date.now(),
-        });
-
-        return Response.json({ success: true, position, balance: engine.getBalance() });
-      },
-    },
-
-    "/api/bots": {
-      async GET() {
-        const botsWithStats = botConfigs.map(bot => {
-          const stats = engine.getBotStats(bot.id);
-          const runTime = botStartTimes.get(bot.id) ? Date.now() - botStartTimes.get(bot.id)! : 0;
-          return {
-            ...bot,
-            stats: {
-              ...stats,
-              winRate: stats.trades > 0 ? stats.wins / stats.trades : 0,
-            },
-            runTime,
-          };
-        });
-
-        return Response.json(botsWithStats);
-      },
-    },
-
-    "/api/bots/:id/toggle": {
-      async POST(req) {
-        const id = req.params.id;
-        const bot = botConfigs.find(b => b.id === id);
-        
-        if (!bot) {
-          return Response.json({ error: "Bot not found" }, { status: 404 });
-        }
-
-        bot.enabled = !bot.enabled;
-
-        if (bot.enabled) {
-          botStartTimes.set(id, Date.now());
-          
-          if (!activeSessionId) {
-            activeSessionId = createSession(bot.id, bot.name, bot.type, engine.getBalance());
-          }
-          
-          if (bot.interval > 500) {
-            const intervalId = setInterval(() => {
-              if (bot.enabled && currentBitcoinMarket) {
-                executeBot(bot);
-              }
-            }, bot.interval) as unknown as number;
-            
-            botIntervals.set(id, intervalId);
-          }
-          
-          tradeEvents.unshift({ type: 'bot_started', bot: bot.name, time: Date.now() });
-        } else {
-          const intervalId = botIntervals.get(id);
-          if (intervalId) {
-            clearInterval(intervalId);
-            botIntervals.delete(id);
-          }
-          botStartTimes.delete(id);
-          
-          tradeEvents.unshift({ type: 'bot_stopped', bot: bot.name, time: Date.now() });
-          
-          const stillRunning = botConfigs.some(b => b.enabled);
-          if (!stillRunning && activeSessionId) {
-            const stats = getSessionStats(activeSessionId);
-            endSession(activeSessionId, engine.getBalance(), stats.totalTrades, stats.winningTrades, stats.totalPnl);
-            activeSessionId = null;
-          }
-        }
-
-        return Response.json({ success: true, bot });
-      },
-    },
-
-    "/api/bots/:id/config": {
-      async POST(req) {
-        const id = req.params.id;
-        const updates: Partial<BotConfig> = await req.json();
-        
-        const bot = botConfigs.find(b => b.id === id);
-        if (!bot) {
-          return Response.json({ error: "Bot not found" }, { status: 404 });
-        }
-
-        const wasEnabled = bot.enabled;
-        if (wasEnabled) {
-          const intervalId = botIntervals.get(id);
-          if (intervalId) {
-            clearInterval(intervalId);
-            botIntervals.delete(id);
-          }
-        }
-
-        Object.assign(bot, updates);
-
-        if (wasEnabled && bot.enabled) {
-          const intervalId = setInterval(() => {
-            if (bot.enabled && currentBitcoinMarket) {
-              executeBot(bot);
-            }
-          }, bot.interval) as unknown as number;
-          
-          botIntervals.set(id, intervalId);
-        }
-
-        return Response.json({ success: true, bot });
-      },
-    },
-
-    "/api/sessions": {
-      async GET() {
-        const sessions = getSessions(20);
-        return Response.json(sessions);
-      },
-    },
-
-    "/api/sessions/:id": {
-      async GET(req) {
-        const id = req.params.id;
-        const trades = getSessionTrades(id);
-        const stats = getSessionStats(id);
-        return Response.json({ trades, stats });
-      },
-    },
-
-    "/api/events": {
-      async GET() {
-        return Response.json(tradeEvents.slice(0, 30));
-      },
-    },
-
-    "/api/reset": {
-      async POST() {
-        botIntervals.forEach(intervalId => clearInterval(intervalId));
-        botIntervals.clear();
-        botStartTimes.clear();
-        
-        if (activeSessionId) {
-          const stats = getSessionStats(activeSessionId);
-          endSession(activeSessionId, engine.getBalance(), stats.totalTrades, stats.winningTrades, stats.totalPnl);
-          activeSessionId = null;
-        }
-        
-        for (const bot of botConfigs) {
-          bot.enabled = false;
-        }
-        
-        engine.reset();
-        tradeEvents = [];
-        marketHistory = [];
-        
-        const wasActive = currentBitcoinMarket?.state === 'active';
-        
-        if (wasActive && currentBitcoinMarket) {
-          engine.updateMarketPrice(currentBitcoinMarket.id, {
-            marketId: currentBitcoinMarket.id,
-            yesPrice: parseFloat(currentBitcoinMarket.outcomePrices?.yes || '0.5'),
-            noPrice: parseFloat(currentBitcoinMarket.outcomePrices?.no || '0.5'),
-            timestamp: Date.now(),
-          });
-        } else {
-          await createNewMarket();
-        }
-        
-        return Response.json({ success: true, balance: engine.getBalance() });
-      },
-    },
-
-    "/api/mode": {
-      async GET() {
-        return Response.json({
-          useRealPolymarketData,
-          activeMarkets: activePolymarketMarkets.length,
-          currentMarket: currentBitcoinMarket ? {
-            question: currentBitcoinMarket.question,
-            id: currentBitcoinMarket.id
-          } : null
-        });
-      },
-      async POST(req) {
-        const body = await req.json();
-        if (body.useReal !== undefined) {
-          useRealPolymarketData = body.useReal;
-          if (useRealPolymarketData) {
-            await createNewMarket();
-          }
-        }
-        return Response.json({ 
-          useRealPolymarketData,
-          message: useRealPolymarketData ? 'Now using real Polymarket data' : 'Now using simulated data'
-        });
-      },
-    },
-
-    "/api/btc-price": {
-      async GET() {
-        const price = await fetchBitcoinPrice();
-        return Response.json({ price, timestamp: Date.now() });
-      },
-    },
-  },
-
-  development: process.env.NODE_ENV !== "production" && {
-    hmr: true,
-    console: true,
-  },
+// Sync BTC price with polymarket provider for simulation
+priceService.subscribeToUpdates((update) => {
+  polymarketProvider.setBtcPrice(update.price);
 });
 
-console.log(`🚀 Server running at ${server.url}`);
+// Subscribe to bot logs and broadcast to SSE
+botManager.onLog((log) => {
+  broadcastUpdate({
+    type: "bot_log",
+    data: log,
+  });
+});
+
+// Store connected SSE clients
+const sseClients = new Set<ReadableStreamDefaultController>();
+
+// Broadcast updates to all SSE clients
+function broadcastUpdate(data: unknown) {
+  const message = `data: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach((client) => {
+    try {
+      client.enqueue(new TextEncoder().encode(message));
+    } catch {
+      // Client disconnected
+      sseClients.delete(client);
+    }
+  });
+}
+
+// Broadcast updates every 2 seconds
+setInterval(() => {
+  const market = marketEngine.getCurrentMarket();
+  if (!market) return;
+  
+  broadcastUpdate({
+    type: "market",
+    data: {
+      yesPrice: parseFloat(market.outcomePrices?.yes || "0.5"),
+      noPrice: parseFloat(market.outcomePrices?.no || "0.5"),
+      btcPrice: priceService.getPrice(),
+      timeRemaining: marketEngine.getTimeRemaining(),
+      timestamp: Date.now(),
+    }
+  });
+}, 2000);
+
+// CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+async function parseBody(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    return null;
+  }
+}
+
+serve({
+  port: PORT,
+
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    const path = url.pathname;
+    const method = req.method;
+
+    if (method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // SSE endpoint for real-time updates
+    if (path === "/api/sse") {
+      const stream = new ReadableStream({
+        start(controller) {
+          sseClients.add(controller);
+          
+          // Send initial data
+          const market = marketEngine.getCurrentMarket();
+          const data = {
+            type: "connected",
+            data: {
+              yesPrice: parseFloat(market?.outcomePrices?.yes || "0.5"),
+              noPrice: parseFloat(market?.outcomePrices?.no || "0.5"),
+              btcPrice: priceService.getPrice(),
+              timeRemaining: marketEngine.getTimeRemaining(),
+              timestamp: Date.now(),
+            }
+          };
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+        },
+        cancel(controller) {
+          sseClients.delete(controller);
+        }
+      });
+      
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          ...corsHeaders
+        }
+      });
+    }
+
+    if (path.startsWith("/api/")) {
+      const response = await handleApiRoute(req, path, method);
+      Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v));
+      return response;
+    }
+
+    // Serve built assets from dist
+    if (path !== "/" && !path.startsWith("/api/")) {
+      try {
+        const assetPath = "./dist" + path;
+        const file = Bun.file(assetPath);
+        if (await file.exists()) {
+          return new Response(file);
+        }
+      } catch {
+        // Continue to serve index.html
+      }
+    }
+
+    // Serve the HTML
+    try {
+      const htmlFile = Bun.file("./dist/index.html");
+      if (await htmlFile.exists()) {
+        return new Response(htmlFile, { headers: { "Content-Type": "text/html" } });
+      }
+    } catch {
+      // File doesn't exist
+    }
+
+    return new Response("Not found - run bun run build first", { status: 404 });
+  },
+
+  development: { hmr: true, console: true },
+});
+
+async function handleApiRoute(req: Request, path: string, method: string): Promise<Response> {
+  const url = new URL(req.url);
+
+  // GET /api/market - Current market state
+  if (path === "/api/market" && method === "GET") {
+    const market = marketEngine.getCurrentMarket();
+    const timeRemaining = marketEngine.getTimeRemaining();
+    const totalDuration = market ? market.endTime - market.startTime : 0;
+
+    return Response.json({
+      market,
+      btcPrice: priceService.getPrice(),
+      priceHistory: [],
+      yesPriceHistory: market?.yesPriceHistory || [],
+      btcPriceHistory: [],
+      timeRemaining,
+      marketDuration: totalDuration,
+      startedAt: market?.startTime || Date.now(),
+    });
+  }
+
+  // GET /api/markets/available - List of tradeable markets
+  if (path === "/api/markets/available" && method === "GET") {
+    const markets = marketEngine.getAvailableMarkets();
+    return Response.json(markets);
+  }
+
+  // POST /api/market/switch - Switch to a different market
+  if (path === "/api/market/switch" && method === "POST") {
+    const body = (await parseBody(req)) as { marketId?: string };
+    if (!body?.marketId) {
+      return Response.json({ success: false, error: "Missing marketId" }, { status: 400 });
+    }
+    const success = await marketEngine.switchMarket(body.marketId);
+    return Response.json({ success });
+  }
+
+  // POST /api/market/refresh - Force new market
+  if (path === "/api/market/refresh" && method === "POST") {
+    marketEngine.forceNewMarket();
+    return Response.json({ success: true });
+  }
+
+  // GET /api/market/history - Completed markets
+  if (path === "/api/market/history" && method === "GET") {
+    return Response.json(marketEngine.getMarketHistory());
+  }
+
+  // POST /api/trade - Place a trade
+  if (path === "/api/trade" && method === "POST") {
+    const body = (await parseBody(req)) as { outcome?: string; amount?: number; marketId?: string };
+
+    if (!body?.outcome || !body?.amount) {
+      return Response.json({ success: false, error: "Missing outcome or amount" }, { status: 400 });
+    }
+
+    if (body.amount < 0.01) {
+      return Response.json({ success: false, error: "Minimum bet is $0.01" }, { status: 400 });
+    }
+
+    const position = marketEngine.placeTrade(body.outcome as "YES" | "NO", body.amount);
+
+    if (!position) {
+      return Response.json({ success: false, error: "Failed to place trade" }, { status: 400 });
+    }
+
+    return Response.json({ success: true, position });
+  }
+
+  // GET /api/portfolio - Get portfolio
+  if (path === "/api/portfolio" && method === "GET") {
+    return Response.json(marketEngine.getPortfolio());
+  }
+
+  // GET /api/positions - Get all positions
+  if (path === "/api/positions" && method === "GET") {
+    return Response.json({
+      open: marketEngine.getOpenPositions(),
+      settled: marketEngine.getClosedPositions(),
+    });
+  }
+
+  // POST /api/positions/:id/close - Close a position
+  const closeMatch = path.match(/^\/api\/positions\/([^/]+)\/close$/);
+  if (closeMatch && method === "POST") {
+    const positionId = closeMatch[1];
+    const position = marketEngine.closePosition(positionId);
+    if (!position) {
+      return Response.json({ success: false, error: "Position not found or already closed" }, { status: 404 });
+    }
+    return Response.json({ success: true, position });
+  }
+
+  // GET /api/bots - Get all bots
+  if (path === "/api/bots" && method === "GET") {
+    return Response.json(botManager.getBots());
+  }
+
+  // POST /api/bots/:id/toggle - Toggle bot
+  const toggleMatch = path.match(/^\/api\/bots\/([^/]+)\/toggle$/);
+  if (toggleMatch && method === "POST") {
+    const botId = toggleMatch[1];
+    const bot = botManager.toggleBot(botId);
+    if (!bot) {
+      return Response.json({ error: "Bot not found" }, { status: 404 });
+    }
+    return Response.json(bot);
+  }
+
+  // POST /api/bots/:id/config - Update bot config
+  const configMatch = path.match(/^\/api\/bots\/([^/]+)\/config$/);
+  if (configMatch && method === "POST") {
+    const body = (await parseBody(req)) as Record<string, unknown>;
+    const bot = botManager.updateBotConfig(configMatch[1], body);
+    if (!bot) {
+      return Response.json({ error: "Bot not found" }, { status: 404 });
+    }
+    return Response.json(bot);
+  }
+
+  // POST /api/bots/stop-all
+  if (path === "/api/bots/stop-all" && method === "POST") {
+    botManager.stopAllBots();
+    return Response.json({ success: true });
+  }
+
+  // POST /api/bots/reset-all
+  if (path === "/api/bots/reset-all" && method === "POST") {
+    botManager.resetAllBots();
+    return Response.json({ success: true });
+  }
+
+  // POST /api/bots/run-all
+  if (path === "/api/bots/run-all" && method === "POST") {
+    const body = (await parseBody(req)) as { betSize?: number; interval?: number };
+    botManager.runAllBots(body);
+    return Response.json({ success: true });
+  }
+
+  // GET /api/sessions
+  if (path === "/api/sessions" && method === "GET") {
+    return Response.json(botManager.getSessions());
+  }
+
+  // GET /api/strategy/strategies
+  if (path === "/api/strategy/strategies" && method === "GET") {
+    return Response.json(botManager.getStrategies());
+  }
+
+  // GET /api/strategy/analyze — Use Polymarket odds
+  if (path === "/api/strategy/analyze" && method === "GET") {
+    const market = marketEngine.getCurrentMarket();
+    const yesPrice = parseFloat(market?.outcomePrices?.yes || "0.5");
+    const noPrice = parseFloat(market?.outcomePrices?.no || "0.5");
+    const yesPriceHistory = market?.yesPriceHistory || [];
+    const priceHistory = yesPriceHistory.map((p) => p.price);
+
+    // Calculate volatility
+    let volatility = 0;
+    if (priceHistory.length >= 5) {
+      const changes: number[] = [];
+      for (let i = 1; i < priceHistory.length; i++) {
+        changes.push(Math.abs(priceHistory[i] - priceHistory[i - 1]));
+      }
+      volatility = changes.reduce((a, b) => a + b, 0) / changes.length;
+    }
+
+    // Calculate momentum
+    let momentum = 0;
+    if (priceHistory.length >= 3) {
+      const recent = priceHistory.slice(-3);
+      const older = priceHistory.slice(-6, -3);
+      if (older.length > 0) {
+        momentum = (recent.reduce((a, b) => a + b, 0) / recent.length) -
+                   (older.reduce((a, b) => a + b, 0) / older.length);
+      }
+    }
+
+    // Fair value signal
+    const fairValue = 0.5; // Neutral baseline
+    const edge = fairValue - yesPrice;
+    const fairValueAction = edge > 0.05 ? "BUY_YES" : edge < -0.05 ? "BUY_NO" : "HOLD";
+
+    // Anomaly
+    const sum = yesPrice + noPrice;
+    const anomalyAction = sum < 0.98 ? "BUY_BOTH" : "HOLD";
+
+    // Momentum signal
+    const momentumAction = momentum > 0.005 ? "BUY_YES" : momentum < -0.005 ? "BUY_NO" : "HOLD";
+
+    return Response.json({
+      fairValue: { action: fairValueAction, fairValue, edge },
+      anomaly: { action: anomalyAction, sum, confidence: Math.abs(1 - sum) },
+      momentum: { action: momentumAction, momentum, confidence: Math.abs(momentum) * 50 },
+      volatility,
+      marketPrice: { yesPrice, noPrice },
+    });
+  }
+
+  // POST /api/mode
+  if (path === "/api/mode" && method === "POST") {
+    const body = (await parseBody(req)) as { mode?: string; startingBalance?: number };
+    marketEngine.setMode(body.mode as "real" | "simulated", body.startingBalance);
+    return Response.json({ success: true, mode: body.mode });
+  }
+
+  // GET /api/mode
+  if (path === "/api/mode" && method === "GET") {
+    return Response.json({ mode: marketEngine.getMode() });
+  }
+
+  // POST /api/reset
+  if (path === "/api/reset" && method === "POST") {
+    marketEngine.reset();
+    botManager.resetAllBots();
+    return Response.json({ success: true });
+  }
+
+  // GET /api/health
+  if (path === "/api/health" && method === "GET") {
+    return Response.json({
+      status: "ok",
+      timestamp: Date.now(),
+      btcPrice: priceService.getPrice(),
+      marketActive: !!marketEngine.getCurrentMarket(),
+    });
+  }
+
+  // GET /api/events
+  if (path === "/api/events" && method === "GET") {
+    return Response.json([]);
+  }
+
+  // GET /api/signal - Get Binance signal data
+  if (path === "/api/signal" && method === "GET") {
+    const lastSignal = binanceKlineProvider.getLastSignal();
+    const signalHistory = binanceKlineProvider.getSignalHistory(20);
+    const stats = binanceKlineProvider.getStats();
+    const currentKline = binanceKlineProvider.getCurrentKline();
+    const previousKline = binanceKlineProvider.getPreviousKline();
+
+    return Response.json({
+      currentKline,
+      previousKline,
+      lastSignal,
+      signalHistory,
+      stats,
+      threshold: binanceKlineProvider.getThreshold(),
+    });
+  }
+
+  // POST /api/signal/threshold - Set signal threshold
+  if (path === "/api/signal/threshold" && method === "POST") {
+    const body = (await parseBody(req)) as { threshold?: number };
+    if (body?.threshold !== undefined && body.threshold > 0) {
+      binanceKlineProvider.setThreshold(body.threshold);
+      return Response.json({ success: true, threshold: body.threshold });
+    }
+    return Response.json({ success: false, error: "Invalid threshold" }, { status: 400 });
+  }
+
+  // GET /api/signal/klines - Get kline history
+  if (path === "/api/signal/klines" && method === "GET") {
+    const limit = parseInt(url.searchParams.get("limit") || "100");
+    const klines = binanceKlineProvider.getKlineHistory(limit);
+    return Response.json(klines);
+  }
+
+  // GET /api/dashboard - Combined dashboard data
+  if (path === "/api/dashboard" && method === "GET") {
+    const market = marketEngine.getCurrentMarket();
+    const timeRemaining = marketEngine.getTimeRemaining();
+    const portfolio = marketEngine.getPortfolio();
+    const lastSignal = binanceKlineProvider.getLastSignal();
+    const signalStats = binanceKlineProvider.getStats();
+    const bots = botManager.getBots();
+    const activeBots = bots.filter((b) => b.enabled);
+
+    return Response.json({
+      market,
+      timeRemaining,
+      portfolio,
+      btcPrice: priceService.getPrice(),
+      signal: lastSignal,
+      signalStats,
+      activeBots: activeBots.length,
+      totalBots: bots.length,
+      timestamp: Date.now(),
+    });
+  }
+
+  // GET /api/markets/signals - Get signals for all active crypto markets
+  if (path === "/api/markets/signals" && method === "GET") {
+    const markets = marketEngine.getAvailableMarkets();
+    const lastSignal = binanceKlineProvider.getLastSignal();
+    const btcPrice = priceService.getPrice();
+    const signalStats = binanceKlineProvider.getStats();
+
+    // Calculate signal for each market
+    const marketSignals = markets.map((market) => {
+      const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
+      const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
+      const timeRemaining = market.endTime - Date.now();
+
+      // Determine if market is in scalp window (last 3-12 seconds)
+      const inScalpWindow = timeRemaining <= 12000 && timeRemaining >= 3000;
+
+      // Get signal recommendation based on Binance data
+      let recommendation = "HOLD";
+      let confidence = 0;
+      let reason = "";
+
+      if (lastSignal && lastSignal.type !== "NEUTRAL") {
+        const signalAge = Date.now() - lastSignal.timestamp;
+        if (signalAge < 8000) {
+          recommendation = lastSignal.predictedOutcome || "HOLD";
+          confidence = lastSignal.confidence;
+          reason = `Binance ${lastSignal.type}: ${lastSignal.changePercent >= 0 ? "+" : ""}${lastSignal.changePercent.toFixed(4)}%`;
+        }
+      }
+
+      // Calculate ROI for each outcome
+      const yesRoi = yesPrice > 0 ? (1 / yesPrice - 1) * 100 : 0;
+      const noRoi = noPrice > 0 ? (1 / noPrice - 1) * 100 : 0;
+
+      return {
+        id: market.id,
+        question: market.question,
+        category: market.category,
+        endTime: market.endTime,
+        timeRemaining,
+        yesPrice,
+        noPrice,
+        yesRoi,
+        noRoi,
+        volume: market.volumeNum || 0,
+        liquidity: market.liquidity || 0,
+        signal: {
+          recommendation,
+          confidence,
+          reason,
+          inScalpWindow,
+        },
+        is5Min: (market as any).is5Min,
+      };
+    });
+
+    return Response.json({
+      markets: marketSignals,
+      btcPrice,
+      lastSignal,
+      signalStats,
+      timestamp: Date.now(),
+    });
+  }
+
+  // POST /api/simulation/toggle - Toggle simulation mode
+  if (path === "/api/simulation/toggle" && method === "POST") {
+    const body = (await parseBody(req)) as { enabled?: boolean };
+    const enabled = body?.enabled ?? true;
+    polymarketProvider.setSimulationMode(enabled);
+    return Response.json({ success: true, simulationEnabled: enabled });
+  }
+
+  // GET /api/simulation/status - Get simulation status
+  if (path === "/api/simulation/status" && method === "GET") {
+    return Response.json({ simulationEnabled: true }); // Always true for now
+  }
+
+  // GET /api/bots/logs - Get bot activity logs
+  if (path === "/api/bots/logs" && method === "GET") {
+    const limit = parseInt(url.searchParams.get("limit") || "50");
+    return Response.json(botManager.getLogs(limit));
+  }
+
+  // POST /api/market/timeframe - Switch timeframe
+  if (path === "/api/market/timeframe" && method === "POST") {
+    const body = (await parseBody(req)) as { timeframe?: string };
+    if (!body?.timeframe) {
+      return Response.json({ success: false, error: "Missing timeframe" }, { status: 400 });
+    }
+    const success = await marketEngine.setTimeframe(body.timeframe);
+    return Response.json({
+      success,
+      timeframe: body.timeframe,
+      availableTimeframes: polymarketProvider.getAvailableTimeframes(),
+    });
+  }
+
+  // GET /api/market/timeframe - Get current timeframe
+  if (path === "/api/market/timeframe" && method === "GET") {
+    return Response.json({
+      timeframe: marketEngine.getTimeframe(),
+      availableTimeframes: polymarketProvider.getAvailableTimeframes(),
+    });
+  }
+
+  // POST /api/market/asset - Switch asset
+  if (path === "/api/market/asset" && method === "POST") {
+    const body = (await parseBody(req)) as { asset?: string };
+    if (!body?.asset) {
+      return Response.json({ success: false, error: "Missing asset" }, { status: 400 });
+    }
+    const success = await marketEngine.setAsset(body.asset);
+    return Response.json({ success, asset: body.asset });
+  }
+
+  return Response.json({ error: "Not found" }, { status: 404 });
+}
+
+console.log(`Server running at http://localhost:${PORT}`);
+console.log(`Polymarket Strategy Tester v4.0`);
+console.log(`Mode: SIMULATED 5-minute BTC markets (real Polymarket 5m markets discontinued)`);
+console.log(`Features: Binance signals, Bot strategies, Real-time BTC price`);

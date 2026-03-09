@@ -1,75 +1,101 @@
-# Polymarket Bitcoin Trading Simulator
+# BTC Trading Simulator v2.0
 
-A real-time Bitcoin prediction market trading simulator with live Polymarket data integration.
+A clean, real-time Bitcoin prediction market simulator with live price data from Binance.
 
-## Features
+## What's New in v2.0
 
-- **Real-time Bitcoin Prices** - Live price data from CoinGecko API
-- **Polymarket Integration** - Connects to Polymarket's real-time data WebSocket and Gamma API
-- **5-Minute Markets** - Simulates short-term prediction markets
-- **Trading Bot Strategies** - Multiple bot strategies (Random, Momentum, Mean Reversion, Smart Trend)
-- **Kelly Criterion** - Advanced bet sizing with Kelly criterion
-- **2% Trading Fees** - Realistic fee simulation matching Polymarket
-- **Live Charts** - Price history visualization with market sentiment bar
-- **Session Tracking** - SQL-based trade history and session statistics
+**Complete rebuild from scratch** with lessons learned from v1:
 
-## Installation
+- **Real BTC prices** from Binance API (no fake prices)
+- **Clean architecture** with proper separation of concerns
+- **Simulated 5-minute markets** that settle based on actual price movements
+- **Isolated bot portfolios** - each bot has its own balance tracking
+- **Real-time charts** with live price history
+
+## Quick Start
 
 ```bash
 bun install
-```
-
-## Development
-
-```bash
 bun run dev
 ```
 
-## Production
+Open http://localhost:3000
 
-```bash
-bun run build
-bun run start
-```
+## Features
 
-## Data Sources
+### Real-Time Price Data
+- Live BTC/USD prices from Binance
+- Price history chart with auto-updates
+- Market direction indicator (UP/DOWN)
 
-- **BTC Price**: CoinGecko API (fallback) + Polymarket WebSocket (primary)
-- **Market Data**: Polymarket Gamma API
-- **Real-time Updates**: Polymarket Real-Time Data Client (WebSocket)
+### 5-Minute Markets
+- Markets start every 5 minutes
+- Settlement based on real price movement
+- YES = price goes UP, NO = price goes DOWN
 
-## Usage
+### Trading
+- Manual trading with customizable bet amounts
+- 2% fee on all trades
+- Position tracking with P&L
 
-1. Open http://localhost:3000 in your browser
-2. Click "🔗 Real Data" to use live Polymarket data
-3. Place manual trades with YES/NO buttons
-4. Start trading bots with different strategies
-5. Monitor your portfolio and P&L
-
-## Trading
-
-- **Bet Amount**: Select your wager ($0.25 - $2+)
-- **YES**: Bet that BTC will go UP
-- **NO**: Bet that BTC will go DOWN
-- **2% Fee**: Applied to all trades (entry and exit)
-
-## Bot Strategies
+### Bot Strategies
+Each bot has an isolated portfolio (starts with $100):
 
 | Strategy | Description |
 |----------|-------------|
-| Random | Random YES/NO selection |
+| Random | Flips a coin |
 | Momentum | Follows price direction |
-| Mean Reversion | Bets on return to 50% |
-| Smart Trend | Uses price history for trend detection |
-| Contrarian | Opposite of momentum |
+| Mean Reversion | Bets against extreme moves |
+| Trend | Uses price history trend |
+
+## Architecture
+
+```
+src/
+├── components/
+│   └── App.tsx          # React frontend
+├── lib/
+│   ├── price-service.ts # Binance price fetching
+│   ├── market-engine.ts # Market logic
+│   └── bot-manager.ts   # Bot strategies
+├── types.ts             # TypeScript types
+├── server.ts            # Bun server + API routes
+├── index.tsx            # React entry point
+├── index.html           # HTML template
+└── styles.css           # Styling
+```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/market | Current market state |
+| GET | /api/market/history | Market history |
+| POST | /api/trade | Place a trade |
+| GET | /api/portfolio | User portfolio |
+| GET | /api/bots | List all bots |
+| POST | /api/bots/:id/toggle | Start/stop a bot |
+| POST | /api/bots/:id/config | Update bot config |
+| POST | /api/reset | Reset everything |
 
 ## Tech Stack
 
 - **Runtime**: Bun
-- **Frontend**: React 19 + TypeScript
-- **Styling**: CSS (custom)
-- **Database**: SQLite (bun:sqlite)
-- **APIs**: CoinGecko, Polymarket Gamma, Polymarket RTDS
+- **Frontend**: React 19
+- **Styling**: Plain CSS
+- **Price Data**: Binance API
+- **No database** - in-memory state
+
+## v1 Archive
+
+The original implementation is preserved in `v1-archive/` for reference.
+
+### Key Issues Fixed in v2.0:
+1. ❌ v1 had duplicate function definitions (syntax errors)
+2. ❌ v1 used fake prices from `calculateYesPrice()`
+3. ❌ v1 had broken API endpoints
+4. ❌ v1 mixed everything in one 800+ line file
+5. ❌ v1 bot portfolios weren't properly isolated
 
 ## License
 
