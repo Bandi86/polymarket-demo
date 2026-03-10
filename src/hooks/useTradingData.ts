@@ -150,6 +150,17 @@ export function useTradingData() {
   useEffect(() => {
     fetchData();
     fetchBotLogs();
+    
+    // Fallback timeout - ensure we don't stay in loading state forever
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+    
+    return () => clearTimeout(timeout);
+  }, [fetchData, fetchBotLogs]);
+  useEffect(() => {
+    fetchData();
+    fetchBotLogs();
   }, [fetchData, fetchBotLogs]);
 
   // SSE for real-time updates

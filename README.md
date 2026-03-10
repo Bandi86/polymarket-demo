@@ -11,6 +11,12 @@ A clean, real-time Bitcoin prediction market simulator with live price data from
 - **Simulated 5-minute markets** that settle based on actual price movements
 - **Isolated bot portfolios** - each bot has its own balance tracking
 - **Real-time charts** with live price history
+- **Modern Theme System** - Dark/light mode with CSS variables
+- **Animation System** - Framer Motion powered UI
+- **Portfolio Analytics** - P&L charts and performance metrics
+- **Order Book** - Real-time order book visualization
+- **Market Browser** - Filterable market discovery
+- **PWA Support** - Installable app with offline support
 
 ## Quick Start
 
@@ -37,6 +43,42 @@ Open http://localhost:3000
 - Manual trading with customizable bet amounts
 - 2% fee on all trades
 - Position tracking with P&L
+- **One-click close all positions**
+- **Position size calculator with risk %**
+- **Take Profit / Stop Loss orders**
+
+### Modern UI
+- **Dark/Light/System theme** support
+- **Glassmorphism effects** with backdrop-filter
+- **Animated components** powered by Framer Motion
+- **Real-time price tickers** with rolling animations
+- **Loading skeletons** for all data sections
+
+### Charts & Visualization
+- **Custom Recharts integration** with YES/NO history
+- **Order book** with bid/ask spread visualization
+- **Depth chart** showing market depth
+- **Volume profile** display
+- **Real-time candlestick** updates
+- **Animated chart** entry effects
+
+### Market Browser
+- Filter by asset (BTC, ETH, SOL, XRP)
+- Filter by timeframe (5m, 15m, 1h, 4h, 1d)
+- Filter by volume/liquidity
+- Search markets by keyword
+- Favorite/bookmark markets
+
+### Portfolio Analytics
+- **P&L chart** with multiple timeframes
+- **Win/loss distribution** chart
+- **Performance metrics:**
+  - Sharpe ratio
+  - Sortino ratio
+  - Calmar ratio
+  - Max drawdown with recovery time
+- **Trade history** with export to CSV
+- **Market sentiment** indicator (YES vs NO ratio)
 
 ### Bot Strategies
 Each bot has an isolated portfolio (starts with $100):
@@ -53,16 +95,28 @@ Each bot has an isolated portfolio (starts with $100):
 ```
 src/
 ├── components/
-│   └── App.tsx          # React frontend
+│   ├── App.tsx          # React frontend
+│   ├── market-browser.tsx      # Market discovery
+│   ├── order-book.tsx          # Order book visualization
+│   ├── portfolio-analytics.tsx # P&L and metrics
+│   ├── trade-feed.tsx          # Recent trades
+│   ├── countdown-timer.tsx     # Market countdown
+│   ├── connection-status.tsx   # Connection indicator
+│   └── ui/               # Reusable UI components
 ├── lib/
 │   ├── price-service.ts # Binance price fetching
 │   ├── market-engine.ts # Market logic
-│   └── bot-manager.ts   # Bot strategies
+│   ├── bot-manager.ts   # Bot strategies
+│   └── theme-context.tsx # Theme provider
+├── hooks/
+│   ├── useTradingData.ts
+│   └── usePWA.ts        # PWA hooks
 ├── types.ts             # TypeScript types
 ├── server.ts            # Bun server + API routes
 ├── index.tsx            # React entry point
 ├── index.html           # HTML template
-└── styles.css           # Styling
+└── styles/
+    └── globals.css      # Styling with CSS variables
 ```
 
 ## API Endpoints
@@ -77,14 +131,18 @@ src/
 | POST | /api/bots/:id/toggle | Start/stop a bot |
 | POST | /api/bots/:id/config | Update bot config |
 | POST | /api/reset | Reset everything |
+| GET | /api/sse | Server-sent events for real-time updates |
 
 ## Tech Stack
 
 - **Runtime**: Bun
 - **Frontend**: React 19
-- **Styling**: Plain CSS
+- **Styling**: Tailwind CSS v4 with CSS variables
+- **Animations**: Framer Motion
+- **Charts**: Recharts
 - **Price Data**: Binance API
 - **No database** - in-memory state
+- **PWA**: Service Worker, Web Manifest, offline support
 
 ## v1 Archive
 

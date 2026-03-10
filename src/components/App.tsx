@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTradingData } from "../hooks/useTradingData";
 import { Header } from "./Header";
 import { MarketPanel, type Coin, type Strategy, type Timeframe } from "./MarketPanel";
@@ -7,7 +7,6 @@ import { TradingPanel } from "./TradingPanel";
 import { BotPanel } from "./BotPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { ActivityLog } from "./ActivityLog";
-import type { BotLog } from "../types";
 
 const COINS = [
   { id: "BTC" as Coin, name: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", color: "#f7931a" },
@@ -42,6 +41,22 @@ export function App() {
     fetchData,
     addTradeEvent,
   } = useTradingData();
+
+  // Sync timeframe with backend when it changes
+  useEffect(() => {
+    const syncTimeframe = async () => {
+      try {
+        await fetch("/api/market/timeframe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeframe: selectedTimeframe }),
+        });
+      } catch (err) {
+        console.error("Failed to sync timeframe:", err);
+      }
+    };
+    syncTimeframe();
+  }, [selectedTimeframe]);
 
   const activeCoin = COINS.find(c => c.id === selectedCoin);
   const coinColor = activeCoin?.color || "#f7931a";

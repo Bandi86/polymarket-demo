@@ -48,10 +48,9 @@ export function BotPanel({ bots, isBotRunning, botLogs, coinColor, onToggleBot }
   const totalBotPnl = bots.reduce((s, b) => s + b.stats.pnl, 0);
   const activeBotCount = bots.filter(b => b.enabled).length;
 
-  const runningBots = bots.filter(b => b.enabled);
-  const totalRuntime = runningBots.reduce((sum, b) => {
+  const totalRuntime = bots.filter(b => b.enabled).reduce((sum, b) => {
     // Approximate runtime based on session or assume recent start
-    return sum + (Date.now() - (b.portfolio?.lastTradeTime || Date.now()));
+    return sum + (Date.now() - (b.runTime || Date.now()));
   }, 0);
 
   const handleToggle = async () => {
@@ -63,7 +62,6 @@ export function BotPanel({ bots, isBotRunning, botLogs, coinColor, onToggleBot }
       setIsToggling(false);
     }
   };
-
   return (
     <div className="glass-card" style={{ padding: "1.25rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
@@ -158,7 +156,7 @@ export function BotPanel({ bots, isBotRunning, botLogs, coinColor, onToggleBot }
                   <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Running For</span>
                   <p style={{ fontFamily: "monospace", fontWeight: 600 }}>
                     {runningBots[0]?.portfolio?.totalTrades > 0
-                      ? formatDuration(Date.now() - (runningBots[0]?.stats?.lastTradeTime || Date.now()))
+                      ? formatDuration(Date.now() - (runningBots[0]?.runTime || Date.now()))
                       : "Just started"}
                   </p>
                 </div>

@@ -6,7 +6,10 @@
     "build:css": "bunx tailwindcss -i ./src/styles/globals.css -o ./src/styles/generated.css --content './src/**/*.tsx'",
     "build": "bun run build:css && bun build ./src/index.html --outdir ./dist --target=browser",
     "dev": "bun run build && bun --hot src/server.ts",
-    "start": "bun run build && bun src/server.ts"
+    "start": "bun run build && bun src/server.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -18,6 +21,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.35.2",
     "lucide-react": "^0.576.0",
     "react": "^19",
     "react-dom": "^19",
@@ -27,8 +31,11 @@
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.2.1",
+    "@testing-library/react": "^16.0.0",
     "@types/bun": "latest",
     "@types/react": "^19",
-    "@types/react-dom": "^19"
+    "@types/react-dom": "^19",
+    "jsdom": "^25.0.0",
+    "vitest": "^3.0.0"
   }
 }
