@@ -166,6 +166,8 @@ export function App() {
           onRefresh={fetchData}
           showBackButton
           onBack={() => navigate('trading')}
+          activeBots={bots.filter(b => b.enabled).length}
+          totalBots={bots.length}
         />
         <main style={{ padding: "1rem", maxWidth: 1400, margin: "0 auto" }}>
           <BotDashboardPage />
@@ -182,6 +184,8 @@ export function App() {
         coinColor={coinColor}
         onRefresh={fetchData}
         onOpenDashboard={() => navigate('bots')}
+        activeBots={bots.filter(b => b.enabled).length}
+        totalBots={bots.length}
       />
 
       <main style={{ padding: "1rem" }}>

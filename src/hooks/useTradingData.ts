@@ -27,6 +27,7 @@ export interface BotData {
   enabled: boolean;
   interval: number;
   betSize: number;
+  runTime?: number;
   stats: {
     trades: number;
     wins: number;

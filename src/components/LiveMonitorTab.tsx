@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Activity, Target, DollarSign, BarChart3 } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { BotStatusCard } from "./BotStatusCard";
+import { BotConfigPanel } from "./BotConfigPanel";
 import type { BotData } from "../hooks/useTradingData";
 import type { BotLog } from "../types";
 
@@ -23,6 +24,9 @@ type SortField = 'pnl' | 'winRate' | 'trades' | 'balance';
 export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [showActivityFeed, setShowActivityFeed] = useState(true);
+  const [configBot, setConfigBot] = useState<BotData | null>(null);
+
+  const noPrice = 1 - yesPrice;
 
   // Calculate summary stats
   const activeBots = bots.filter(b => b.enabled);
@@ -45,6 +49,30 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonit
         return 0;
     }
   });
+
+  // Toggle individual bot
+  const handleToggleBot = useCallback(async (botId: string) => {
+    try {
+      const res = await fetch(`/api/bots/${botId}/toggle`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to toggle bot");
+    } catch (err) {
+      console.error("Failed to toggle bot:", err);
+    }
+  }, []);
+
+  // Update bot config
+  const handleSaveConfig = useCallback(async (botId: string, config: Partial<BotData>) => {
+    try {
+      const res = await fetch(`/api/bots/${botId}/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config)
+      });
+      if (!res.ok) throw new Error("Failed to update config");
+    } catch (err) {
+      console.error("Failed to update config:", err);
+    }
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -110,7 +138,7 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonit
       {/* Bot Grid */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
         gap: "0.75rem"
       }}>
         {sortedBots.map(bot => (
@@ -118,7 +146,10 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonit
             key={bot.id}
             bot={bot}
             yesPrice={yesPrice}
+            noPrice={noPrice}
             positions={positions}
+            onToggle={handleToggleBot}
+            onOpenConfig={setConfigBot}
           />
         ))}
       </div>
@@ -203,6 +234,26 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonit
           </div>
         )}
       </div>
+
+      {/* Config Modal */}
+      {configBot && (
+        <>
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.7)",
+              zIndex: 999
+            }}
+            onClick={() => setConfigBot(null)}
+          />
+          <BotConfigPanel
+            bot={configBot}
+            onClose={() => setConfigBot(null)}
+            onSave={handleSaveConfig}
+          />
+        </>
+      )}
     </div>
   );
 }

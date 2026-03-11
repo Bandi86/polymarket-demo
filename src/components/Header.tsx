@@ -1,4 +1,4 @@
-import { Zap, RefreshCw, BarChart3, ArrowLeft } from "lucide-react";
+import { Zap, RefreshCw, BarChart3, ArrowLeft, Bot } from "lucide-react";
 
 interface HeaderProps {
   isBotRunning: boolean;
@@ -8,6 +8,8 @@ interface HeaderProps {
   showBackButton?: boolean;
   onBack?: () => void;
   onOpenDashboard?: () => void;
+  activeBots?: number;
+  totalBots?: number;
 }
 
 export function Header({
@@ -17,7 +19,9 @@ export function Header({
   onRefresh,
   showBackButton,
   onBack,
-  onOpenDashboard
+  onOpenDashboard,
+  activeBots = 0,
+  totalBots = 10
 }: HeaderProps) {
   return (
     <nav style={{
@@ -48,6 +52,24 @@ export function Header({
             </button>
           )}
 
+          {/* Bot indicator */}
+          <div
+            className="status-pill"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.375rem",
+              cursor: onOpenDashboard ? "pointer" : "default"
+            }}
+            onClick={onOpenDashboard}
+            title="Click to open bot dashboard"
+          >
+            <Bot className="w-3 h-3" style={{ color: isBotRunning ? "#22c55e" : "var(--text-muted)" }} />
+            <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.75rem" }}>
+              {activeBots}/{totalBots}
+            </span>
+          </div>
+
           {/* Dashboard button - show on trading page */}
           {onOpenDashboard && !showBackButton && (
             <button
@@ -57,7 +79,7 @@ export function Header({
               style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
             >
               <BarChart3 className="w-3 h-3" />
-              <span style={{ fontSize: "0.75rem" }}>Bots</span>
+              <span style={{ fontSize: "0.75rem" }}>Dashboard</span>
             </button>
           )}
 

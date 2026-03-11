@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Activity } from "lucide-react";
+import { BarChart3, Activity, FlaskConical } from "lucide-react";
 import { LiveMonitorTab } from "./LiveMonitorTab";
 import { SessionHistoryTab } from "./SessionHistoryTab";
+import { StrategyLabTab } from "./StrategyLabTab";
 import { useTradingData } from "../hooks/useTradingData";
 
-type Tab = 'live' | 'history';
+type Tab = 'live' | 'history' | 'lab';
 
 export function BotDashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>('live');
@@ -49,6 +50,12 @@ export function BotDashboardPage() {
     );
   }
 
+  const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
+    { id: 'live', label: 'Live Monitor', icon: Activity },
+    { id: 'history', label: 'Session History', icon: BarChart3 },
+    { id: 'lab', label: 'Strategy Lab', icon: FlaskConical },
+  ];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {/* Tab Header */}
@@ -59,56 +66,48 @@ export function BotDashboardPage() {
         borderBottom: "1px solid var(--border)",
         paddingBottom: "0.5rem"
       }}>
-        <button
-          onClick={() => setActiveTab('live')}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            padding: "0.5rem 1rem",
-            borderRadius: "8px 8px 0 0",
-            border: "none",
-            background: activeTab === 'live' ? "var(--glass-bg)" : "transparent",
-            color: activeTab === 'live' ? "var(--text-primary)" : "var(--text-muted)",
-            fontWeight: activeTab === 'live' ? 600 : 400,
-            cursor: "pointer",
-            borderBottom: activeTab === 'live' ? "2px solid var(--primary)" : "none"
-          }}
-        >
-          <Activity className="w-4 h-4" />
-          Live Monitor
-        </button>
-        <button
-          onClick={() => setActiveTab('history')}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            padding: "0.5rem 1rem",
-            borderRadius: "8px 8px 0 0",
-            border: "none",
-            background: activeTab === 'history' ? "var(--glass-bg)" : "transparent",
-            color: activeTab === 'history' ? "var(--text-primary)" : "var(--text-muted)",
-            fontWeight: activeTab === 'history' ? 600 : 400,
-            cursor: "pointer",
-            borderBottom: activeTab === 'history' ? "2px solid var(--primary)" : "none"
-          }}
-        >
-          <BarChart3 className="w-4 h-4" />
-          Session History
-        </button>
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 1rem",
+                borderRadius: "8px 8px 0 0",
+                border: "none",
+                background: isActive ? "var(--glass-bg)" : "transparent",
+                color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                fontWeight: isActive ? 600 : 400,
+                cursor: "pointer",
+                borderBottom: isActive ? "2px solid var(--primary)" : "none"
+              }}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'live' ? (
+      {activeTab === 'live' && (
         <LiveMonitorTab
           bots={bots}
           botLogs={botLogs}
           yesPrice={yesPrice}
           positions={positions}
         />
-      ) : (
+      )}
+      {activeTab === 'history' && (
         <SessionHistoryTab />
+      )}
+      {activeTab === 'lab' && (
+        <StrategyLabTab />
       )}
     </div>
   );
