@@ -7,6 +7,7 @@ import { TradingPanel } from "./TradingPanel";
 import { BotPanel } from "./BotPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { ActivityLog } from "./ActivityLog";
+import { BotDashboardPage } from "./BotDashboardPage";
 
 // Hash-based routing hook
 function useRoute(): [string, (route: string) => void] {
@@ -167,12 +168,7 @@ export function App() {
           onBack={() => navigate('trading')}
         />
         <main style={{ padding: "1rem", maxWidth: 1400, margin: "0 auto" }}>
-          <div className="glass-card" style={{ padding: "2rem", textAlign: "center" }}>
-            <h2 style={{ marginTop: 0 }}>Bot Analytics Dashboard</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Real-time bot monitoring and session history coming soon...
-            </p>
-          </div>
+          <BotDashboardPage />
         </main>
       </div>
     );
