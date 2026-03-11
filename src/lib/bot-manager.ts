@@ -160,10 +160,11 @@ const strategies: Record<StrategyType, Strategy> = {
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
 
-      if (yesPrice > 0.7) {
+      // Lowered thresholds from 0.7/0.3 to 0.6/0.4 for more trading opportunities
+      if (yesPrice > 0.6) {
         return { action: "NO", confidence: (yesPrice - 0.5) * 1.5, reason: `YES overpriced at ${(yesPrice * 100).toFixed(1)}%` };
       }
-      if (yesPrice < 0.3) {
+      if (yesPrice < 0.4) {
         return { action: "YES", confidence: (0.5 - yesPrice) * 1.5, reason: `NO overpriced at ${((1 - yesPrice) * 100).toFixed(1)}%` };
       }
       return { action: null, confidence: 0, reason: "No pricing anomaly" };
@@ -297,14 +298,15 @@ const strategies: Record<StrategyType, Strategy> = {
       }
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
-      const range = 0.05;
+      // Widened grid range from ±5% to ±3% for more trading opportunities
+      const range = 0.03;
       const center = 0.5;
 
       if (yesPrice < center - range) {
-        return { action: "YES", confidence: 0.6, reason: `Price at grid lower: ${(yesPrice * 100).toFixed(1)}%` };
+        return { action: "YES", confidence: 0.65, reason: `Price at grid lower: ${(yesPrice * 100).toFixed(1)}%` };
       }
       if (yesPrice > center + range) {
-        return { action: "NO", confidence: 0.6, reason: `Price at grid upper: ${(yesPrice * 100).toFixed(1)}%` };
+        return { action: "NO", confidence: 0.65, reason: `Price at grid upper: ${(yesPrice * 100).toFixed(1)}%` };
       }
 
       return { action: null, confidence: 0, reason: "Price in middle grid" };
@@ -604,10 +606,27 @@ export class BotManager {
   }
 
   getBots(): BotConfig[] {
-    return Array.from(this.bots.values()).map((bot) => ({
-      ...bot,
-      portfolio: marketEngine.getBotPortfolio(bot.id),
-    }));
+    return Array.from(this.bots.values()).map((bot) => {
+      const portfolio = marketEngine.getBotPortfolio(bot.id);
+      return {
+        ...bot,
+        portfolio,
+        // Sync stats from portfolio for accurate win rate
+        stats: {
+          trades: portfolio.totalTrades,
+          wins: portfolio.winningTrades,
+          losses: portfolio.losingTrades,
+          pnl: portfolio.totalPnL,
+          winRate: portfolio.winRate,
+          avgWin: bot.stats.avgWin,
+          avgLoss: bot.stats.avgLoss,
+          profitFactor: bot.stats.profitFactor,
+          maxConsecutiveWins: bot.stats.maxConsecutiveWins,
+          maxConsecutiveLosses: bot.stats.maxConsecutiveLosses,
+          lastTradeTime: bot.stats.lastTradeTime,
+        },
+      };
+    });
   }
 
   getBot(id: string): BotConfig | undefined {
