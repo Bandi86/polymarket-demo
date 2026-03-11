@@ -1,13 +1,24 @@
-import { Zap, RefreshCw } from "lucide-react";
+import { Zap, RefreshCw, BarChart3, ArrowLeft } from "lucide-react";
 
 interface HeaderProps {
   isBotRunning: boolean;
   apiLatency: number;
   coinColor: string;
   onRefresh: () => void;
+  showBackButton?: boolean;
+  onBack?: () => void;
+  onOpenDashboard?: () => void;
 }
 
-export function Header({ isBotRunning, apiLatency, coinColor, onRefresh }: HeaderProps) {
+export function Header({
+  isBotRunning,
+  apiLatency,
+  coinColor,
+  onRefresh,
+  showBackButton,
+  onBack,
+  onOpenDashboard
+}: HeaderProps) {
   return (
     <nav style={{
       background: "rgba(11, 11, 15, 0.8)",
@@ -25,6 +36,31 @@ export function Header({ isBotRunning, apiLatency, coinColor, onRefresh }: Heade
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          {/* Back button - show on dashboard page */}
+          {showBackButton && onBack && (
+            <button
+              onClick={onBack}
+              className="quick-btn"
+              style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
+            >
+              <ArrowLeft className="w-3 h-3" />
+              <span style={{ fontSize: "0.75rem" }}>Back</span>
+            </button>
+          )}
+
+          {/* Dashboard button - show on trading page */}
+          {onOpenDashboard && !showBackButton && (
+            <button
+              onClick={onOpenDashboard}
+              className="quick-btn"
+              title="Bot Dashboard"
+              style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
+            >
+              <BarChart3 className="w-3 h-3" />
+              <span style={{ fontSize: "0.75rem" }}>Bots</span>
+            </button>
+          )}
+
           <div className="status-pill">
             <div style={{
               width: 6, height: 6, borderRadius: "50%",

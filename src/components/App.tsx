@@ -8,6 +8,31 @@ import { BotPanel } from "./BotPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { ActivityLog } from "./ActivityLog";
 
+// Hash-based routing hook
+function useRoute(): [string, (route: string) => void] {
+  const [route, setRoute] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'trading';
+    const hash = window.location.hash.slice(1);
+    return hash === 'bots' ? 'bots' : 'trading';
+  });
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      setRoute(hash === 'bots' ? 'bots' : 'trading');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const navigate = useCallback((newRoute: string) => {
+    window.location.hash = newRoute === 'trading' ? '' : newRoute;
+    setRoute(newRoute);
+  }, []);
+
+  return [route, navigate];
+}
+
 const COINS = [
   { id: "BTC" as Coin, name: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", color: "#f7931a" },
   { id: "ETH" as Coin, name: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", color: "#627eea" },
@@ -20,6 +45,7 @@ export function App() {
   const [selectedCoin, setSelectedCoin] = useState<Coin>("BTC");
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy>("LN_EWMA");
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>("5");
+  const [route, navigate] = useRoute();
 
   // Trading data hook
   const {
@@ -128,6 +154,30 @@ export function App() {
     );
   }
 
+  // Bot Dashboard Route
+  if (route === 'bots') {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
+        <Header
+          isBotRunning={isBotRunning}
+          apiLatency={apiLatency}
+          coinColor={coinColor}
+          onRefresh={fetchData}
+          showBackButton
+          onBack={() => navigate('trading')}
+        />
+        <main style={{ padding: "1rem", maxWidth: 1400, margin: "0 auto" }}>
+          <div className="glass-card" style={{ padding: "2rem", textAlign: "center" }}>
+            <h2 style={{ marginTop: 0 }}>Bot Analytics Dashboard</h2>
+            <p style={{ color: "var(--text-secondary)" }}>
+              Real-time bot monitoring and session history coming soon...
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
       <Header
@@ -135,6 +185,7 @@ export function App() {
         apiLatency={apiLatency}
         coinColor={coinColor}
         onRefresh={fetchData}
+        onOpenDashboard={() => navigate('bots')}
       />
 
       <main style={{ padding: "1rem" }}>
