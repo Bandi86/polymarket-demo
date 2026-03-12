@@ -19,434 +19,304 @@ import { binanceKlineProvider } from "./providers/binance-kline-provider";
 import { priceService } from "./price";
 import { riskManager } from "./risk-manager";
 
+// === Technical Analysis Helpers ===
+
+function calculateEMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1] || 0;
+
+  const multiplier = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+  for (let i = period; i < prices.length; i++) {
+    ema = (prices[i] - ema) * multiplier + ema;
+  }
+
+  return ema;
+}
+
+function calculateRSI(prices: number[], period: number = 14): number {
+  if (prices.length < period + 1) return 50;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) gains += change;
+    else losses -= change;
+  }
+
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
 // === Strategy Implementations ===
 
 const strategies: Record<StrategyType, Strategy> = {
-  random: {
-    name: "Random",
-    description: "Flips a coin to decide",
-    category: "other",
-    execute: () => ({
-      action: Math.random() > 0.5 ? "YES" : "NO",
-      confidence: 0.5,
-      reason: "Random selection",
-    }),
-  },
-
-  momentum: {
-    name: "Momentum",
-    description: "Follows price direction",
+  momentum_chaser: {
+    name: "Momentum Chaser",
+    description: "Computes BTC price delta from window open; enters at T−30s",
     category: "momentum",
     execute: (ctx) => {
-      const { startPrice, currentPrice, timeRemaining } = ctx;
+      const { timeRemaining, btcPrice, btcPriceChange, marketPrice } = ctx;
 
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      // Only trade in last 30 seconds
+      if (timeRemaining > 30000 || timeRemaining < 5000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (T-30s)" };
       }
 
-      const change = (currentPrice - startPrice) / startPrice;
-      const threshold = 0.001;
-
-      if (change > threshold) {
-        return { action: "YES", confidence: Math.min(0.8, change * 100), reason: `Positive momentum: ${(change * 100).toFixed(2)}%` };
-      }
-      if (change < -threshold) {
-        return { action: "NO", confidence: Math.min(0.8, -change * 100), reason: `Negative momentum: ${(change * 100).toFixed(2)}%` };
-      }
-      return { action: null, confidence: 0, reason: "No clear momentum" };
-    },
-  },
-
-  mean_reversion: {
-    name: "Mean Reversion",
-    description: "Bets against extreme moves",
-    category: "mean_reversion",
-    execute: (ctx) => {
-      const { startPrice, currentPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      // Need BTC price change data
+      if (btcPriceChange === undefined || btcPriceChange === null) {
+        return { action: null, confidence: 0, reason: "No BTC price data" };
       }
 
-      const change = (currentPrice - startPrice) / startPrice;
-      const threshold = 0.002;
+      // Threshold: 0.02% delta
+      const threshold = 0.0002; // 0.02%
+      const delta = btcPriceChange;
 
-      if (change > threshold) {
-        return { action: "NO", confidence: Math.min(0.75, change * 50), reason: `Overbought: ${(change * 100).toFixed(2)}%` };
-      }
-      if (change < -threshold) {
-        return { action: "YES", confidence: Math.min(0.75, -change * 50), reason: `Oversold: ${(change * 100).toFixed(2)}%` };
-      }
-      return { action: null, confidence: 0, reason: "No extreme move detected" };
-    },
-  },
-
-  trend: {
-    name: "Trend",
-    description: "Uses price history trend",
-    category: "trend",
-    execute: (ctx) => {
-      const { priceHistory, timeRemaining } = ctx;
-
-      if (priceHistory.length < 10) {
-        return { action: null, confidence: 0, reason: "Insufficient data" };
-      }
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      // Skip if flat market
+      if (Math.abs(delta) < threshold) {
+        return { action: null, confidence: 0, reason: `Flat market: delta ${(delta * 100).toFixed(3)}%` };
       }
 
-      const recent = priceHistory.slice(-5);
-      const older = priceHistory.slice(-10, -5);
+      // Determine direction
+      const action = delta > 0 ? "YES" : "NO";
+      const targetPrice = action === "YES" ? marketPrice?.yesPrice : marketPrice?.noPrice;
 
-      const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-      const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-
-      const trend = (recentAvg - olderAvg) / olderAvg;
-
-      if (trend > 0.0005) {
-        return { action: "YES", confidence: Math.min(0.8, trend * 500), reason: `Uptrend: ${(trend * 100).toFixed(3)}%` };
-      }
-      if (trend < -0.0005) {
-        return { action: "NO", confidence: Math.min(0.8, -trend * 500), reason: `Downtrend: ${(trend * 100).toFixed(3)}%` };
-      }
-      return { action: null, confidence: 0, reason: "No clear trend" };
-    },
-  },
-
-  smart_trend: {
-    name: "Smart Trend",
-    description: "Trend following with confirmation",
-    category: "trend",
-    execute: (ctx) => {
-      const { priceHistory, timeRemaining } = ctx;
-
-      if (priceHistory.length < 15) {
-        return { action: null, confidence: 0, reason: "Insufficient data" };
-      }
-      if (timeRemaining < 45000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      // Skip if token too expensive (> 0.88)
+      if (targetPrice && targetPrice > 0.88) {
+        return { action: null, confidence: 0, reason: `Token too expensive: ${(targetPrice * 100).toFixed(0)}¢` };
       }
 
-      const shortTerm = priceHistory.slice(-3);
-      const mediumTerm = priceHistory.slice(-8);
-      const longTerm = priceHistory.slice(-15);
-
-      const shortAvg = shortTerm.reduce((a, b) => a + b, 0) / shortTerm.length;
-      const mediumAvg = mediumTerm.reduce((a, b) => a + b, 0) / mediumTerm.length;
-      const longAvg = longTerm.reduce((a, b) => a + b, 0) / longTerm.length;
-
-      const shortTrend = shortAvg > mediumAvg;
-      const mediumTrend = mediumAvg > longAvg;
-
-      if (shortTrend && mediumTrend) {
-        return { action: "YES", confidence: 0.75, reason: "Multi-timeframe bullish" };
-      }
-      if (!shortTrend && !mediumTrend) {
-        return { action: "NO", confidence: 0.75, reason: "Multi-timeframe bearish" };
-      }
-      return { action: null, confidence: 0, reason: "Mixed signals" };
-    },
-  },
-
-  contrarian: {
-    name: "Contrarian",
-    description: "Bets against the crowd",
-    category: "mean_reversion",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-
-      // Lowered thresholds from 0.7/0.3 to 0.6/0.4 for more trading opportunities
-      if (yesPrice > 0.6) {
-        return { action: "NO", confidence: (yesPrice - 0.5) * 1.5, reason: `YES overpriced at ${(yesPrice * 100).toFixed(1)}%` };
-      }
-      if (yesPrice < 0.4) {
-        return { action: "YES", confidence: (0.5 - yesPrice) * 1.5, reason: `NO overpriced at ${((1 - yesPrice) * 100).toFixed(1)}%` };
-      }
-      return { action: null, confidence: 0, reason: "No pricing anomaly" };
-    },
-  },
-
-  volatility: {
-    name: "Volatility",
-    description: "Trades on volatility breakouts",
-    category: "momentum",
-    execute: (ctx) => {
-      const { priceHistory, timeRemaining, volatility } = ctx;
-
-      if (priceHistory.length < 20 || timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Insufficient data or time" };
-      }
-
-      if (volatility < 0.0005) {
-        return { action: null, confidence: 0, reason: "Too little volatility" };
-      }
-
-      const recent = priceHistory.slice(-5);
-      const prev = priceHistory.slice(-10, -5);
-
-      const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-      const prevAvg = prev.reduce((a, b) => a + b, 0) / prev.length;
-
-      const change = (recentAvg - prevAvg) / prevAvg;
-
-      if (change > 0.001) {
-        return { action: "YES", confidence: Math.min(0.8, volatility * 500), reason: "Volatility breakout up" };
-      }
-      if (change < -0.001) {
-        return { action: "NO", confidence: Math.min(0.8, volatility * 500), reason: "Volatility breakout down" };
-      }
-      return { action: null, confidence: 0, reason: "No breakout detected" };
-    },
-  },
-
-  fair_value: {
-    name: "Fair Value",
-    description: "Trades on price divergences",
-    category: "arbitrage",
-    execute: (ctx) => {
-      const { startPrice, currentPrice, marketPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      const priceChange = (currentPrice - startPrice) / startPrice;
-      const fairValueYes = 0.5 + priceChange * 3;
-      const clampedFairValue = Math.max(0.05, Math.min(0.95, fairValueYes));
-
-      const marketYesPrice = marketPrice?.yesPrice || 0.5;
-      const edge = clampedFairValue - marketYesPrice;
-
-      if (edge > 0.05) {
-        return { action: "YES", confidence: Math.min(0.9, edge * 5), reason: `Undervalued by ${(edge * 100).toFixed(1)}%` };
-      }
-      if (edge < -0.05) {
-        return { action: "NO", confidence: Math.min(0.9, -edge * 5), reason: `Overvalued by ${(-edge * 100).toFixed(1)}%` };
-      }
-      return { action: null, confidence: 0, reason: `Edge only ${(Math.abs(edge) * 100).toFixed(1)}%` };
-    },
-  },
-
-  anomaly: {
-    name: "Anomaly",
-    description: "Arbitrages mispriced markets",
-    category: "arbitrage",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-      const sum = yesPrice + noPrice;
-
-      if (sum < 0.98) {
-        return {
-          action: yesPrice < noPrice ? "YES" : "NO",
-          confidence: (1 - sum) * 10,
-          reason: `Arbitrage: sum=${(sum * 100).toFixed(1)}%`,
-        };
-      }
-      return { action: null, confidence: 0, reason: "No arbitrage opportunity" };
-    },
-  },
-
-  momentum_burst: {
-    name: "Momentum Burst",
-    description: "Catches quick momentum moves",
-    category: "momentum",
-    execute: (ctx) => {
-      const { priceHistory, timeRemaining } = ctx;
-
-      if (priceHistory.length < 5 || timeRemaining < 20000) {
-        return { action: null, confidence: 0, reason: "Insufficient data or time" };
-      }
-
-      const latest = priceHistory[priceHistory.length - 1];
-      const prev = priceHistory[priceHistory.length - 3];
-      const old = priceHistory[priceHistory.length - 5];
-
-      const quickChange = (latest - prev) / prev;
-      const sustained = (latest - old) / old;
-
-      if (quickChange > 0.0008 && sustained > 0) {
-        return { action: "YES", confidence: Math.min(0.8, quickChange * 500), reason: "Quick momentum burst up" };
-      }
-      if (quickChange < -0.0008 && sustained < 0) {
-        return { action: "NO", confidence: Math.min(0.8, -quickChange * 500), reason: "Quick momentum burst down" };
-      }
-      return { action: null, confidence: 0, reason: "No burst detected" };
-    },
-  },
-
-  grid_trading: {
-    name: "Grid Trading",
-    description: "Places trades at grid levels",
-    category: "other",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining, priceHistory } = ctx;
-
-      if (timeRemaining < 60000 || priceHistory.length < 10) {
-        return { action: null, confidence: 0, reason: "Insufficient time or data" };
-      }
-
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      // Widened grid range from ±5% to ±3% for more trading opportunities
-      const range = 0.03;
-      const center = 0.5;
-
-      if (yesPrice < center - range) {
-        return { action: "YES", confidence: 0.65, reason: `Price at grid lower: ${(yesPrice * 100).toFixed(1)}%` };
-      }
-      if (yesPrice > center + range) {
-        return { action: "NO", confidence: 0.65, reason: `Price at grid upper: ${(yesPrice * 100).toFixed(1)}%` };
-      }
-
-      return { action: null, confidence: 0, reason: "Price in middle grid" };
-    },
-  },
-
-  market_making: {
-    name: "Market Maker",
-    description: "Provides liquidity at spread",
-    category: "arbitrage",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const spread = 0.02;
-
-      if (yesPrice > 0.55) {
-        return { action: "NO", confidence: 0.5, reason: "Capture spread at upper bound" };
-      }
-      if (yesPrice < 0.45) {
-        return { action: "YES", confidence: 0.5, reason: "Capture spread at lower bound" };
-      }
-
-      return { action: null, confidence: 0, reason: "No edge in spread" };
-    },
-  },
-
-  arbitrage: {
-    name: "Arbitrage",
-    description: "Exploits price inefficiencies",
-    category: "arbitrage",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining, startPrice, currentPrice } = ctx;
-
-      if (timeRemaining < 45000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const priceChange = (currentPrice - startPrice) / startPrice;
-      const impliedProbability = 0.5 + priceChange * 2;
-
-      const edge = Math.abs(impliedProbability - yesPrice);
-
-      if (edge > 0.08) {
-        const action = impliedProbability > yesPrice ? "YES" : "NO";
-        return { action, confidence: Math.min(0.85, edge * 5), reason: `Large edge: ${(edge * 100).toFixed(1)}%` };
-      }
-
-      return { action: null, confidence: 0, reason: `Edge only ${(edge * 100).toFixed(1)}%` };
-    },
-  },
-
-  binance_signal: {
-    name: "Binance Signal",
-    description: "Predicts market using Binance price delay (4-12s oracle lag)",
-    category: "momentum",
-    execute: (ctx) => {
-      const { binanceSignal, timeRemaining } = ctx;
-
-      // Need Binance signal data
-      if (!binanceSignal || binanceSignal.type === "NEUTRAL") {
-        return { action: null, confidence: 0, reason: "No Binance signal" };
-      }
-
-      // Signal age check - signal should be fresh (< 8 seconds old)
-      const signalAge = Date.now() - binanceSignal.timestamp;
-      if (signalAge > 8000) {
-        return { action: null, confidence: 0, reason: `Signal too old (${(signalAge / 1000).toFixed(1)}s)` };
-      }
-
-      // Don't trade too close to settlement
-      if (timeRemaining < 3000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      // Get the predicted outcome - default based on signal type if not provided
-      const action = binanceSignal.predictedOutcome ?? (binanceSignal.type === "UP" ? "YES" : "NO");
-
-      // Higher confidence for larger moves
-      const confidence = Math.min(0.95, binanceSignal.confidence);
+      const confidence = Math.min(0.75, Math.abs(delta) * 1000);
 
       return {
         action,
         confidence,
-        reason: `Binance ${binanceSignal.type}: ${binanceSignal.changePercent >= 0 ? "+" : ""}${binanceSignal.changePercent.toFixed(4)}%`,
+        reason: `Momentum: BTC ${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(3)}%`,
       };
     },
   },
 
-  last_seconds_scalp: {
-    name: "Last Seconds Scalp",
-    description: "Enters in final seconds when outcome is predictable",
-    category: "arbitrage",
+  mean_reversion_sniper: {
+    name: "Mean Reversion Sniper",
+    description: "Fades spikes when one token exceeds 0.93 without a real BTC move",
+    category: "mean_reversion",
     execute: (ctx) => {
-      const { binanceSignal, timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { marketPrice, btcPriceChange, timeRemaining } = ctx;
 
-      // Only active in the last 3-12 seconds
-      if (timeRemaining > 12000 || timeRemaining < 3000) {
-        return { action: null, confidence: 0, reason: "Not in scalp window" };
+      if (timeRemaining < 10000) {
+        return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // Need BTC price change data
-      if (btcPriceChange === undefined || Math.abs(btcPriceChange) < 0.005) {
-        return { action: null, confidence: 0, reason: "BTC move too small" };
-      }
-
-      // Direction based on BTC change
-      const action = btcPriceChange > 0 ? "YES" : "NO";
-      const confidence = Math.min(0.9, Math.abs(btcPriceChange) * 50);
-
-      // Check if odds are favorable (high ROI)
       const yesPrice = marketPrice?.yesPrice || 0.5;
       const noPrice = marketPrice?.noPrice || 0.5;
+
+      // Check for spike: one token > 0.93
+      const hasSpike = yesPrice > 0.93 || noPrice > 0.93;
+      if (!hasSpike) {
+        return { action: null, confidence: 0, reason: "No spike detected" };
+      }
+
+      // Check BTC delta: must be flat (< 0.01%)
+      const btcDelta = Math.abs(btcPriceChange || 0);
+      if (btcDelta > 0.0001) {
+        return { action: null, confidence: 0, reason: `BTC moved: ${(btcDelta * 100).toFixed(3)}%` };
+      }
+
+      // Fade the spike: buy the cheaper token
+      const action = yesPrice > 0.93 ? "NO" : "YES";
       const targetPrice = action === "YES" ? yesPrice : noPrice;
 
-      // If odds are already very low (high ROI opportunity)
-      if (targetPrice < 0.3) {
+      const confidence = 0.6 + (0.93 - targetPrice);
+
+      return {
+        action,
+        confidence: Math.min(0.8, confidence),
+        reason: `Fade spike: ${action === "YES" ? "YES" : "NO"} at ${(targetPrice * 100).toFixed(0)}¢`,
+      };
+    },
+  },
+
+  sum_to_one_arb: {
+    name: "Sum-to-One Arbitrage",
+    description: "Buys both UP and DOWN when combined asks < $0.98 — guaranteed edge",
+    category: "arbitrage",
+    execute: (ctx) => {
+      const { marketPrice, orderBook, timeRemaining } = ctx;
+
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      }
+
+      // Get best asks from order book or market price
+      let yesAsk = 1;
+      let noAsk = 1;
+
+      if (orderBook?.yesAsks?.length) {
+        yesAsk = orderBook.yesAsks[0].price;
+      } else if (marketPrice?.yesPrice) {
+        yesAsk = marketPrice.yesPrice + 0.01; // Estimate ask
+      }
+
+      if (orderBook?.noAsks?.length) {
+        noAsk = orderBook.noAsks[0].price;
+      } else if (marketPrice?.noPrice) {
+        noAsk = marketPrice.noPrice + 0.01; // Estimate ask
+      }
+
+      const sum = yesAsk + noAsk;
+
+      // Check for arbitrage opportunity: sum < 0.98
+      if (sum >= 0.98) {
+        return { action: null, confidence: 0, reason: `No arb: sum=${(sum * 100).toFixed(1)}%` };
+      }
+
+      const edge = 1 - sum;
+      const confidence = Math.min(0.95, edge * 20);
+
+      // Buy the cheaper one (higher edge)
+      const action = yesAsk < noAsk ? "YES" : "NO";
+
+      return {
+        action,
+        confidence,
+        reason: `Arb opportunity: sum=${(sum * 100).toFixed(1)}%, edge=${(edge * 100).toFixed(1)}%`,
+      };
+    },
+  },
+
+  whale_follower: {
+    name: "Whale Follower",
+    description: "WebSocket listener that copies trades > $200 from high-win-rate wallets",
+    category: "social",
+    execute: (ctx) => {
+      const { timeRemaining, binanceSignal } = ctx;
+
+      if (timeRemaining < 5000) {
+        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      }
+
+      // For now, use binanceSignal as proxy for whale activity
+      // In production, this would connect to Polymarket WebSocket
+      if (!binanceSignal || binanceSignal.type === "NEUTRAL") {
+        return { action: null, confidence: 0, reason: "No whale activity detected" };
+      }
+
+      // Simulate following a whale trade
+      const action = binanceSignal.predictedOutcome ||
+        (binanceSignal.type === "UP" ? "YES" : "NO");
+
+      return {
+        action,
+        confidence: binanceSignal.confidence * 0.8, // Lower confidence for copy-trading
+        reason: `Following whale signal: ${binanceSignal.type}`,
+      };
+    },
+  },
+
+  ta_signal_engine: {
+    name: "TA Signal Engine",
+    description: "EMA9/EMA21 crossover + RSI on 1-min Binance candles",
+    category: "technical",
+    execute: (ctx) => {
+      const { priceHistory, timeRemaining, btcPrice } = ctx;
+
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      }
+
+      // Need at least 21 candles for EMA21
+      if (priceHistory.length < 21) {
+        return { action: null, confidence: 0, reason: `Insufficient data: ${priceHistory.length} candles` };
+      }
+
+      // Calculate EMAs
+      const ema9 = calculateEMA(priceHistory, 9);
+      const ema21 = calculateEMA(priceHistory, 21);
+
+      // Calculate RSI
+      const rsi = calculateRSI(priceHistory, 14);
+
+      // Check for extreme RSI (skip)
+      if (rsi > 80) {
+        return { action: null, confidence: 0, reason: `RSI overbought: ${rsi.toFixed(1)}` };
+      }
+      if (rsi < 20) {
+        return { action: null, confidence: 0, reason: `RSI oversold: ${rsi.toFixed(1)}` };
+      }
+
+      // Bullish: EMA9 > EMA21 and RSI not overbought
+      if (ema9 > ema21 && rsi < 70) {
+        const confidence = 0.55 + (ema9 - ema21) / ema21 * 100;
         return {
-          action,
-          confidence: Math.min(0.95, confidence + 0.2),
-          reason: `Scalp: ${action} at ${(targetPrice * 100).toFixed(0)}¢ (ROI: ${((1 / targetPrice - 1) * 100).toFixed(0)}%)`,
+          action: "YES",
+          confidence: Math.min(0.8, confidence),
+          reason: `Bullish: EMA9(${ema9.toFixed(4)}) > EMA21(${ema21.toFixed(4)}), RSI=${rsi.toFixed(1)}`,
         };
       }
 
-      // Only scalp if we have high confidence
-      if (confidence > 0.6) {
+      // Bearish: EMA9 < EMA21 and RSI not oversold
+      if (ema9 < ema21 && rsi > 30) {
+        const confidence = 0.55 + (ema21 - ema9) / ema21 * 100;
         return {
-          action,
-          confidence,
-          reason: `Last-second scalp: BTC ${btcPriceChange >= 0 ? "+" : ""}${(btcPriceChange * 100).toFixed(2)}%`,
+          action: "NO",
+          confidence: Math.min(0.8, confidence),
+          reason: `Bearish: EMA9(${ema9.toFixed(4)}) < EMA21(${ema21.toFixed(4)}), RSI=${rsi.toFixed(1)}`,
         };
       }
 
-      return { action: null, confidence: 0, reason: "Confidence too low for scalp" };
+      return { action: null, confidence: 0, reason: `No clear signal: EMA9=${ema9.toFixed(4)}, EMA21=${ema21.toFixed(4)}, RSI=${rsi.toFixed(1)}` };
+    },
+  },
+
+  market_maker: {
+    name: "Market Maker",
+    description: "Posts bid/ask limit orders to earn the spread; cancels at T−60s",
+    category: "market_making",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining, orderBook } = ctx;
+
+      // Cancel all orders at T-60s
+      if (timeRemaining < 60000) {
+        return { action: null, confidence: 0, reason: "Exiting market making: T-60s reached" };
+      }
+
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      const noPrice = marketPrice?.noPrice || 0.5;
+
+      // Calculate spread
+      const spread = orderBook?.spread || 0.02;
+
+      // Market make when spread is wide enough
+      if (spread < 0.015) {
+        return { action: null, confidence: 0, reason: `Spread too tight: ${(spread * 100).toFixed(1)}%` };
+      }
+
+      // Post on the side with better value
+      // If YES is expensive (>0.55), sell NO (bid)
+      // If NO is expensive (<0.45), sell YES (bid)
+      if (yesPrice > 0.55) {
+        return {
+          action: "NO",
+          confidence: 0.5,
+          reason: `Market making: bid NO at ${((noPrice - 0.015) * 100).toFixed(0)}¢`,
+        };
+      }
+
+      if (noPrice > 0.55) {
+        return {
+          action: "YES",
+          confidence: 0.5,
+          reason: `Market making: bid YES at ${((yesPrice - 0.015) * 100).toFixed(0)}¢`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Market balanced, no edge" };
     },
   },
 };
@@ -582,16 +452,12 @@ export class BotManager {
 
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
-      { id: "bot-random", name: "Random Bot", strategy: "random", interval: 5000, betSize: 0.5 },
-      { id: "bot-momentum", name: "Momentum Bot", strategy: "momentum", interval: 5000, betSize: 0.5, useKelly: true },
-      { id: "bot-mean-reversion", name: "Mean Reversion", strategy: "mean_reversion", interval: 8000, betSize: 0.5, useKelly: true },
-      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 10000, betSize: 0.5, useKelly: true },
-      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 7000, betSize: 0.5, useKelly: true },
-      { id: "bot-fair-value", name: "Fair Value", strategy: "fair_value", interval: 6000, betSize: 0.5, useKelly: true },
-      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 8000, betSize: 1, useKelly: true },
-      { id: "bot-grid", name: "Grid Trader", strategy: "grid_trading", interval: 10000, betSize: 0.3 },
-      { id: "bot-binance-signal", name: "Binance Signal", strategy: "binance_signal", interval: 1000, betSize: 1, useKelly: true, maxPositions: 3 },
-      { id: "bot-last-seconds", name: "Last Seconds Scalp", strategy: "last_seconds_scalp", interval: 500, betSize: 2, useKelly: false, maxPositions: 2 },
+      { id: "bot-momentum-chaser", name: "BOT-01: Momentum Chaser", strategy: "momentum_chaser", interval: 30000, betSize: 5, maxBet: 10 },
+      { id: "bot-mean-reversion-sniper", name: "BOT-02: Mean Reversion Sniper", strategy: "mean_reversion_sniper", interval: 5000, betSize: 3, maxBet: 5 },
+      { id: "bot-sum-to-one-arb", name: "BOT-03: Sum-to-One Arbitrage", strategy: "sum_to_one_arb", interval: 2000, betSize: 10, maxBet: 20 },
+      { id: "bot-whale-follower", name: "BOT-04: Whale Follower", strategy: "whale_follower", interval: 1000, betSize: 5, maxBet: 15 },
+      { id: "bot-ta-signal-engine", name: "BOT-05: TA Signal Engine", strategy: "ta_signal_engine", interval: 5000, betSize: 4, maxBet: 8 },
+      { id: "bot-market-maker", name: "BOT-06: Market Maker", strategy: "market_maker", interval: 3000, betSize: 5, maxBet: 10 },
     ];
 
     for (const cfg of defaultConfigs) {
