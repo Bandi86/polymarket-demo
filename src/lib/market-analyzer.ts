@@ -24,29 +24,20 @@ export interface MarketRecommendation {
 
 // Strategy performance by market phase (learned from historical data)
 const STRATEGY_PERFORMANCE_BY_PHASE: Record<MarketPhase, StrategyType[]> = {
-  trending_up: ["momentum", "smart_trend", "binance_signal", "momentum_burst"],
-  trending_down: ["momentum", "contrarian", "binance_signal"],
-  ranging: ["mean_reversion", "fair_value", "grid_trading", "market_making"],
-  volatile: ["momentum_burst", "momentum", "last_seconds_scalp"],
+  trending_up: ["momentum_chaser", "ta_signal_engine", "whale_follower"],
+  trending_down: ["momentum_chaser", "ta_signal_engine"],
+  ranging: ["mean_reversion_sniper", "sum_to_one_arb", "market_maker"],
+  volatile: ["momentum_chaser", "ta_signal_engine"],
 };
 
 // Strategy display names for UI
 const STRATEGY_NAMES: Record<StrategyType, string> = {
-  random: "Random",
-  momentum: "Momentum",
-  mean_reversion: "Mean Reversion",
-  trend: "Trend",
-  smart_trend: "Smart Trend",
-  contrarian: "Contrarian",
-  volatility: "Volatility",
-  fair_value: "Fair Value",
-  anomaly: "Anomaly",
-  momentum_burst: "Momentum Burst",
-  grid_trading: "Grid Trading",
-  market_making: "Market Making",
-  arbitrage: "Arbitrage",
-  binance_signal: "Binance Signal",
-  last_seconds_scalp: "Last Seconds Scalp",
+  momentum_chaser: "Momentum Chaser",
+  mean_reversion_sniper: "Mean Reversion Sniper",
+  sum_to_one_arb: "Sum-to-One Arbitrage",
+  whale_follower: "Whale Follower",
+  ta_signal_engine: "TA Signal Engine",
+  market_maker: "Market Maker",
 };
 
 export class MarketAnalyzer {
@@ -185,9 +176,8 @@ export class MarketAnalyzer {
     const phaseStrategies = STRATEGY_PERFORMANCE_BY_PHASE[recommendation.phase] || [];
 
     const allStrategies: StrategyType[] = [
-      "random", "momentum", "mean_reversion", "trend", "smart_trend",
-      "contrarian", "volatility", "fair_value", "anomaly", "momentum_burst",
-      "grid_trading", "market_making", "arbitrage", "binance_signal", "last_seconds_scalp",
+      "momentum_chaser", "mean_reversion_sniper", "sum_to_one_arb",
+      "whale_follower", "ta_signal_engine", "market_maker",
     ];
 
     return allStrategies.map(strategy => {
