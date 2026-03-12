@@ -124,21 +124,12 @@ export interface PriceProvider {
 
 // === Bot Types ===
 export type StrategyType =
-  | "random"
-  | "momentum"
-  | "mean_reversion"
-  | "trend"
-  | "smart_trend"
-  | "contrarian"
-  | "volatility"
-  | "fair_value"
-  | "anomaly"
-  | "momentum_burst"
-  | "grid_trading"
-  | "market_making"
-  | "arbitrage"
-  | "binance_signal"
-  | "last_seconds_scalp";
+  | "momentum_chaser"
+  | "mean_reversion_sniper"
+  | "sum_to_one_arb"
+  | "whale_follower"
+  | "ta_signal_engine"
+  | "market_maker";
 
 export interface BotConfig {
   id: string;
@@ -203,7 +194,7 @@ export interface StrategyContext {
 export interface Strategy {
   name: string;
   description: string;
-  category: "trend" | "mean_reversion" | "momentum" | "arbitrage" | "other";
+  category: "momentum" | "mean_reversion" | "arbitrage" | "social" | "technical" | "market_making";
   execute: (context: StrategyContext) => { action: Outcome | null; confidence: number; reason?: string };
 }
 
