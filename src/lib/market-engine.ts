@@ -7,8 +7,8 @@ import { dbService } from "./database";
 import { polymarketProvider } from "./providers/polymarket-provider";
 
 const FEE_RATE = 0.02; // 2%
-const MARKET_PRICE_UPDATE_INTERVAL = 1000; // 1 second - faster updates
-const MARKET_SWITCH_COOLDOWN = 5000; // 5 seconds between switches
+const MARKET_PRICE_UPDATE_INTERVAL = 500; // 500ms - faster updates for 5min markets
+const MARKET_SWITCH_COOLDOWN = 3000; // 3 seconds between switches
 
 export interface MarketEngineConfig {
   feeRate?: number;
@@ -34,7 +34,7 @@ export class MarketEngine {
     this.config = {
       feeRate: config.feeRate ?? FEE_RATE,
       startingBalance: config.startingBalance ?? 10,
-      timeframe: config.timeframe ?? "15",
+      timeframe: config.timeframe ?? "5",
       asset: config.asset ?? "BTC",
     };
 

@@ -1,15 +1,14 @@
 import { useState, useCallback, useEffect } from "react";
 import { useTradingData } from "../hooks/useTradingData";
 import { Header } from "./Header";
-import { MarketPanel, type Coin, type Strategy, type Timeframe } from "./MarketPanel";
+import { MarketCard } from "./MarketCard";
 import { ChartPanel } from "./ChartPanel";
 import { TradingPanel } from "./TradingPanel";
-import { BotPanel } from "./BotPanel";
-import { PortfolioPanel } from "./PortfolioPanel";
+import { PositionsPanel } from "./PositionsPanel";
 import { ActivityLog } from "./ActivityLog";
 import { BotDashboardPage } from "./BotDashboardPage";
+import { QuickActions } from "./quick-actions";
 
-// Hash-based routing hook
 function useRoute(): [string, (route: string) => void] {
   const [route, setRoute] = useState<string>(() => {
     if (typeof window === 'undefined') return 'trading';
@@ -34,30 +33,32 @@ function useRoute(): [string, (route: string) => void] {
   return [route, navigate];
 }
 
-const COINS = [
-  { id: "BTC" as Coin, name: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT", color: "#f7931a" },
-  { id: "ETH" as Coin, name: "Ethereum", tvSymbol: "BINANCE:ETHUSDT", color: "#627eea" },
-  { id: "SOL" as Coin, name: "Solana", tvSymbol: "BINANCE:SOLUSDT", color: "#14f195" },
-  { id: "XRP" as Coin, name: "Ripple", tvSymbol: "BINANCE:XRPUSDT", color: "#346aa9" },
+const ASSETS = [
+  { id: "BTC", name: "Bitcoin", color: "#f7931a" },
+  { id: "ETH", name: "Ethereum", color: "#627eea" },
+  { id: "SOL", name: "Solana", color: "#14f195" },
+  { id: "XRP", name: "Ripple", color: "#346aa9" },
+];
+
+const TIMEFRAMES = [
+  { id: "5", label: "5m", description: "5 minute markets" },
+  { id: "15", label: "15m", description: "15 minute markets" },
+  { id: "60", label: "1h", description: "1 hour markets" },
+  { id: "240", label: "4h", description: "4 hour markets" },
 ];
 
 export function App() {
-  // UI State
-  const [selectedCoin, setSelectedCoin] = useState<Coin>("BTC");
-  const [selectedStrategy, setSelectedStrategy] = useState<Strategy>("LN_EWMA");
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>("5");
+  const [selectedAsset, setSelectedAsset] = useState("BTC");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("5");
   const [route, navigate] = useRoute();
 
-  // Trading data hook
   const {
     marketData,
     portfolio,
     bots,
     events,
-    marketHistory,
     botLogs,
     loading,
-    lastUpdate,
     apiLatency,
     isBotRunning,
     yesPrice,
@@ -69,26 +70,37 @@ export function App() {
     addTradeEvent,
   } = useTradingData();
 
-  // Sync timeframe with backend when it changes
+  // Sync timeframe and asset to backend
   useEffect(() => {
-    const syncTimeframe = async () => {
+    const syncSettings = async () => {
       try {
-        await fetch("/api/market/timeframe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeframe: selectedTimeframe }),
-        });
+        await Promise.all([
+          fetch("/api/market/timeframe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ timeframe: selectedTimeframe }),
+          }),
+          fetch("/api/market/asset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ asset: selectedAsset }),
+          }),
+        ]);
+        // Fetch fresh market data after sync
+        await fetchData();
       } catch (err) {
-        console.error("Failed to sync timeframe:", err);
+        console.error("Failed to sync settings:", err);
       }
     };
-    syncTimeframe();
-  }, [selectedTimeframe]);
+    // Skip initial render (when both are still default)
+    if (selectedTimeframe !== "5" || selectedAsset !== "BTC") {
+      syncSettings();
+    }
+  }, [selectedTimeframe, selectedAsset, fetchData]);
 
-  const activeCoin = COINS.find(c => c.id === selectedCoin);
-  const coinColor = activeCoin?.color || "#f7931a";
+  const activeAsset = ASSETS.find(a => a.id === selectedAsset);
+  const coinColor = activeAsset?.color || "#f7931a";
 
-  // Handle manual trade
   const handleTrade = useCallback(async (direction: "YES" | "NO", amount: number) => {
     if (!marketData?.market) return;
 
@@ -117,13 +129,11 @@ export function App() {
     }
   }, [marketData, yesPrice, noPrice, addTradeEvent, fetchData]);
 
-  // Handle close position
   const handleClosePosition = useCallback(async (positionId: string) => {
     await fetch(`/api/positions/${positionId}/close`, { method: "POST" });
     await fetchData();
   }, [fetchData]);
 
-  // Toggle bot
   const handleToggleBot = useCallback(async () => {
     if (isBotRunning) {
       await fetch("/api/bots/stop-all", { method: "POST" });
@@ -137,7 +147,6 @@ export function App() {
     await fetchData();
   }, [isBotRunning, fetchData]);
 
-  // Reset everything
   const handleReset = useCallback(async () => {
     await fetch("/api/reset", { method: "POST" });
     await fetch("/api/bots/reset-all", { method: "POST" });
@@ -155,7 +164,6 @@ export function App() {
     );
   }
 
-  // Bot Dashboard Route
   if (route === 'bots') {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
@@ -188,47 +196,135 @@ export function App() {
         totalBots={bots.length}
       />
 
-      <main style={{ padding: "1rem" }}>
-        <div className="trading-grid" style={{ maxWidth: 1600, margin: "0 auto" }}>
-          {/* LEFT COLUMN - Market Info */}
-          <MarketPanel
-            marketData={marketData}
-            selectedCoin={selectedCoin}
-            selectedStrategy={selectedStrategy}
-            selectedTimeframe={selectedTimeframe}
-            lastUpdate={lastUpdate}
-            yesPrice={yesPrice}
-            noPrice={noPrice}
-            yesPriceDirection={yesPriceDirection}
-            noPriceDirection={noPriceDirection}
-            coinColor={coinColor}
-            onCoinChange={setSelectedCoin}
-            onStrategyChange={setSelectedStrategy}
-            onTimeframeChange={setSelectedTimeframe}
-          />
+      <main style={{ padding: "1rem", maxWidth: 1600, margin: "0 auto" }}>
+        {/* Asset & Timeframe Selector Bar */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "1rem",
+          marginBottom: "1rem",
+          padding: "0.75rem 1rem",
+          background: "var(--glass-bg)",
+          borderRadius: 12,
+          border: "1px solid var(--border)",
+        }}>
+          {/* Asset Selector */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>Asset:</span>
+            <div style={{ display: "flex", gap: "0.25rem" }}>
+              {ASSETS.map((asset) => (
+                <button
+                  key={asset.id}
+                  onClick={() => setSelectedAsset(asset.id)}
+                  style={{
+                    padding: "0.375rem 0.75rem",
+                    borderRadius: 6,
+                    border: "none",
+                    background: selectedAsset === asset.id ? `${asset.color}20` : "transparent",
+                    color: selectedAsset === asset.id ? asset.color : "var(--text-muted)",
+                    fontWeight: selectedAsset === asset.id ? 600 : 400,
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {asset.id}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ width: 1, height: 24, background: "var(--border)" }} />
+
+          {/* Timeframe Selector */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>Market:</span>
+            <div style={{ display: "flex", gap: "0.25rem" }}>
+              {TIMEFRAMES.map((tf) => (
+                <button
+                  key={tf.id}
+                  onClick={() => setSelectedTimeframe(tf.id)}
+                  style={{
+                    padding: "0.375rem 0.75rem",
+                    borderRadius: 6,
+                    border: "1px solid",
+                    borderColor: selectedTimeframe === tf.id ? "var(--primary)" : "var(--border)",
+                    background: selectedTimeframe === tf.id ? "var(--primary)" : "transparent",
+                    color: selectedTimeframe === tf.id ? "white" : "var(--text-muted)",
+                    fontWeight: selectedTimeframe === tf.id ? 600 : 400,
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {tf.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Quick Stats */}
+          <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", fontSize: "0.875rem" }}>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Balance: </span>
+              <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--green)" }}>
+                ${(portfolio?.balance || 0).toFixed(2)}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>P&L: </span>
+              <span style={{ fontFamily: "monospace", fontWeight: 600, color: (portfolio?.totalPnL || 0) >= 0 ? "var(--green)" : "var(--red)" }}>
+                {(portfolio?.totalPnL || 0) >= 0 ? "+" : ""}${(portfolio?.totalPnL || 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "320px 1fr 360px",
+          gap: "1rem",
+          alignItems: "start",
+        }}>
+          {/* LEFT COLUMN - Market Card */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <MarketCard
+              marketData={marketData}
+              yesPrice={yesPrice}
+              noPrice={noPrice}
+              yesPriceDirection={yesPriceDirection}
+              noPriceDirection={noPriceDirection}
+              coinColor={coinColor}
+              selectedAsset={selectedAsset}
+              selectedTimeframe={selectedTimeframe}
+            />
+
+            {/* Quick Actions */}
+            <QuickActions
+              isBotRunning={isBotRunning}
+              onToggleBot={handleToggleBot}
+              onReset={handleReset}
+              coinColor={coinColor}
+            />
+          </div>
 
           {/* CENTER COLUMN - Chart */}
           <ChartPanel
             marketData={marketData}
-            marketHistory={marketHistory}
-            selectedCoin={selectedCoin}
+            marketHistory={[]}
+            selectedCoin={selectedAsset}
             selectedTimeframe={selectedTimeframe}
             coinColor={coinColor}
-            tvSymbol={activeCoin?.tvSymbol || "BINANCE:BTCUSDT"}
+            tvSymbol={`BINANCE:${selectedAsset}USDT`}
             yesPrice={yesPrice}
             noPrice={noPrice}
           />
 
-          {/* RIGHT COLUMN - Trading & Bot */}
+          {/* RIGHT COLUMN - Trading & Positions */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <BotPanel
-              bots={bots}
-              isBotRunning={isBotRunning}
-              botLogs={botLogs}
-              coinColor={coinColor}
-              onToggleBot={handleToggleBot}
-            />
-
             <TradingPanel
               portfolio={portfolio}
               yesPrice={yesPrice}
@@ -237,12 +333,10 @@ export function App() {
               onTrade={handleTrade}
             />
 
-            <PortfolioPanel
-              portfolio={portfolio}
+            <PositionsPanel
+              positions={(portfolio?.openPositions || []) as Array<{ id: string; outcome: "YES" | "NO"; amount: number; odds: number; unrealizedPnl?: number }>}
               coinColor={coinColor}
-              pnlHistory={pnlHistory}
               onClosePosition={handleClosePosition}
-              onReset={handleReset}
             />
 
             <ActivityLog events={events} coinColor={coinColor} />

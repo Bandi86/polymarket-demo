@@ -48,8 +48,12 @@ const TIMEFRAME_DURATIONS: Record<string, number> = {
 export class PolymarketProvider {
   private cachedMarkets: Map<string, Market[]> = new Map();
   private lastFetchTime = 0;
-  private readonly CACHE_TTL = 5_000; // 5s cache for live markets
-  private currentTimeframe = "15"; // Default to 15m
+  private readonly CACHE_TTL = 2000; // 2s cache for live markets
+  private currentTimeframe = "5"; // Default to 5m
+
+  // Price cache for faster updates
+  private priceCache: Map<string, { yes: string; no: string; timestamp: number }> = new Map();
+  private readonly PRICE_CACHE_TTL = 100; // 100ms cache for near-real-time prices
 
   /** Set BTC price for display (used by price service) */
   setBtcPrice(_price: number): void {
@@ -226,14 +230,24 @@ export class PolymarketProvider {
 
   /**
    * Fetch current YES/NO prices for a specific market by its market ID.
+   * Uses a short cache to avoid spamming the API while still being responsive.
    */
   async fetchMarketPriceByMarketId(marketId: string): Promise<{ yes: string; no: string } | null> {
+    const now = Date.now();
+
+    // Check cache first - return cached price if fresh
+    const cached = this.priceCache.get(marketId);
+    if (cached && now - cached.timestamp < this.PRICE_CACHE_TTL) {
+      return { yes: cached.yes, no: cached.no };
+    }
+
     try {
       const response = await fetch(`${GAMMA_API}/markets/${marketId}`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(1500), // Faster timeout (1.5s)
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) return cached || null; // Fall back to cache on error
+
       const market = await response.json();
 
       let prices: number[] = [0.5, 0.5];
@@ -245,11 +259,20 @@ export class PolymarketProvider {
         prices = [market.bestAsk || 0.5, 1 - (market.bestAsk || 0.5)];
       }
 
-      return {
+      const result = {
         yes: prices[0].toFixed(3),
         no: prices[1].toFixed(3),
       };
-    } catch {
+
+      // Update cache
+      this.priceCache.set(marketId, { ...result, timestamp: now });
+
+      return result;
+    } catch (error) {
+      // On error, return cached value if available
+      if (cached) {
+        return { yes: cached.yes, no: cached.no };
+      }
       return null;
     }
   }
@@ -264,6 +287,7 @@ export class PolymarketProvider {
   /** Clear cache to force refresh */
   clearCache(): void {
     this.cachedMarkets.clear();
+    this.priceCache.clear();
     this.lastFetchTime = 0;
   }
 

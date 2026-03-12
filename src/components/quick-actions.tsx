@@ -1,43 +1,74 @@
-import { Zap, Play, Square, RefreshCw, RotateCcw } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
+import { Zap, Play, Square, RotateCcw } from "lucide-react";
 
 interface QuickActionsProps {
-  onRunAll: () => void;
-  onStopAll: () => void;
-  onRefresh: () => void;
+  isBotRunning: boolean;
+  onToggleBot: () => void;
   onReset: () => void;
+  coinColor: string;
 }
 
-export function QuickActions({ onRunAll, onStopAll, onRefresh, onReset }: QuickActionsProps) {
+export function QuickActions({ isBotRunning, onToggleBot, onReset, coinColor }: QuickActionsProps) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-[var(--color-primary)]" />
-          <CardTitle className="text-sm">Quick Actions</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="primary" size="sm" onClick={onRunAll} className="flex items-center gap-1">
-            <Play className="w-3 h-3" />
-            Run All Bots
-          </Button>
-          <Button variant="secondary" size="sm" onClick={onStopAll} className="flex items-center gap-1">
-            <Square className="w-3 h-3" />
-            Stop All
-          </Button>
-          <Button variant="outline" size="sm" onClick={onRefresh} className="flex items-center gap-1">
-            <RefreshCw className="w-3 h-3" />
-            New Market
-          </Button>
-          <Button variant="outline" size="sm" onClick={onReset} className="flex items-center gap-1">
-            <RotateCcw className="w-3 h-3" />
-            Reset All
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="glass-card" style={{ padding: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+        <Zap className="w-4 h-4" style={{ color: coinColor }} />
+        <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>Quick Actions</span>
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+        <button
+          onClick={onToggleBot}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.375rem",
+            padding: "0.625rem",
+            borderRadius: 8,
+            border: "none",
+            background: isBotRunning ? "rgba(239, 68, 68, 0.15)" : "rgba(34, 197, 94, 0.15)",
+            color: isBotRunning ? "var(--red)" : "var(--green)",
+            fontWeight: 600,
+            fontSize: "0.8rem",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+        >
+          {isBotRunning ? (
+            <>
+              <Square className="w-3.5 h-3.5" />
+              Stop Bots
+            </>
+          ) : (
+            <>
+              <Play className="w-3.5 h-3.5" />
+              Start Bots
+            </>
+          )}
+        </button>
+        
+        <button
+          onClick={onReset}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.375rem",
+            padding: "0.625rem",
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--text-muted)",
+            fontWeight: 500,
+            fontSize: "0.8rem",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          Reset All
+        </button>
+      </div>
+    </div>
   );
 }
