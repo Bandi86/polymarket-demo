@@ -11,6 +11,7 @@ export interface PriceProvider {
 export class BinancePriceProvider implements PriceProvider {
   name = "Binance";
   private ws: WebSocket | null = null;
+  private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private currentPrice: number = 0;
   private priceHistory: PricePoint[] = [];
   private listeners: Set<(update: PriceUpdate) => void> = new Set();
@@ -95,8 +96,9 @@ export class BinancePriceProvider implements PriceProvider {
   }
 
   private startPolling(): void {
+    if (this.pollingInterval) return; // Already polling
     console.log("[BinancePriceProvider] Falling back to REST polling");
-    setInterval(async () => {
+    this.pollingInterval = setInterval(async () => {
       try {
         const price = await this.getCurrentPrice();
         if (price > 0) {
@@ -172,6 +174,10 @@ export class BinancePriceProvider implements PriceProvider {
   }
 
   destroy(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

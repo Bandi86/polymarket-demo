@@ -488,15 +488,15 @@ export function BotPanel({ bots, isBotRunning, botLogs, coinColor, onToggleBot }
                         {log.message}
                       </p>
                       {log.details && log.type === "TRADE" && (
-                        <div style={{ 
-                          display: "flex", 
-                          gap: "0.5rem", 
+                        <div style={{
+                          display: "flex",
+                          gap: "0.5rem",
                           marginTop: "0.25rem",
                           fontSize: "0.625rem",
                           color: "var(--text-muted)"
                         }}>
-                          <span>Amount: {formatCurrency(log.details.amount || 0)}</span>
-                          <span>Odds: {((log.details.odds || 0) * 100).toFixed(1)}%</span>
+                          <span>Amount: {formatCurrency(typeof log.details.amount === 'number' ? log.details.amount : 0)}</span>
+                          <span>Odds: {((typeof log.details.odds === 'number' ? log.details.odds : 0) * 100).toFixed(1)}%</span>
                         </div>
                       )}
                     </div>

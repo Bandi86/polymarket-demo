@@ -17,11 +17,12 @@ interface LiveMonitorTabProps {
     amount: number;
     stake: number;
   }>;
+  updateBotState: (botId: string, updates: Partial<BotData>) => void;
 }
 
 type SortField = 'pnl' | 'winRate' | 'trades' | 'balance';
 
-export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonitorTabProps) {
+export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [showActivityFeed, setShowActivityFeed] = useState(true);
   const [configBot, setConfigBot] = useState<BotData | null>(null);
@@ -55,10 +56,13 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions }: LiveMonit
     try {
       const res = await fetch(`/api/bots/${botId}/toggle`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to toggle bot");
+      const updatedBot = await res.json();
+      // Immediately update local state with the response
+      updateBotState(botId, { enabled: updatedBot.enabled, runTime: updatedBot.runTime });
     } catch (err) {
       console.error("Failed to toggle bot:", err);
     }
-  }, []);
+  }, [updateBotState]);
 
   // Update bot config
   const handleSaveConfig = useCallback(async (botId: string, config: Partial<BotData>) => {

@@ -10,9 +10,10 @@ interface PortfolioPanelProps {
   pnlHistory: { time: number; pnl: number }[];
   onClosePosition: (positionId: string) => Promise<void>;
   onReset: () => Promise<void>;
+  compact?: boolean;
 }
 
-export function PortfolioPanel({ portfolio, coinColor, pnlHistory, onClosePosition, onReset }: PortfolioPanelProps) {
+export function PortfolioPanel({ portfolio, coinColor, pnlHistory, onClosePosition, onReset, compact }: PortfolioPanelProps) {
   const openPositions = portfolio?.openPositions as Position[] || [];
 
   const handleReset = async () => {
@@ -21,6 +22,81 @@ export function PortfolioPanel({ portfolio, coinColor, pnlHistory, onClosePositi
     }
   };
 
+  // Compact mode - horizontal stats bar
+  if (compact) {
+    const pnl = portfolio?.totalPnL || 0;
+    const roi = portfolio?.roi || 0;
+    return (
+      <div className="glass-card" style={{
+        padding: "0.75rem 1rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "2rem",
+        flexWrap: "wrap"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Wallet className="w-4 h-4" style={{ color: coinColor }} />
+          <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>Portfolio</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Balance</span>
+            <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600, fontSize: "0.875rem" }}>{formatCurrency(portfolio?.balance || 0)}</span>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>P&L</span>
+            <span style={{
+              fontFamily: "ui-monospace, monospace",
+              fontWeight: 600,
+              fontSize: "0.875rem",
+              color: pnl >= 0 ? "var(--green)" : "var(--red)"
+            }}>
+              {pnl >= 0 ? "+" : ""}{formatCurrency(pnl)}
+            </span>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>ROI</span>
+            <span style={{
+              fontFamily: "ui-monospace, monospace",
+              fontWeight: 600,
+              fontSize: "0.875rem",
+              color: roi >= 0 ? "var(--green)" : "var(--red)"
+            }}>
+              {roi >= 0 ? "+" : ""}{formatPercentage(roi / 100)}
+            </span>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Win Rate</span>
+            <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600, fontSize: "0.875rem" }}>{formatPercentage(portfolio?.winRate || 0)}</span>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Trades</span>
+            <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600, fontSize: "0.875rem" }}>{portfolio?.totalTrades || 0}</span>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Positions</span>
+            <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600, fontSize: "0.875rem" }}>{openPositions.length}</span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleReset}
+          className="quick-btn"
+          style={{ marginLeft: "auto", fontSize: "0.75rem" }}
+        >
+          <RefreshCw className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  // Full mode - detailed view
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {/* Portfolio Stats */}

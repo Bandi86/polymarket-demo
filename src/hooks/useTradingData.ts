@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Market, Portfolio, BotLog } from "../types";
 
+// Re-export types for consumers
+export type { Portfolio, Market, BotLog } from "../types";
+
 export interface MarketData {
   market: Market | null;
   btcPrice: number;
@@ -151,17 +154,13 @@ export function useTradingData() {
   useEffect(() => {
     fetchData();
     fetchBotLogs();
-    
+
     // Fallback timeout - ensure we don't stay in loading state forever
     const timeout = setTimeout(() => {
       setLoading(false);
     }, 5000);
-    
+
     return () => clearTimeout(timeout);
-  }, [fetchData, fetchBotLogs]);
-  useEffect(() => {
-    fetchData();
-    fetchBotLogs();
   }, [fetchData, fetchBotLogs]);
 
   // SSE for real-time updates
@@ -240,6 +239,11 @@ export function useTradingData() {
     setEvents([...eventsRef.current]);
   }, []);
 
+  // Update a single bot's state (for immediate UI updates after toggle)
+  const updateBotState = useCallback((botId: string, updates: Partial<BotData>) => {
+    setBots(prev => prev.map(b => b.id === botId ? { ...b, ...updates } : b));
+  }, []);
+
   return {
     marketData,
     portfolio,
@@ -258,5 +262,6 @@ export function useTradingData() {
     pnlHistory,
     fetchData,
     addTradeEvent,
+    updateBotState,
   };
 }
