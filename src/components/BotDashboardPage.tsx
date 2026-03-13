@@ -8,6 +8,7 @@ import { RiskPanel } from "./RiskPanel";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { TradingModeToggle } from "./TradingModeToggle";
 import { SettingsPanel } from "./SettingsPanel";
+import { PerformanceDashboard } from "./dashboard/PerformanceDashboard";
 import { useTradingData } from "../hooks/useTradingData";
 import { formatCurrency } from "../lib/utils";
 
@@ -227,7 +228,10 @@ export function BotDashboardPage() {
         <CompetitionTab />
       )}
       {activeTab === 'analytics' && (
-        <AnalyticsTab />
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <PerformanceDashboard bots={bots} />
+          <AnalyticsTab />
+        </div>
       )}
       {activeTab === 'risk' && (
         <RiskPanel />

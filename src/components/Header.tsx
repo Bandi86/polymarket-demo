@@ -1,4 +1,6 @@
 import { Zap, RefreshCw, BarChart3, ArrowLeft, Bot } from "lucide-react";
+import { PriceTicker } from "./ui/PriceTicker";
+import { ThemeToggle } from "./ui/ThemeToggle";
 
 interface HeaderProps {
   isBotRunning: boolean;
@@ -34,9 +36,13 @@ export function Header({
       zIndex: 50
     }}>
       <div style={{ maxWidth: 1600, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Zap style={{ color: coinColor }} className="w-5 h-5" />
-          <span>Poly</span><span style={{ color: "var(--primary)" }}>Trade</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Zap style={{ color: coinColor }} className="w-5 h-5" />
+            <span>Poly</span><span style={{ color: "var(--primary)" }}>Trade</span>
+          </div>
+          {/* Price Ticker */}
+          <PriceTicker className="hidden md:flex" />
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
@@ -98,6 +104,7 @@ export function Header({
           <button onClick={onRefresh} className="quick-btn">
             <RefreshCw className="w-3 h-3" />
           </button>
+          <ThemeToggle />
         </div>
       </div>
     </nav>

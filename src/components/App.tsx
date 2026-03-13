@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useTradingData } from "../hooks/useTradingData";
+import { useSoundNotifications } from "../hooks/useSoundNotifications";
 import { Header } from "./Header";
 import { MarketCard } from "./MarketCard";
 import { ChartPanel } from "./ChartPanel";
@@ -8,6 +9,7 @@ import { PositionsPanel } from "./PositionsPanel";
 import { ActivityLog } from "./ActivityLog";
 import { BotDashboardPage } from "./BotDashboardPage";
 import { QuickActions } from "./quick-actions";
+import { SoundToggle } from "./ui/SoundToggle";
 
 function useRoute(): [string, (route: string) => void] {
   const [route, setRoute] = useState<string>(() => {
@@ -70,6 +72,8 @@ export function App() {
     addTradeEvent,
   } = useTradingData();
 
+  const { enabled: soundEnabled, playTrade, toggleEnabled: toggleSound } = useSoundNotifications();
+
   // Sync timeframe and asset to backend
   useEffect(() => {
     const syncSettings = async () => {
@@ -117,6 +121,7 @@ export function App() {
     const data = await res.json();
 
     if (data.success) {
+      playTrade();
       addTradeEvent({
         id: `evt-${Date.now()}`,
         type: "BUY",
@@ -196,22 +201,13 @@ export function App() {
         totalBots={bots.length}
       />
 
-      <main style={{ padding: "1rem", maxWidth: 1600, margin: "0 auto" }}>
+      <main className="p-4 max-w-[1600px] mx-auto">
         {/* Asset & Timeframe Selector Bar */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
-          marginBottom: "1rem",
-          padding: "0.75rem 1rem",
-          background: "var(--glass-bg)",
-          borderRadius: 12,
-          border: "1px solid var(--border)",
-        }}>
+        <div className="flex flex-wrap items-center gap-4 mb-4 p-3 md:p-4 bg-glass-bg rounded-xl border border-border">
           {/* Asset Selector */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>Asset:</span>
-            <div style={{ display: "flex", gap: "0.25rem" }}>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-text-muted">Asset:</span>
+            <div className="flex gap-1">
               {ASSETS.map((asset) => (
                 <button
                   key={asset.id}
@@ -234,12 +230,12 @@ export function App() {
             </div>
           </div>
 
-          <div style={{ width: 1, height: 24, background: "var(--border)" }} />
+          <div className="hidden sm:block w-px h-6 bg-border" />
 
           {/* Timeframe Selector */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>Market:</span>
-            <div style={{ display: "flex", gap: "0.25rem" }}>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-text-muted">Market:</span>
+            <div className="flex gap-1">
               {TIMEFRAMES.map((tf) => (
                 <button
                   key={tf.id}
@@ -263,34 +259,30 @@ export function App() {
             </div>
           </div>
 
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
 
           {/* Quick Stats */}
-          <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", fontSize: "0.875rem" }}>
+          <div className="flex items-center gap-4 md:gap-6 text-sm">
             <div>
-              <span style={{ color: "var(--text-muted)" }}>Balance: </span>
+              <span className="text-text-muted">Balance: </span>
               <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--green)" }}>
                 ${(portfolio?.balance || 0).toFixed(2)}
               </span>
             </div>
             <div>
-              <span style={{ color: "var(--text-muted)" }}>P&L: </span>
+              <span className="text-text-muted">P&L: </span>
               <span style={{ fontFamily: "monospace", fontWeight: 600, color: (portfolio?.totalPnL || 0) >= 0 ? "var(--green)" : "var(--red)" }}>
                 {(portfolio?.totalPnL || 0) >= 0 ? "+" : ""}${(portfolio?.totalPnL || 0).toFixed(2)}
               </span>
             </div>
+            <SoundToggle enabled={soundEnabled} onToggle={toggleSound} />
           </div>
         </div>
 
         {/* Main Content Grid */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "320px 1fr 360px",
-          gap: "1rem",
-          alignItems: "start",
-        }}>
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-[320px_1fr_360px] items-start">
           {/* LEFT COLUMN - Market Card */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="flex flex-col gap-4">
             <MarketCard
               marketData={marketData}
               yesPrice={yesPrice}
@@ -324,7 +316,7 @@ export function App() {
           />
 
           {/* RIGHT COLUMN - Trading & Positions */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="flex flex-col gap-4">
             <TradingPanel
               portfolio={portfolio}
               yesPrice={yesPrice}

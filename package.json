@@ -31,11 +31,12 @@
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.2.1",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.0.0",
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "jsdom": "^25.0.0",
+    "jsdom": "^28.1.0",
     "vitest": "^3.0.0"
   }
 }
