@@ -115,6 +115,34 @@ export function formatPriceChange(current: number, previous: number): { value: s
   };
 }
 
+/**
+ * Format a probability/price as cents (0-100)
+ */
+export function formatPriceCents(price: number): string {
+  return `${(price * 100).toFixed(1)}¢`;
+}
+
+/**
+ * Format a decimal as percentage string
+ */
+export function formatPercentValue(value: number, decimals = 1): string {
+  const sign = value >= 0 ? '' : '';
+  return `${sign}${(value * 100).toFixed(decimals)}%`;
+}
+
+/**
+ * Format timestamp as relative time (e.g., "5m ago")
+ */
+export function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
 export function truncateString(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str;
   return `${str.slice(0, maxLength)}...`;
