@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import type { BotData } from "../hooks/useTradingData";
+import { cn } from "@/lib/utils";
+import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
+import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
+import { ProgressRing } from "@/components/ui/ProgressRing";
+import type { BotData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {
   bot: BotData;
@@ -29,6 +32,9 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
   const [showDebug, setShowDebug] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
+  const strategyColor = getStrategyColor(bot.strategy);
+  const strategyName = getStrategyName(bot.strategy);
+
   const botPositions = positions.filter(p => p.botId === bot.id);
   const unrealizedPnl = botPositions.reduce((sum, pos) => {
     if (pos.outcome === "YES") {
@@ -47,10 +53,10 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   // Determine bot health status
   const getHealthStatus = () => {
-    if (!bot.enabled) return { status: "stopped", color: "#6b7280", icon: XCircle };
-    if (bot.stats.trades === 0 && runningTime > 60000) return { status: "idle", color: "#f59e0b", icon: AlertCircle };
-    if (bot.stats.pnl < 0) return { status: "losing", color: "#ef4444", icon: TrendingDown };
-    return { status: "active", color: "#22c55e", icon: CheckCircle };
+    if (!bot.enabled) return { status: "stopped", color: "text-muted-foreground", icon: XCircle };
+    if (bot.stats.trades === 0 && runningTime > 60000) return { status: "idle", color: "text-warning", icon: AlertCircle };
+    if (bot.stats.pnl < 0) return { status: "losing", color: "text-danger", icon: TrendingDown };
+    return { status: "active", color: "text-success", icon: CheckCircle };
   };
 
   const health = getHealthStatus();
@@ -68,53 +74,37 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   return (
     <div
-      className="glass-card"
-      style={{
-        padding: "1rem",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.75rem",
-        border: bot.enabled ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid var(--border)",
-        transition: "border-color 0.3s"
-      }}
+      className={cn(
+        "glass-card p-4 rounded-xl flex flex-col gap-3 transition-all duration-300",
+        bot.enabled ? "border-success/30" : "border-border"
+      )}
+      style={{ borderLeftColor: strategyColor, borderLeftWidth: "3px" }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
           <div
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: health.color,
-              animation: bot.enabled ? "pulse 2s infinite" : undefined
-            }}
+            className={cn(
+              "w-2 h-2 rounded-full",
+              bot.enabled ? "bg-success animate-pulse" : "bg-muted-foreground"
+            )}
           />
-          <Bot className="w-4 h-4" style={{ color: bot.enabled ? "#22c55e" : "var(--text-muted)" }} />
-          <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{bot.name}</span>
-          <HealthIcon className="w-3 h-3" style={{ color: health.color }} />
+          <Bot className={cn("w-4 h-4", bot.enabled ? "text-success" : "text-muted-foreground")} />
+          <span className="font-semibold text-sm">{bot.name}</span>
+          <HealthIcon className={cn("w-3 h-3", health.color)} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+        <div className="flex items-center gap-1">
           <span
-            style={{
-              fontSize: "0.625rem",
-              padding: "0.125rem 0.375rem",
-              borderRadius: 4,
-              background: bot.enabled ? "rgba(34, 197, 94, 0.2)" : "rgba(107, 114, 128, 0.2)",
-              color: bot.enabled ? "#22c55e" : "#6b7280"
-            }}
+            className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded font-medium",
+              bot.enabled ? "bg-success/20 text-success" : "bg-muted/20 text-muted-foreground"
+            )}
           >
-            {bot.strategy}
+            {strategyName}
           </span>
           <button
             onClick={() => onOpenConfig(bot)}
-            style={{
-              padding: "0.25rem",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-muted)"
-            }}
+            className="p-1 bg-transparent border-none cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
             title="Configure bot"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -123,128 +113,111 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
       </div>
 
       {/* Timer & Market Info */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0.5rem",
-        background: "rgba(0,0,0,0.2)",
-        borderRadius: 6,
-        fontSize: "0.75rem"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-          <Clock className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
-          <span style={{ fontFamily: "ui-monospace, monospace", color: bot.enabled ? "var(--text-primary)" : "var(--text-muted)" }}>
+      <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
+        <div className="flex items-center gap-1">
+          <Clock className="w-3 h-3 text-muted-foreground" />
+          <span className={cn(
+            "font-mono",
+            bot.enabled ? "text-foreground" : "text-muted-foreground"
+          )}>
             {bot.enabled ? formatDuration(runningTime) : "Stopped"}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{
-            padding: "0.125rem 0.375rem",
-            background: "rgba(34, 197, 94, 0.2)",
-            borderRadius: 4,
-            color: "#22c55e",
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.625rem"
-          }}>
+        <div className="flex items-center gap-2">
+          <span className="px-1.5 py-0.5 bg-success/20 rounded text-success font-mono text-[10px]">
             YES {yesPrice.toFixed(3)}
           </span>
-          <span style={{
-            padding: "0.125rem 0.375rem",
-            background: "rgba(239, 68, 68, 0.2)",
-            borderRadius: 4,
-            color: "#ef4444",
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.625rem"
-          }}>
+          <span className="px-1.5 py-0.5 bg-danger/20 rounded text-danger font-mono text-[10px]">
             NO {noPrice.toFixed(3)}
           </span>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.5rem" }}>
+      {/* Stats Grid with ProgressRing */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>Balance</div>
-          <div style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>
-            {formatCurrency(bot.portfolio.balance)}
+          <div className="text-[10px] text-muted-foreground mb-0.5">Balance</div>
+          <div className="font-mono font-semibold">
+            <AnimatedCounter
+              value={bot.portfolio.balance}
+              format="currency"
+              decimals={2}
+            />
           </div>
         </div>
         <div>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>P&L</div>
+          <div className="text-[10px] text-muted-foreground mb-0.5">P&L</div>
           <div
-            style={{
-              fontFamily: "ui-monospace, monospace",
-              fontWeight: 600,
-              color: bot.stats.pnl >= 0 ? "#22c55e" : "#ef4444"
-            }}
+            className={cn(
+              "font-mono font-semibold",
+              bot.stats.pnl >= 0 ? "text-success" : "text-danger"
+            )}
           >
-            {bot.stats.pnl >= 0 ? "+" : ""}{formatCurrency(bot.stats.pnl)}
-            <span style={{ fontSize: "0.625rem", marginLeft: 4 }}>
+            <AnimatedCounter
+              value={bot.stats.pnl}
+              format="currency"
+              decimals={2}
+              previousValue={bot.stats.pnl - 0.5}
+            />
+            <span className="text-[10px] ml-1">
               ({pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(1)}%)
             </span>
           </div>
         </div>
-        <div>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>Trades</div>
-          <div style={{ fontFamily: "ui-monospace, monospace" }}>{bot.stats.trades}</div>
+        <div className="flex items-center gap-2">
+          <ProgressRing
+            value={bot.stats.winRate * 100}
+            size={28}
+            strokeWidth={2.5}
+          />
+          <div>
+            <div className="text-[10px] text-muted-foreground">Win Rate</div>
+            <div className="font-mono text-sm">
+              {bot.stats.winRate > 0 ? `${(bot.stats.winRate * 100).toFixed(0)}%` : "-"}
+            </div>
+          </div>
         </div>
         <div>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>Win Rate</div>
-          <div style={{ fontFamily: "ui-monospace, monospace" }}>
-            {bot.stats.winRate > 0 ? `${(bot.stats.winRate * 100).toFixed(0)}%` : "-"}
-          </div>
+          <div className="text-[10px] text-muted-foreground">Trades</div>
+          <div className="font-mono">{bot.stats.trades}</div>
         </div>
       </div>
 
       {/* Positions & Unrealized PnL */}
       {botPositions.length > 0 && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0.5rem",
-          background: "rgba(0,0,0,0.2)",
-          borderRadius: 6,
-          fontSize: "0.75rem"
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-            <TrendingUp className="w-3 h-3" style={{ color: "#3b82f6" }} />
+        <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
+          <div className="flex items-center gap-1">
+            <TrendingUp className="w-3 h-3 text-primary" />
             <span>{botPositions.length} position{botPositions.length > 1 ? "s" : ""}</span>
           </div>
-          <div style={{
-            fontFamily: "ui-monospace, monospace",
-            color: unrealizedPnl >= 0 ? "#22c55e" : "#ef4444"
-          }}>
-            {unrealizedPnl >= 0 ? "+" : ""}{formatCurrency(unrealizedPnl)} unrealized
+          <div
+            className={cn(
+              "font-mono",
+              unrealizedPnl >= 0 ? "text-success" : "text-danger"
+            )}
+          >
+            <AnimatedCounter
+              value={unrealizedPnl}
+              format="currency"
+              decimals={2}
+            />{" "}
+            <span className="text-muted-foreground">unrealized</span>
           </div>
         </div>
       )}
 
       {/* Control Buttons */}
-      <div style={{ display: "flex", gap: "0.5rem" }}>
+      <div className="flex gap-2">
         <button
           onClick={handleToggle}
           disabled={isToggling}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-            padding: "0.5rem",
-            borderRadius: 8,
-            border: "none",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            cursor: isToggling ? "not-allowed" : "pointer",
-            background: bot.enabled
-              ? "linear-gradient(135deg, #ef4444, #dc2626)"
-              : "linear-gradient(135deg, #22c55e, #16a34a)",
-            color: "white",
-            opacity: isToggling ? 0.7 : 1,
-            transition: "all 0.2s"
-          }}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border-none text-sm font-semibold transition-all duration-200",
+            bot.enabled
+              ? "bg-gradient-to-br from-danger to-red-600 text-white"
+              : "bg-gradient-to-br from-success to-green-600 text-white",
+            isToggling && "opacity-70 cursor-not-allowed"
+          )}
         >
           {isToggling ? (
             <span>...</span>
@@ -262,18 +235,10 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
         </button>
         <button
           onClick={() => setShowDebug(!showDebug)}
-          style={{
-            padding: "0.5rem 0.75rem",
-            borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: showDebug ? "var(--glass-bg)" : "transparent",
-            color: "var(--text-secondary)",
-            fontSize: "0.75rem",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.25rem"
-          }}
+          className={cn(
+            "px-3 py-2 rounded-lg border border-border text-sm cursor-pointer flex items-center gap-1 transition-colors",
+            showDebug ? "bg-surface-elevated text-foreground" : "bg-transparent text-muted-foreground"
+          )}
         >
           Debug
           {showDebug ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -282,56 +247,41 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
       {/* Debug Panel */}
       {showDebug && (
-        <div style={{
-          padding: "0.75rem",
-          background: "rgba(0,0,0,0.3)",
-          borderRadius: 8,
-          fontSize: "0.75rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.5rem"
-        }}>
-          <div style={{ fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.25rem" }}>
-            Debug Info
-          </div>
+        <div className="p-3 bg-black/30 rounded-lg text-xs flex flex-col gap-2 animate-slide-up">
+          <div className="font-semibold text-muted-foreground">Debug Info</div>
 
           {/* Bot State */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.25rem" }}>
-            <div style={{ color: "var(--text-muted)" }}>Status:</div>
-            <div style={{ color: bot.enabled ? "#22c55e" : "#ef4444" }}>
+          <div className="grid grid-cols-2 gap-1">
+            <div className="text-muted-foreground">Status:</div>
+            <div className={bot.enabled ? "text-success" : "text-danger"}>
               {bot.enabled ? "Running" : "Stopped"}
             </div>
 
-            <div style={{ color: "var(--text-muted)" }}>Interval:</div>
-            <div style={{ fontFamily: "ui-monospace, monospace" }}>{bot.interval}s</div>
+            <div className="text-muted-foreground">Interval:</div>
+            <div className="font-mono">{bot.interval}s</div>
 
-            <div style={{ color: "var(--text-muted)" }}>Bet Size:</div>
-            <div style={{ fontFamily: "ui-monospace, monospace" }}>${bot.betSize.toFixed(2)}</div>
+            <div className="text-muted-foreground">Bet Size:</div>
+            <div className="font-mono">${bot.betSize.toFixed(2)}</div>
 
-            <div style={{ color: "var(--text-muted)" }}>Session:</div>
-            <div style={{ fontFamily: "ui-monospace, monospace" }}>
+            <div className="text-muted-foreground">Session:</div>
+            <div className="font-mono">
               {bot.enabled ? formatDuration(runningTime) : "N/A"}
             </div>
           </div>
 
           {/* Trading Activity Status */}
-          <div style={{
-            marginTop: "0.5rem",
-            padding: "0.5rem",
-            background: "rgba(0,0,0,0.2)",
-            borderRadius: 6
-          }}>
-            <div style={{ color: "var(--text-muted)", marginBottom: "0.25rem" }}>Trading Activity</div>
+          <div className="mt-1 p-2 bg-black/20 rounded-md">
+            <div className="text-muted-foreground mb-1">Trading Activity</div>
             {bot.stats.trades === 0 && runningTime > 30000 ? (
-              <div style={{ color: "#f59e0b" }}>
-                <AlertCircle className="w-3 h-3" style={{ display: "inline", marginRight: "0.25rem" }} />
+              <div className="text-warning">
+                <AlertCircle className="w-3 h-3 inline mr-1" />
                 No trades yet - {bot.strategy} strategy may be waiting for favorable conditions
               </div>
             ) : bot.stats.trades === 0 ? (
-              <div style={{ color: "var(--text-muted)" }}>Waiting for first trade opportunity...</div>
+              <div className="text-muted-foreground">Waiting for first trade opportunity...</div>
             ) : (
-              <div style={{ color: "#22c55e" }}>
-                <CheckCircle className="w-3 h-3" style={{ display: "inline", marginRight: "0.25rem" }} />
+              <div className="text-success">
+                <CheckCircle className="w-3 h-3 inline mr-1" />
                 Active trading - {bot.stats.trades} trade{bot.stats.trades > 1 ? "s" : ""} executed
               </div>
             )}
@@ -339,15 +289,9 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
           {/* Strategy Tips */}
           {bot.stats.trades === 0 && runningTime > 60000 && (
-            <div style={{
-              marginTop: "0.25rem",
-              padding: "0.5rem",
-              background: "rgba(59, 130, 246, 0.1)",
-              borderRadius: 6,
-              border: "1px solid rgba(59, 130, 246, 0.2)"
-            }}>
-              <div style={{ color: "#3b82f6", fontWeight: 500, marginBottom: "0.25rem" }}>Suggestions</div>
-              <ul style={{ margin: 0, paddingLeft: "1rem", color: "var(--text-secondary)" }}>
+            <div className="mt-1 p-2 bg-primary/10 rounded-md border border-primary/20">
+              <div className="text-primary font-medium mb-1">Suggestions</div>
+              <ul className="m-0 pl-4 text-muted-foreground list-disc">
                 <li>Try adjusting bet size or interval</li>
                 <li>Check if market conditions suit the strategy</li>
                 <li>Consider switching to a more active strategy</li>

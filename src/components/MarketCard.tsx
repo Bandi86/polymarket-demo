@@ -1,4 +1,7 @@
 import { TrendingUp, TrendingDown, Clock, Volume2, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
+import { Sparkline } from "@/components/charts/Sparkline";
 import type { MarketData } from "../hooks/useTradingData";
 
 interface MarketCardProps {
@@ -9,7 +12,8 @@ interface MarketCardProps {
   noPriceDirection: "up" | "down" | null;
   coinColor: string;
   selectedAsset: string;
-  selectedTimeframe: string;
+  selectedTimeframe?: string;
+  priceHistory?: number[];
 }
 
 function formatCountdown(ms: number): string {
@@ -28,143 +32,148 @@ export function MarketCard({
   noPriceDirection,
   coinColor,
   selectedAsset,
-  selectedTimeframe,
+  selectedTimeframe: _selectedTimeframe,
+  priceHistory,
 }: MarketCardProps) {
   const timeRemaining = marketData?.timeRemaining || 0;
   const market = marketData?.market;
-  
+
   const isUrgent = timeRemaining < 60000;
   const isWarning = timeRemaining < 300000;
 
+  const yesRoi = yesPrice > 0 ? ((1 / yesPrice - 1) * 100) : 0;
+  const noRoi = noPrice > 0 ? ((1 / noPrice - 1) * 100) : 0;
+
   return (
-    <div className="glass-card" style={{ padding: "1.25rem" }}>
+    <div className="glass-card p-5 rounded-xl">
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 style={{ fontSize: "1.125rem", fontWeight: 700, marginBottom: "0.25rem" }}>
+          <h2 className="text-lg font-bold">
             <span style={{ color: coinColor }}>{selectedAsset}</span>
-            <span style={{ color: "var(--text-secondary)", fontWeight: 400, marginLeft: "0.5rem" }}>Up/Down</span>
+            <span className="text-muted-foreground font-normal ml-2">Up/Down</span>
           </h2>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", maxWidth: 250, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <p className="text-xs text-muted-foreground max-w-[250px] truncate">
             {market?.question || `Will ${selectedAsset} go up or down?`}
           </p>
         </div>
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.375rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: 6,
-          background: isUrgent ? "rgba(239, 68, 68, 0.15)" : isWarning ? "rgba(251, 191, 36, 0.15)" : "var(--glass-bg)",
-          color: isUrgent ? "var(--red)" : isWarning ? "var(--orange)" : "var(--text-muted)",
-          fontSize: "0.8rem",
-          fontWeight: 500,
-        }}>
+        <div
+          className={cn(
+            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium",
+            isUrgent && "bg-danger/15 text-danger",
+            isWarning && !isUrgent && "bg-warning/15 text-warning",
+            !isWarning && !isUrgent && "bg-surface-elevated text-muted-foreground"
+          )}
+        >
           <Clock className="w-3.5 h-3.5" />
-          <span style={{ fontFamily: "monospace", fontSize: "0.9rem" }}>{formatCountdown(timeRemaining)}</span>
+          <span className="font-mono">{formatCountdown(timeRemaining)}</span>
         </div>
       </div>
 
+      {/* Price History Sparkline */}
+      {priceHistory && priceHistory.length >= 2 && (
+        <div className="mb-4">
+          <Sparkline
+            data={priceHistory}
+            width={280}
+            height={40}
+            trend={yesPriceDirection || undefined}
+          />
+        </div>
+      )}
+
       {/* Price Display */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+      <div className="grid grid-cols-2 gap-3 mb-4">
         {/* UP / YES */}
         <div
-          style={{
-            padding: "1rem",
-            borderRadius: 10,
-            background: "rgba(34, 197, 94, 0.08)",
-            border: "1px solid rgba(34, 197, 94, 0.2)",
-            transition: "all 0.3s",
-          }}
+          className={cn(
+            "p-4 rounded-lg border transition-all duration-300",
+            yesPriceDirection === "up" && "ring-2 ring-success/30",
+            "bg-success/5 border-success/20"
+          )}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem" }}>
-            <TrendingUp className="w-4 h-4" style={{ color: "var(--green)" }} />
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--green)", letterSpacing: "0.05em" }}>UP</span>
+          <div className="flex items-center gap-1.5 mb-2">
+            <TrendingUp className="w-4 h-4 text-success" />
+            <span className="text-xs font-semibold text-success tracking-wider">UP</span>
           </div>
           <div
-            className={yesPriceDirection === "up" ? "price-flash-up" : yesPriceDirection === "down" ? "price-flash-down" : ""}
-            style={{
-              fontSize: "1.75rem",
-              fontWeight: 700,
-              fontFamily: "monospace",
-              color: "var(--green)",
-              transition: "all 0.3s",
-            }}
+            className={cn(
+              "text-2xl font-bold font-mono text-success transition-all duration-300",
+              yesPriceDirection === "up" && "scale-105",
+              yesPriceDirection === "down" && "opacity-75"
+            )}
           >
-            {(yesPrice * 100).toFixed(1)}¢
+            <AnimatedCounter
+              value={yesPrice * 100}
+              format="number"
+              decimals={1}
+            />
+            <span className="text-base">¢</span>
           </div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-            ROI: {((1/yesPrice - 1) * 100).toFixed(0)}%
+          <div className="text-xs text-muted-foreground mt-1">
+            ROI: <span className="text-success font-medium">{yesRoi.toFixed(0)}%</span>
           </div>
         </div>
 
         {/* DOWN / NO */}
         <div
-          style={{
-            padding: "1rem",
-            borderRadius: 10,
-            background: "rgba(239, 68, 68, 0.08)",
-            border: "1px solid rgba(239, 68, 68, 0.2)",
-            transition: "all 0.3s",
-          }}
+          className={cn(
+            "p-4 rounded-lg border transition-all duration-300",
+            noPriceDirection === "up" && "ring-2 ring-danger/30",
+            "bg-danger/5 border-danger/20"
+          )}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem" }}>
-            <TrendingDown className="w-4 h-4" style={{ color: "var(--red)" }} />
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--red)", letterSpacing: "0.05em" }}>DOWN</span>
+          <div className="flex items-center gap-1.5 mb-2">
+            <TrendingDown className="w-4 h-4 text-danger" />
+            <span className="text-xs font-semibold text-danger tracking-wider">DOWN</span>
           </div>
           <div
-            className={noPriceDirection === "up" ? "price-flash-up" : noPriceDirection === "down" ? "price-flash-down" : ""}
-            style={{
-              fontSize: "1.75rem",
-              fontWeight: 700,
-              fontFamily: "monospace",
-              color: "var(--red)",
-              transition: "all 0.3s",
-            }}
+            className={cn(
+              "text-2xl font-bold font-mono text-danger transition-all duration-300",
+              noPriceDirection === "up" && "scale-105",
+              noPriceDirection === "down" && "opacity-75"
+            )}
           >
-            {(noPrice * 100).toFixed(1)}¢
+            <AnimatedCounter
+              value={noPrice * 100}
+              format="number"
+              decimals={1}
+            />
+            <span className="text-base">¢</span>
           </div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-            ROI: {((1/noPrice - 1) * 100).toFixed(0)}%
+          <div className="text-xs text-muted-foreground mt-1">
+            ROI: <span className="text-danger font-medium">{noRoi.toFixed(0)}%</span>
           </div>
         </div>
       </div>
 
       {/* Probability Bar */}
-      <div style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", marginBottom: "0.375rem" }}>
-          <span style={{ color: "var(--green)", fontWeight: 600 }}>{(yesPrice * 100).toFixed(1)}%</span>
-          <span style={{ color: "var(--red)", fontWeight: 600 }}>{(noPrice * 100).toFixed(1)}%</span>
+      <div className="mb-4">
+        <div className="flex justify-between text-xs font-semibold mb-1.5">
+          <span className="text-success">{(yesPrice * 100).toFixed(1)}%</span>
+          <span className="text-danger">{(noPrice * 100).toFixed(1)}%</span>
         </div>
-        <div style={{ 
-          height: 6, 
-          borderRadius: 3, 
-          background: "var(--red)", 
-          overflow: "hidden",
-          display: "flex",
-        }}>
-          <div style={{ 
-            width: `${yesPrice * 100}%`, 
-            height: "100%", 
-            background: "var(--green)",
-            transition: "width 0.3s",
-          }} />
+        <div className="h-1.5 rounded-full bg-danger overflow-hidden flex">
+          <div
+            className="h-full bg-success transition-all duration-500 ease-out"
+            style={{ width: `${yesPrice * 100}%` }}
+          />
         </div>
       </div>
 
       {/* Market Info */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", fontSize: "0.75rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", color: "var(--text-muted)" }}>
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
           <Volume2 className="w-3.5 h-3.5" />
           <span>Vol:</span>
-          <span style={{ fontFamily: "monospace", color: "var(--text)" }}>
+          <span className="font-mono text-foreground">
             ${((market?.volumeNum || market?.liquidity || 0) / 1000).toFixed(1)}K
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", color: "var(--text-muted)" }}>
-          <RefreshCw className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: "3s" }} />
           <span>Status:</span>
-          <span style={{ color: "var(--green)", fontWeight: 500 }}>Live</span>
+          <span className="text-success font-medium">Live</span>
         </div>
       </div>
     </div>
