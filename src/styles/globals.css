@@ -40,6 +40,26 @@
   --down: 0 84% 60%;
 }
 
+/* Design Tokens - Extended */
+:root {
+  /* Strategy Colors */
+  --color-strategy-momentum: hsl(45 93% 47%);
+  --color-strategy-mean-reversion: hsl(280 65% 60%);
+  --color-strategy-arb: hsl(170 75% 41%);
+  --color-strategy-whale: hsl(330 80% 55%);
+  --color-strategy-ta: hsl(217 91% 60%);
+  --color-strategy-maker: hsl(142 71% 45%);
+
+  /* Animation Timings */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+
+  /* Font Families */
+  --font-display: Inter, system-ui, sans-serif;
+  --font-mono: JetBrains Mono, ui-monospace, monospace;
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -72,6 +92,14 @@
   --color-btc-muted: hsl(32 100% 50% / 0.1);
   --color-up: hsl(var(--up));
   --color-down: hsl(var(--down));
+
+  /* Strategy colors */
+  --color-strategy-momentum: hsl(45 93% 47%);
+  --color-strategy-mean-reversion: hsl(280 65% 60%);
+  --color-strategy-arb: hsl(170 75% 41%);
+  --color-strategy-whale: hsl(330 80% 55%);
+  --color-strategy-ta: hsl(217 91% 60%);
+  --color-strategy-maker: hsl(142 71% 45%);
 
   /* Additional custom properties used in App.tsx */
   --color-surface: hsl(222 47% 7%);
