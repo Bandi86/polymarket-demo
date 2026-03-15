@@ -6,12 +6,13 @@ export type { Portfolio, Market, BotLog } from "../types";
 
 export interface MarketData {
   market: Market | null;
-  btcPrice: number;
+  spotPrice: number;
   priceHistory: { timestamp: number; price: number }[];
   yesPriceHistory?: { timestamp: number; price: number }[];
   timeRemaining: number;
   marketDuration: number;
   startedAt: number;
+  priceToBeat?: number;
 }
 
 export interface MarketHistory {
@@ -30,6 +31,8 @@ export interface BotData {
   enabled: boolean;
   interval: number;
   betSize: number;
+  useKelly?: boolean;
+  kellyFraction?: number;
   runTime?: number;
   stats: {
     trades: number;
@@ -37,6 +40,11 @@ export interface BotData {
     losses: number;
     pnl: number;
     winRate: number;
+    avgWin: number;
+    avgLoss: number;
+    profitFactor: number;
+    maxConsecutiveWins: number;
+    maxConsecutiveLosses: number;
   };
   portfolio: {
     balance: number;
@@ -44,6 +52,9 @@ export interface BotData {
     totalTrades: number;
     winRate: number;
     roi: number;
+    maxDrawdown?: number;
+    sharpeRatio?: number;
+    closedPositions?: unknown[];
   };
 }
 
@@ -79,6 +90,7 @@ export function useTradingData() {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [apiLatency, setApiLatency] = useState(0);
   const [isBotRunning, setIsBotRunning] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState(0);
 
   // Price animation state
   const [yesPriceDirection, setYesPriceDirection] = useState<"up" | "down" | null>(null);
@@ -112,7 +124,30 @@ export function useTradingData() {
       const botsJson = await botsRes.json();
       const historyJson = await historyRes.json();
 
-      setMarketData(marketJson);
+      if (marketJson && marketJson.market) {
+        const primaryMarket = marketJson.market;
+        setMarketData({
+          market: primaryMarket,
+          spotPrice: marketJson.btcPrice || primaryMarket.spotPrice || 0,
+          priceHistory: primaryMarket.priceHistory || [],
+          timeRemaining: marketJson.timeRemaining || primaryMarket.timeRemaining || 0,
+          marketDuration: marketJson.marketDuration || 0,
+          startedAt: marketJson.startedAt || 0,
+          priceToBeat: primaryMarket.priceToBeat || marketJson.priceToBeat,
+        });
+        
+        // Sync prices from GET /api/market
+        const yPrice = primaryMarket.yesPrice || parseFloat(primaryMarket.outcomePrices?.yes || '0.5');
+        const nPrice = primaryMarket.noPrice || parseFloat(primaryMarket.outcomePrices?.no || '0.5');
+        
+        setYesPrice(yPrice);
+        setNoPrice(nPrice);
+        prevYesPrice.current = yPrice;
+        prevNoPrice.current = nPrice;
+      } else {
+        setMarketData(null); 
+      }
+
       setPortfolio(portfolioJson);
       setBots(botsJson);
       setMarketHistory(historyJson);
@@ -170,40 +205,56 @@ export function useTradingData() {
     eventSource.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === "market" && message.data) {
+
+        // Handle connected or market messages
+        if ((message.type === "market" || message.type === "connected") && message.data) {
           const newYesPrice = message.data.yesPrice;
           const newNoPrice = message.data.noPrice;
 
-          // Detect price direction for animation
+          // Update time remaining
+          if (message.data.timeRemaining !== undefined) {
+            setTimeRemaining(message.data.timeRemaining);
+          }
+
+          // Detect price direction for animation (keep this separate for micro-animations)
           if (newYesPrice > prevYesPrice.current) {
             setYesPriceDirection("up");
-            setTimeout(() => setYesPriceDirection(null), 500);
+            setTimeout(() => setYesPriceDirection(null), 400);
           } else if (newYesPrice < prevYesPrice.current) {
             setYesPriceDirection("down");
-            setTimeout(() => setYesPriceDirection(null), 500);
+            setTimeout(() => setYesPriceDirection(null), 400);
           }
 
           if (newNoPrice > prevNoPrice.current) {
             setNoPriceDirection("up");
-            setTimeout(() => setNoPriceDirection(null), 500);
+            setTimeout(() => setNoPriceDirection(null), 400);
           } else if (newNoPrice < prevNoPrice.current) {
             setNoPriceDirection("down");
-            setTimeout(() => setNoPriceDirection(null), 500);
+            setTimeout(() => setNoPriceDirection(null), 400);
           }
 
           prevYesPrice.current = newYesPrice;
           prevNoPrice.current = newNoPrice;
 
+          // Batch state updates
           setYesPrice(newYesPrice);
           setNoPrice(newNoPrice);
           setLastUpdate(message.data.timestamp);
 
           // Update market data if exists
-          setMarketData(prev => prev ? {
-            ...prev,
-            btcPrice: message.data.btcPrice,
-            timeRemaining: message.data.timeRemaining,
-          } : null);
+          setMarketData(prev => {
+            const hasNewMarket = message.data.market;
+            const pm = hasNewMarket || prev?.market;
+
+            return {
+              market: pm,
+              spotPrice: message.data.btcPrice || pm?.spotPrice || 0,
+              priceHistory: pm?.priceHistory || prev?.priceHistory || [],
+              timeRemaining: message.data.timeRemaining || pm?.timeRemaining || 0,
+              marketDuration: message.data.marketDuration || pm?.marketDuration || 0,
+              startedAt: message.data.startedAt || pm?.startedAt || 0,
+            };
+          });
         }
 
         // Handle bot log events
@@ -260,6 +311,7 @@ export function useTradingData() {
     yesPriceDirection,
     noPriceDirection,
     pnlHistory,
+    timeRemaining,
     fetchData,
     addTradeEvent,
     updateBotState,

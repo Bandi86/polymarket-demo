@@ -1,13 +1,8 @@
 // Feature Components
 export { PriceChart } from "./price-chart";
 export { StatsGrid } from "./stats-grid";
-export { MarketCard } from "./market-card";
-export { StrategyPanel } from "./strategy-panel";
-export { PositionsList } from "./positions-list";
-export { TradeHistory } from "./trade-history";
+export { MarketCard } from "./MarketCard";
 export { QuickActions } from "./quick-actions";
-export { BotManagement } from "./bot-management";
-export { BotSummary } from "./bot-summary";
 export { MarketHistory } from "./market-history";
 
 // UI Components

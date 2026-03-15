@@ -59,14 +59,14 @@ function calculateRSI(prices: number[], period: number = 14): number {
 const strategies: Record<StrategyType, Strategy> = {
   momentum_chaser: {
     name: "Momentum Chaser",
-    description: "Computes BTC price delta from window open; enters at T−30s",
+    description: "Computes BTC price delta from window open; enters at T−60s",
     category: "momentum",
     execute: (ctx) => {
       const { timeRemaining, btcPrice, btcPriceChange, marketPrice } = ctx;
 
-      // Only trade in last 30 seconds
-      if (timeRemaining > 30000 || timeRemaining < 5000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (T-30s)" };
+      // Extended entry window: T-60s to T-5s
+      if (timeRemaining > 60000 || timeRemaining < 5000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (T-60s)" };
       }
 
       // Need BTC price change data
@@ -74,8 +74,8 @@ const strategies: Record<StrategyType, Strategy> = {
         return { action: null, confidence: 0, reason: "No BTC price data" };
       }
 
-      // Threshold: 0.02% delta
-      const threshold = 0.0002; // 0.02%
+      // Lowered threshold: 0.01% delta (was 0.02%)
+      const threshold = 0.0001; // 0.01%
       const delta = btcPriceChange;
 
       // Skip if flat market
@@ -85,14 +85,9 @@ const strategies: Record<StrategyType, Strategy> = {
 
       // Determine direction
       const action = delta > 0 ? "YES" : "NO";
-      const targetPrice = action === "YES" ? marketPrice?.yesPrice : marketPrice?.noPrice;
 
-      // Skip if token too expensive (> 0.88)
-      if (targetPrice && targetPrice > 0.88) {
-        return { action: null, confidence: 0, reason: `Token too expensive: ${(targetPrice * 100).toFixed(0)}¢` };
-      }
-
-      const confidence = Math.min(0.75, Math.abs(delta) * 1000);
+      // Calculate confidence based on momentum strength
+      const confidence = Math.min(0.75, 0.5 + Math.abs(delta) * 500);
 
       return {
         action,
@@ -104,7 +99,7 @@ const strategies: Record<StrategyType, Strategy> = {
 
   mean_reversion_sniper: {
     name: "Mean Reversion Sniper",
-    description: "Fades spikes when one token exceeds 0.93 without a real BTC move",
+    description: "Fades spikes when one token exceeds 0.88 without a real BTC move",
     category: "mean_reversion",
     execute: (ctx) => {
       const { marketPrice, btcPriceChange, timeRemaining } = ctx;
@@ -116,27 +111,29 @@ const strategies: Record<StrategyType, Strategy> = {
       const yesPrice = marketPrice?.yesPrice || 0.5;
       const noPrice = marketPrice?.noPrice || 0.5;
 
-      // Check for spike: one token > 0.93
-      const hasSpike = yesPrice > 0.93 || noPrice > 0.93;
+      // Lowered spike threshold: 88% (was 93%)
+      const hasSpike = yesPrice > 0.88 || noPrice > 0.88;
       if (!hasSpike) {
-        return { action: null, confidence: 0, reason: "No spike detected" };
+        return { action: null, confidence: 0, reason: `No spike detected (need >88%)` };
       }
 
-      // Check BTC delta: must be flat (< 0.01%)
+      // Increased BTC delta tolerance: 0.03% (was 0.01%)
       const btcDelta = Math.abs(btcPriceChange || 0);
-      if (btcDelta > 0.0001) {
+      if (btcDelta > 0.0003) {
         return { action: null, confidence: 0, reason: `BTC moved: ${(btcDelta * 100).toFixed(3)}%` };
       }
 
       // Fade the spike: buy the cheaper token
-      const action = yesPrice > 0.93 ? "NO" : "YES";
+      const action = yesPrice > 0.88 ? "NO" : "YES";
       const targetPrice = action === "YES" ? yesPrice : noPrice;
 
-      const confidence = 0.6 + (0.93 - targetPrice);
+      // Higher confidence for larger spikes
+      const spikeSize = Math.max(yesPrice, noPrice) - 0.88;
+      const confidence = Math.min(0.85, 0.55 + spikeSize * 2);
 
       return {
         action,
-        confidence: Math.min(0.8, confidence),
+        confidence,
         reason: `Fade spike: ${action === "YES" ? "YES" : "NO"} at ${(targetPrice * 100).toFixed(0)}¢`,
       };
     },
@@ -144,7 +141,7 @@ const strategies: Record<StrategyType, Strategy> = {
 
   sum_to_one_arb: {
     name: "Sum-to-One Arbitrage",
-    description: "Buys both UP and DOWN when combined asks < $0.98 — guaranteed edge",
+    description: "Buys both UP and DOWN when combined asks < $0.99 — guaranteed edge",
     category: "arbitrage",
     execute: (ctx) => {
       const { marketPrice, orderBook, timeRemaining } = ctx;
@@ -171,15 +168,15 @@ const strategies: Record<StrategyType, Strategy> = {
 
       const sum = yesAsk + noAsk;
 
-      // Check for arbitrage opportunity: sum < 0.98
-      if (sum >= 0.98) {
+      // Increased threshold: 99% (was 98%)
+      if (sum >= 0.99) {
         return { action: null, confidence: 0, reason: `No arb: sum=${(sum * 100).toFixed(1)}%` };
       }
 
       const edge = 1 - sum;
-      const confidence = Math.min(0.95, edge * 20);
+      const confidence = Math.min(0.95, 0.6 + edge * 20);
 
-      // Buy the cheaper one (higher edge)
+      // Buy the cheaper one for higher potential return
       const action = yesAsk < noAsk ? "YES" : "NO";
 
       return {
@@ -192,30 +189,59 @@ const strategies: Record<StrategyType, Strategy> = {
 
   whale_follower: {
     name: "Whale Follower",
-    description: "WebSocket listener that copies trades > $200 from high-win-rate wallets",
+    description: "Follows whale signals or BTC momentum as fallback",
     category: "social",
     execute: (ctx) => {
-      const { timeRemaining, binanceSignal } = ctx;
+      const { timeRemaining, binanceSignal, btcPriceChange, marketPrice } = ctx;
 
       if (timeRemaining < 5000) {
         return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // For now, use binanceSignal as proxy for whale activity
-      // In production, this would connect to Polymarket WebSocket
-      if (!binanceSignal || binanceSignal.type === "NEUTRAL") {
-        return { action: null, confidence: 0, reason: "No whale activity detected" };
+      // Primary: Use binanceSignal if available
+      if (binanceSignal && binanceSignal.type !== "NEUTRAL") {
+        const action = binanceSignal.predictedOutcome ||
+          (binanceSignal.type === "UP" ? "YES" : "NO");
+
+        return {
+          action,
+          confidence: binanceSignal.confidence * 0.8,
+          reason: `Following whale signal: ${binanceSignal.type}`,
+        };
       }
 
-      // Simulate following a whale trade
-      const action = binanceSignal.predictedOutcome ||
-        (binanceSignal.type === "UP" ? "YES" : "NO");
+      // Fallback: Use BTC price momentum
+      if (btcPriceChange !== undefined && btcPriceChange !== null) {
+        const threshold = 0.0005; // 0.05% threshold for momentum
+        if (Math.abs(btcPriceChange) > threshold) {
+          const action = btcPriceChange > 0 ? "YES" : "NO";
+          const confidence = Math.min(0.65, 0.4 + Math.abs(btcPriceChange) * 200);
+          return {
+            action,
+            confidence,
+            reason: `BTC momentum fallback: ${btcPriceChange > 0 ? "+" : ""}${(btcPriceChange * 100).toFixed(3)}%`,
+          };
+        }
+      }
 
-      return {
-        action,
-        confidence: binanceSignal.confidence * 0.8, // Lower confidence for copy-trading
-        reason: `Following whale signal: ${binanceSignal.type}`,
-      };
+      // Secondary fallback: Follow price imbalance
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      if (yesPrice > 0.65) {
+        return {
+          action: "NO",
+          confidence: 0.5,
+          reason: `Price imbalance: YES at ${(yesPrice * 100).toFixed(0)}¢`,
+        };
+      }
+      if (yesPrice < 0.35) {
+        return {
+          action: "YES",
+          confidence: 0.5,
+          reason: `Price imbalance: YES at ${(yesPrice * 100).toFixed(0)}¢`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "No whale activity or momentum detected" };
     },
   },
 
@@ -230,29 +256,29 @@ const strategies: Record<StrategyType, Strategy> = {
         return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // Need at least 21 candles for EMA21
-      if (priceHistory.length < 21) {
-        return { action: null, confidence: 0, reason: `Insufficient data: ${priceHistory.length} candles` };
+      // Reduced required candles: 14 (was 21)
+      if (priceHistory.length < 14) {
+        return { action: null, confidence: 0, reason: `Insufficient data: ${priceHistory.length} candles (need 14)` };
       }
 
       // Calculate EMAs
       const ema9 = calculateEMA(priceHistory, 9);
-      const ema21 = calculateEMA(priceHistory, 21);
+      const ema21 = calculateEMA(priceHistory, 14); // Use 14 instead of 21
 
       // Calculate RSI
       const rsi = calculateRSI(priceHistory, 14);
 
-      // Check for extreme RSI (skip)
-      if (rsi > 80) {
+      // Widened RSI bands: 15-85 (was 20-80)
+      if (rsi > 85) {
         return { action: null, confidence: 0, reason: `RSI overbought: ${rsi.toFixed(1)}` };
       }
-      if (rsi < 20) {
+      if (rsi < 15) {
         return { action: null, confidence: 0, reason: `RSI oversold: ${rsi.toFixed(1)}` };
       }
 
       // Bullish: EMA9 > EMA21 and RSI not overbought
-      if (ema9 > ema21 && rsi < 70) {
-        const confidence = 0.55 + (ema9 - ema21) / ema21 * 100;
+      if (ema9 > ema21 && rsi < 75) {
+        const confidence = 0.5 + (ema9 - ema21) / ema21 * 50;
         return {
           action: "YES",
           confidence: Math.min(0.8, confidence),
@@ -261,8 +287,8 @@ const strategies: Record<StrategyType, Strategy> = {
       }
 
       // Bearish: EMA9 < EMA21 and RSI not oversold
-      if (ema9 < ema21 && rsi > 30) {
-        const confidence = 0.55 + (ema21 - ema9) / ema21 * 100;
+      if (ema9 < ema21 && rsi > 25) {
+        const confidence = 0.5 + (ema21 - ema9) / ema21 * 50;
         return {
           action: "NO",
           confidence: Math.min(0.8, confidence),
@@ -452,12 +478,12 @@ export class BotManager {
 
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
-      { id: "bot-momentum-chaser", name: "BOT-01: Momentum Chaser", strategy: "momentum_chaser", interval: 30000, betSize: 5, maxBet: 10 },
-      { id: "bot-mean-reversion-sniper", name: "BOT-02: Mean Reversion Sniper", strategy: "mean_reversion_sniper", interval: 5000, betSize: 3, maxBet: 5 },
-      { id: "bot-sum-to-one-arb", name: "BOT-03: Sum-to-One Arbitrage", strategy: "sum_to_one_arb", interval: 2000, betSize: 10, maxBet: 20 },
-      { id: "bot-whale-follower", name: "BOT-04: Whale Follower", strategy: "whale_follower", interval: 1000, betSize: 5, maxBet: 15 },
-      { id: "bot-ta-signal-engine", name: "BOT-05: TA Signal Engine", strategy: "ta_signal_engine", interval: 5000, betSize: 4, maxBet: 8 },
-      { id: "bot-market-maker", name: "BOT-06: Market Maker", strategy: "market_maker", interval: 3000, betSize: 5, maxBet: 10 },
+      { id: "bot-momentum-chaser", name: "BOT-01: Momentum Chaser", strategy: "momentum_chaser", interval: 30000, betSize: 5, maxBet: 10, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-mean-reversion-sniper", name: "BOT-02: Mean Reversion Sniper", strategy: "mean_reversion_sniper", interval: 5000, betSize: 3, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-sum-to-one-arb", name: "BOT-03: Sum-to-One Arbitrage", strategy: "sum_to_one_arb", interval: 2000, betSize: 10, maxBet: 20, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-whale-follower", name: "BOT-04: Whale Follower", strategy: "whale_follower", interval: 1000, betSize: 5, maxBet: 15, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-ta-signal-engine", name: "BOT-05: TA Signal Engine", strategy: "ta_signal_engine", interval: 5000, betSize: 4, maxBet: 8, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-market-maker", name: "BOT-06: Market Maker", strategy: "market_maker", interval: 3000, betSize: 5, maxBet: 10, useKelly: true, kellyFraction: 0.5 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -516,25 +542,66 @@ export class BotManager {
   getBots(): BotConfig[] {
     return Array.from(this.bots.values()).map((bot) => {
       const portfolio = marketEngine.getBotPortfolio(bot.id);
+      this.syncStatsFromPortfolio(bot.id);
       return {
         ...bot,
         portfolio,
-        // Sync stats from portfolio for accurate win rate
-        stats: {
-          trades: portfolio.totalTrades,
-          wins: portfolio.winningTrades,
-          losses: portfolio.losingTrades,
-          pnl: portfolio.totalPnL,
-          winRate: portfolio.winRate,
-          avgWin: bot.stats.avgWin,
-          avgLoss: bot.stats.avgLoss,
-          profitFactor: bot.stats.profitFactor,
-          maxConsecutiveWins: bot.stats.maxConsecutiveWins,
-          maxConsecutiveLosses: bot.stats.maxConsecutiveLosses,
-          lastTradeTime: bot.stats.lastTradeTime,
-        },
+        stats: { ...bot.stats },
       };
     });
+  }
+
+  /** Recompute bot stats from settled portfolio positions (source of truth) */
+  private syncStatsFromPortfolio(botId: string): void {
+    const bot = this.bots.get(botId);
+    if (!bot) return;
+
+    const portfolio = marketEngine.getBotPortfolio(botId);
+    const closedPositions = portfolio.closedPositions || [];
+
+    bot.stats.trades = portfolio.totalTrades;
+    bot.stats.wins = portfolio.winningTrades;
+    bot.stats.losses = portfolio.losingTrades;
+    bot.stats.pnl = portfolio.totalPnL;
+    bot.stats.winRate = portfolio.winRate;
+
+    // Recompute avgWin/avgLoss from closed positions
+    const wins = closedPositions.filter(p => (p.pnl || 0) > 0);
+    const losses = closedPositions.filter(p => (p.pnl || 0) <= 0 && p.pnl !== null);
+
+    bot.stats.avgWin = wins.length > 0
+      ? wins.reduce((s, p) => s + (p.pnl || 0), 0) / wins.length
+      : 0;
+    bot.stats.avgLoss = losses.length > 0
+      ? Math.abs(losses.reduce((s, p) => s + (p.pnl || 0), 0) / losses.length)
+      : 0;
+
+    // Profit factor = gross profit / gross loss
+    const grossProfit = wins.reduce((s, p) => s + (p.pnl || 0), 0);
+    const grossLoss = Math.abs(losses.reduce((s, p) => s + (p.pnl || 0), 0));
+    bot.stats.profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0;
+
+    // Consecutive wins/losses
+    let currentStreak = 0;
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    for (const pos of closedPositions) {
+      if ((pos.pnl || 0) > 0) {
+        currentStreak = currentStreak > 0 ? currentStreak + 1 : 1;
+        maxWinStreak = Math.max(maxWinStreak, currentStreak);
+      } else {
+        currentStreak = currentStreak < 0 ? currentStreak - 1 : -1;
+        maxLossStreak = Math.max(maxLossStreak, Math.abs(currentStreak));
+      }
+    }
+    bot.stats.maxConsecutiveWins = maxWinStreak;
+    bot.stats.maxConsecutiveLosses = maxLossStreak;
+
+    if (closedPositions.length > 0) {
+      bot.stats.lastTradeTime = closedPositions[0].exitTime || closedPositions[0].timestamp;
+    }
+
+    this.bots.set(botId, bot);
   }
 
   getBot(id: string): BotConfig | undefined {
@@ -787,19 +854,52 @@ export class BotManager {
       reason: decision.reason,
       yesPrice,
       noPrice,
+      timeRemaining,
+      volatility: volatility.toFixed(4),
+      momentum: momentum.toFixed(4),
+      btcPriceChange: (btcPriceChange * 100).toFixed(3) + '%',
     });
 
     // Calculate bet size
     let betSize = bot.betSize;
 
-    if (bot.useKelly) {
+    // Kelly criterion for position sizing
+    // f* = (p*b - q) / b where p=win prob, q=loss prob, b=net odds
+    // For prediction markets: if betting YES at price P, you win (1-P)/P per unit bet
+    if (bot.useKelly || bot.useKelly === undefined) {
       const portfolio = marketEngine.getBotPortfolio(id);
-      const edge = Math.abs(yesPrice - 0.5);
-      const odds = decision.action === "YES" ? yesPrice : noPrice;
 
-      const kellyBet = portfolio.balance * edge * (bot.kellyFraction || 0.25);
-      betSize = Math.min(kellyBet, bot.maxBet || betSize, portfolio.balance * 0.1);
+      // Use historical win rate if available, otherwise use price-based probability
+      const botStats = bot.stats;
+      const winProbability = botStats.trades >= 5
+        ? botStats.winRate
+        : (decision.action === "YES" ? 1 - yesPrice : 1 - noPrice);
+
+      // Net odds: amount won per unit bet
+      // If YES at 0.60, you pay 0.60 to win 1.00, so net odds = (1-0.60)/0.60 = 0.67
+      // If NO at 0.40, you pay 0.40 to win 1.00, so net odds = (1-0.40)/0.40 = 1.5
+      const price = decision.action === "YES" ? yesPrice : noPrice;
+      const netOdds = (1 - price) / price;
+
+      // Kelly formula: f* = (p*b - q) / b
+      // where p = winProbability, q = 1 - p, b = netOdds
+      const q = 1 - winProbability;
+      const kellyFraction = (winProbability * netOdds - q) / netOdds;
+
+      // Apply half-Kelly (more conservative) and user's kelly fraction
+      const halfKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5));
+
+      // Calculate bet size
+      const kellyBet = portfolio.balance * halfKelly;
+
+      // Cap at max bet and 25% of bankroll for safety
+      betSize = Math.min(kellyBet, bot.maxBet || betSize, portfolio.balance * 0.25);
       betSize = Math.max(0.1, betSize);
+
+      // Log Kelly calculation for transparency
+      if (kellyBet > 0) {
+        console.log(`[BotManager] Kelly: ${bot.name} | WinProb: ${(winProbability * 100).toFixed(1)}% | Odds: ${netOdds.toFixed(2)} | Fraction: ${(halfKelly * 100).toFixed(1)}% | Bet: $${betSize.toFixed(2)}`);
+      }
     }
 
     // Adjust bet size based on confidence
@@ -832,36 +932,18 @@ export class BotManager {
         fee: position.fee,
         positionId: position.id,
         confidence: decision.confidence,
+        balanceAfter: portfolio.balance - betSize - fee,
+        openPositions: portfolio.openPositions.length + 1,
+        kellyUsed: bot.useKelly,
+        strategy: bot.strategy,
       });
-      this.updateBotStats(id, position);
+      // Note: stats are synced from portfolio on getBots() / after market settlement
+      // Do NOT call updateBotStats here — position.pnl is null at placement time
     }
   }
 
-  private updateBotStats(botId: string, position: Position): void {
-    const bot = this.bots.get(botId);
-    if (!bot) return;
-
-    bot.stats.trades++;
-
-    if (position.pnl !== null) {
-      if (position.pnl > 0) {
-        bot.stats.wins++;
-        bot.stats.avgWin = (bot.stats.avgWin * (bot.stats.wins - 1) + position.pnl) / bot.stats.wins;
-      } else {
-        bot.stats.losses++;
-        bot.stats.avgLoss = (bot.stats.avgLoss * (bot.stats.losses - 1) + Math.abs(position.pnl)) / bot.stats.losses;
-      }
-
-      bot.stats.pnl += position.pnl;
-      bot.stats.winRate = bot.stats.trades > 0 ? bot.stats.wins / bot.stats.trades : 0;
-
-      if (bot.stats.avgLoss > 0) {
-        bot.stats.profitFactor = (bot.stats.wins * bot.stats.avgWin) / (bot.stats.losses * bot.stats.avgLoss);
-      }
-    }
-
-    this.bots.set(botId, bot);
-  }
+  // updateBotStats removed — stats are now derived from portfolio settled positions
+  // via syncStatsFromPortfolio() called in getBots()
 
   updateBotConfig(id: string, updates: Partial<BotConfig>): BotConfig | null {
     const bot = this.bots.get(id);

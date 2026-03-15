@@ -1,9 +1,25 @@
 import { useEffect, useState, useCallback } from "react";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+interface SyncManager {
+  register(tag: string): Promise<void>;
+  getTags(): Promise<string[]>;
+}
+
+declare global {
+  interface ServiceWorkerRegistration {
+    readonly sync: SyncManager;
+  }
+}
+
 interface PWAStatus {
   isInstallable: boolean;
   isInstalled: boolean;
-  deferredPrompt: Event | null;
+  deferredPrompt: BeforeInstallPromptEvent | null;
   updateAvailable: boolean;
 }
 
@@ -24,7 +40,7 @@ export function usePWA() {
     // Listen for beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setStatus((prev) => ({ ...prev, isInstallable: true, deferredPrompt: e }));
+      setStatus((prev) => ({ ...prev, isInstallable: true, deferredPrompt: e as BeforeInstallPromptEvent }));
     };
 
     // Listen for app installed event
@@ -78,7 +94,7 @@ export function usePWA() {
   const install = useCallback(async () => {
     if (!status.deferredPrompt) return false;
 
-    const promptEvent = status.deferredPrompt as any;
+    const promptEvent = status.deferredPrompt as BeforeInstallPromptEvent;
     promptEvent.prompt();
 
     const { outcome } = await promptEvent.userChoice;
@@ -154,7 +170,7 @@ export function useBackgroundSync() {
   const sync = useCallback(async (tag: string) => {
     if ("serviceWorker" in navigator && "SyncManager" in window) {
       const registration = await navigator.serviceWorker.ready;
-      await (registration as any).sync.register(tag);
+      await registration.sync.register(tag);
       return true;
     }
     return false;

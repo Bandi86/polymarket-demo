@@ -1,7 +1,6 @@
-import { TrendingUp, TrendingDown, Clock, Volume2, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
-import { Sparkline } from "@/components/charts/Sparkline";
 import type { MarketData } from "../hooks/useTradingData";
 
 interface MarketCardProps {
@@ -13,7 +12,8 @@ interface MarketCardProps {
   coinColor: string;
   selectedAsset: string;
   selectedTimeframe?: string;
-  priceHistory?: number[];
+  btcPrice?: number;
+  priceToBeat?: number;
 }
 
 function formatCountdown(ms: number): string {
@@ -24,6 +24,13 @@ function formatCountdown(ms: number): string {
   return `0:${seconds.toString().padStart(2, "0")}`;
 }
 
+function formatPrice(price: number): string {
+  if (price >= 1000) {
+    return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return price.toFixed(4);
+}
+
 export function MarketCard({
   marketData,
   yesPrice,
@@ -32,148 +39,210 @@ export function MarketCard({
   noPriceDirection,
   coinColor,
   selectedAsset,
-  selectedTimeframe: _selectedTimeframe,
-  priceHistory,
+  selectedTimeframe,
+  btcPrice,
+  priceToBeat,
 }: MarketCardProps) {
   const timeRemaining = marketData?.timeRemaining || 0;
   const market = marketData?.market;
 
   const isUrgent = timeRemaining < 60000;
-  const isWarning = timeRemaining < 300000;
+  const isWarning = timeRemaining < 120000;
 
-  const yesRoi = yesPrice > 0 ? ((1 / yesPrice - 1) * 100) : 0;
-  const noRoi = noPrice > 0 ? ((1 / noPrice - 1) * 100) : 0;
+  // Calculate price change from price to beat
+  const priceChange = btcPrice && priceToBeat
+    ? ((btcPrice - priceToBeat) / priceToBeat) * 100
+    : 0;
+  const isUp = priceChange >= 0;
 
   return (
-    <div className="glass-card p-5 rounded-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold">
-            <span style={{ color: coinColor }}>{selectedAsset}</span>
-            <span className="text-muted-foreground font-normal ml-2">Up/Down</span>
-          </h2>
-          <p className="text-xs text-muted-foreground max-w-[250px] truncate">
-            {market?.question || `Will ${selectedAsset} go up or down?`}
-          </p>
+    <div className="glass-card rounded-xl overflow-hidden">
+      {/* Header with countdown */}
+      <div className="flex items-center justify-between p-4 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: `${coinColor}20` }}
+          >
+            <span className="font-bold text-sm" style={{ color: coinColor }}>
+              {selectedAsset}
+            </span>
+          </div>
+          <div>
+            <h2 className="font-semibold text-sm">
+              {selectedAsset} Up or Down
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {selectedTimeframe === "5" ? "5 minute" : selectedTimeframe === "15" ? "15 minute" : selectedTimeframe === "60" ? "1 hour" : selectedTimeframe === "240" ? "4 hour" : `${selectedTimeframe}m`} market
+            </p>
+          </div>
         </div>
         <div
           className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium",
-            isUrgent && "bg-danger/15 text-danger",
-            isWarning && !isUrgent && "bg-warning/15 text-warning",
-            !isWarning && !isUrgent && "bg-surface-elevated text-muted-foreground"
+            "flex items-center gap-1.5 px-3 py-2 rounded-lg font-mono text-sm font-bold transition-all",
+            isUrgent && "bg-red-500/20 text-red-400 animate-pulse",
+            isWarning && !isUrgent && "bg-amber-500/20 text-amber-400",
+            !isWarning && !isUrgent && "bg-white/5 text-muted-foreground"
           )}
         >
-          <Clock className="w-3.5 h-3.5" />
-          <span className="font-mono">{formatCountdown(timeRemaining)}</span>
+          <Clock className="w-4 h-4" />
+          <span>{formatCountdown(timeRemaining)}</span>
         </div>
       </div>
 
-      {/* Price History Sparkline */}
-      {priceHistory && priceHistory.length >= 2 && (
-        <div className="mb-4">
-          <Sparkline
-            data={priceHistory}
-            width={280}
-            height={40}
-            trend={yesPriceDirection || undefined}
-          />
-        </div>
-      )}
-
-      {/* Price Display */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        {/* UP / YES */}
-        <div
-          className={cn(
-            "p-4 rounded-lg border transition-all duration-300",
-            yesPriceDirection === "up" && "ring-2 ring-success/30",
-            "bg-success/5 border-success/20"
-          )}
-        >
-          <div className="flex items-center gap-1.5 mb-2">
-            <TrendingUp className="w-4 h-4 text-success" />
-            <span className="text-xs font-semibold text-success tracking-wider">UP</span>
+      {/* Price Info Section */}
+      <div className="p-4 space-y-3">
+        {/* Price to Beat */}
+        {priceToBeat && (
+          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Price to Beat</span>
+            </div>
+            <span className="font-mono font-semibold">
+              ${formatPrice(priceToBeat)}
+            </span>
           </div>
-          <div
+        )}
+
+        {/* Current BTC Price */}
+        {btcPrice && (
+          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Current Price</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-semibold">
+                ${formatPrice(btcPrice)}
+              </span>
+              {priceToBeat && (
+                <span className={cn(
+                  "text-xs font-medium px-1.5 py-0.5 rounded",
+                  isUp ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                )}>
+                  {isUp ? "+" : ""}{priceChange.toFixed(3)}%
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* UP/DOWN Buttons - Polymarket style */}
+      <div className="p-4 pt-0">
+        <div className="grid grid-cols-2 gap-3">
+          {/* UP Button */}
+          <button
             className={cn(
-              "text-2xl font-bold font-mono text-success transition-all duration-300",
-              yesPriceDirection === "up" && "scale-105",
-              yesPriceDirection === "down" && "opacity-75"
+              "relative overflow-hidden rounded-xl p-4 transition-all duration-200",
+              "bg-gradient-to-br from-green-500/10 to-green-600/5",
+              "border-2 border-green-500/30 hover:border-green-500/60",
+              "hover:from-green-500/20 hover:to-green-600/10",
+              yesPriceDirection === "up" && "scale-[1.02] border-green-400 shadow-lg shadow-green-500/20"
             )}
           >
-            <AnimatedCounter
-              value={yesPrice * 100}
-              format="number"
-              decimals={1}
-            />
-            <span className="text-base">¢</span>
-          </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            ROI: <span className="text-success font-medium">{yesRoi.toFixed(0)}%</span>
-          </div>
-        </div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-5 h-5 text-green-400" />
+                <span className="font-bold text-green-400">UP</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {(yesPrice * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div
+              className={cn(
+                "text-3xl font-bold font-mono text-green-400 transition-all duration-300",
+                yesPriceDirection === "up" && "scale-110",
+                yesPriceDirection === "down" && "opacity-60"
+              )}
+            >
+              <AnimatedCounter
+                value={yesPrice * 100}
+                format="number"
+                decimals={1}
+              />
+              <span className="text-lg ml-0.5">¢</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1.5">
+              Win ${(100 / (yesPrice * 100)).toFixed(0)} on $1
+            </div>
+            {/* Price flash effect */}
+            {yesPriceDirection === "up" && (
+              <div className="absolute inset-0 bg-green-400/10 animate-ping rounded-xl" />
+            )}
+          </button>
 
-        {/* DOWN / NO */}
-        <div
-          className={cn(
-            "p-4 rounded-lg border transition-all duration-300",
-            noPriceDirection === "up" && "ring-2 ring-danger/30",
-            "bg-danger/5 border-danger/20"
-          )}
-        >
-          <div className="flex items-center gap-1.5 mb-2">
-            <TrendingDown className="w-4 h-4 text-danger" />
-            <span className="text-xs font-semibold text-danger tracking-wider">DOWN</span>
-          </div>
-          <div
+          {/* DOWN Button */}
+          <button
             className={cn(
-              "text-2xl font-bold font-mono text-danger transition-all duration-300",
-              noPriceDirection === "up" && "scale-105",
-              noPriceDirection === "down" && "opacity-75"
+              "relative overflow-hidden rounded-xl p-4 transition-all duration-200",
+              "bg-gradient-to-br from-red-500/10 to-red-600/5",
+              "border-2 border-red-500/30 hover:border-red-500/60",
+              "hover:from-red-500/20 hover:to-red-600/10",
+              noPriceDirection === "up" && "scale-[1.02] border-red-400 shadow-lg shadow-red-500/20"
             )}
           >
-            <AnimatedCounter
-              value={noPrice * 100}
-              format="number"
-              decimals={1}
-            />
-            <span className="text-base">¢</span>
-          </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            ROI: <span className="text-danger font-medium">{noRoi.toFixed(0)}%</span>
-          </div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <TrendingDown className="w-5 h-5 text-red-400" />
+                <span className="font-bold text-red-400">DOWN</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {(noPrice * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div
+              className={cn(
+                "text-3xl font-bold font-mono text-red-400 transition-all duration-300",
+                noPriceDirection === "up" && "scale-110",
+                noPriceDirection === "down" && "opacity-60"
+              )}
+            >
+              <AnimatedCounter
+                value={noPrice * 100}
+                format="number"
+                decimals={1}
+              />
+              <span className="text-lg ml-0.5">¢</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1.5">
+              Win ${(100 / (noPrice * 100)).toFixed(0)} on $1
+            </div>
+            {/* Price flash effect */}
+            {noPriceDirection === "up" && (
+              <div className="absolute inset-0 bg-red-400/10 animate-ping rounded-xl" />
+            )}
+          </button>
         </div>
       </div>
 
       {/* Probability Bar */}
-      <div className="mb-4">
-        <div className="flex justify-between text-xs font-semibold mb-1.5">
-          <span className="text-success">{(yesPrice * 100).toFixed(1)}%</span>
-          <span className="text-danger">{(noPrice * 100).toFixed(1)}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-danger overflow-hidden flex">
+      <div className="px-4 pb-4">
+        <div className="h-2 rounded-full bg-red-500/30 overflow-hidden flex">
           <div
-            className="h-full bg-success transition-all duration-500 ease-out"
+            className="h-full bg-green-500 transition-all duration-300 ease-out"
             style={{ width: `${yesPrice * 100}%` }}
           />
         </div>
+        <div className="flex justify-between mt-2 text-xs font-medium">
+          <span className="text-green-400">UP {(yesPrice * 100).toFixed(1)}%</span>
+          <span className="text-red-400">DOWN {(noPrice * 100).toFixed(1)}%</span>
+        </div>
       </div>
 
-      {/* Market Info */}
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <Volume2 className="w-3.5 h-3.5" />
+      {/* Market Info Footer */}
+      <div className="px-4 pb-4 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
           <span>Vol:</span>
           <span className="font-mono text-foreground">
-            ${((market?.volumeNum || market?.liquidity || 0) / 1000).toFixed(1)}K
+            ${((market?.volumeNum || 0) / 1000).toFixed(1)}K
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: "3s" }} />
-          <span>Status:</span>
-          <span className="text-success font-medium">Live</span>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span>Live on Polymarket</span>
         </div>
       </div>
     </div>

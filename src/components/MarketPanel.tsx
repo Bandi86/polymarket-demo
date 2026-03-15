@@ -119,15 +119,15 @@ export function MarketPanel({
 
         <div className="info-grid">
           <div className="info-item">
-            <span className="info-label">Spot Price</span>
+            <span className="info-label">{selectedCoin} Price</span>
             <span className="info-value" style={{ color: coinColor }}>
-              ${marketData?.btcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || "—"}
+              ${marketData?.spotPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || "—"}
             </span>
           </div>
           <div className="info-item">
             <span className="info-label">Strike Price</span>
             <span className="info-value">
-              ${marketData?.btcPrice ? (marketData.btcPrice * 0.995).toFixed(0) : "—"}
+              ${marketData?.spotPrice ? (marketData.spotPrice * 0.995).toFixed(0) : "—"}
             </span>
           </div>
           <div className="info-item">

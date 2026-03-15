@@ -135,7 +135,7 @@ export function PerformanceDashboard({ bots, className }: PerformanceDashboardPr
                 <XAxis type="number" tickFormatter={(v) => `$${v.toFixed(0)}`} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="shortName" tick={{ fontSize: 10 }} width={30} />
                 <Tooltip
-                  formatter={(value: number) => [`$${value.toFixed(2)}`, 'P&L']}
+                  formatter={(value) => value !== undefined ? [`$${Number(value).toFixed(2)}`, 'P&L'] : ['', 'P&L']}
                   contentStyle={{ background: 'hsl(222 47% 7%)', border: '1px solid hsl(217 33% 17%)', borderRadius: '8px' }}
                 />
                 <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
@@ -170,7 +170,7 @@ export function PerformanceDashboard({ bots, className }: PerformanceDashboardPr
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number) => [value, '']}
+                  formatter={(value) => value !== undefined ? [Number(value), ''] : [0, '']}
                   contentStyle={{ background: 'hsl(222 47% 7%)', border: '1px solid hsl(217 33% 17%)', borderRadius: '8px' }}
                 />
               </PieChart>

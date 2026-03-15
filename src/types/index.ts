@@ -18,6 +18,15 @@ export interface Market {
   resolutionSource?: string;
   imageUrl?: string;
   yesPriceHistory?: { timestamp: number; price: number }[];
+  is5Min?: boolean;
+  asset?: string;
+  timeframe?: string;
+  conditionId?: string;
+  tokens?: any[];
+  active?: boolean;
+  closed?: boolean;
+  isSimulated?: boolean;
+  priceToBeat?: number;
 }
 
 export interface MarketHistory {

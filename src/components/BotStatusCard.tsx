@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle } from "lucide-react";
+import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle, Timer, Flame, Snowflake, BarChart2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
 import { ProgressRing } from "@/components/ui/ProgressRing";
-import type { BotData } from "@/hooks/useTradingData";
+import { MiniEquityCurve } from "./charts/MiniEquityCurve";
+import type { BotData, MarketData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {
   bot: BotData;
@@ -19,6 +20,8 @@ interface BotStatusCardProps {
   }>;
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
+  timeRemaining?: number;
+  marketData?: MarketData | null;
 }
 
 function formatDuration(ms: number): string {
@@ -28,7 +31,7 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 }
 
-export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onOpenConfig }: BotStatusCardProps) {
+export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onOpenConfig, timeRemaining, marketData }: BotStatusCardProps) {
   const [showDebug, setShowDebug] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
@@ -51,6 +54,25 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
   // Calculate running time
   const runningTime = bot.enabled && bot.runTime ? Date.now() - bot.runTime : 0;
 
+  // Extract recent trades and equity curve from closed positions
+  const closedPositions = (bot.portfolio.closedPositions || []) as any[];
+  
+  // Recent 5 trades (assuming chronological order)
+  const recentTrades = closedPositions.slice(-5).map((p: any) => p.pnl || 0);
+  
+  // Compute equity curve starting from initialBalance
+  const equityCurvePlot = [initialBalance];
+  let currentBalance = initialBalance;
+  closedPositions.forEach((p: any) => {
+    currentBalance += (p.pnl || 0);
+    equityCurvePlot.push(currentBalance);
+  });
+  
+  // Always aim for at least 2 points to draw the line
+  if (equityCurvePlot.length === 1) {
+    equityCurvePlot.push(initialBalance);
+  }
+
   // Determine bot health status
   const getHealthStatus = () => {
     if (!bot.enabled) return { status: "stopped", color: "text-muted-foreground", icon: XCircle };
@@ -61,6 +83,30 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   const health = getHealthStatus();
   const HealthIcon = health.icon;
+
+  // Calculate current streak from closed positions
+  const getCurrentStreak = () => {
+    if (closedPositions.length === 0) return { type: "none", count: 0 };
+    let streak = 0;
+    let streakType: "win" | "loss" = "win";
+    for (let i = closedPositions.length - 1; i >= 0; i--) {
+      const pnl = closedPositions[i].pnl || 0;
+      if (i === closedPositions.length - 1) {
+        streakType = pnl > 0 ? "win" : "loss";
+        streak = 1;
+      } else {
+        const currentType = pnl > 0 ? "win" : "loss";
+        if (currentType === streakType) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+    }
+    return { type: streakType, count: streak };
+  };
+
+  const currentStreak = getCurrentStreak();
 
   const handleToggle = async () => {
     if (isToggling) return;
@@ -124,6 +170,20 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Market Time Remaining */}
+          {timeRemaining !== undefined && timeRemaining > 0 && (
+            <span className={cn(
+              "px-1.5 py-0.5 rounded font-mono text-[10px] flex items-center gap-1",
+              timeRemaining < 60000
+                ? "bg-red-500/20 text-red-400 animate-pulse"
+                : timeRemaining < 180000
+                  ? "bg-yellow-500/20 text-yellow-400"
+                  : "bg-blue-500/20 text-blue-400"
+            )}>
+              <Timer className="w-3 h-3" />
+              {formatDuration(timeRemaining)}
+            </span>
+          )}
           <span className="px-1.5 py-0.5 bg-success/20 rounded text-success font-mono text-[10px]">
             YES {yesPrice.toFixed(3)}
           </span>
@@ -133,53 +193,86 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
         </div>
       </div>
 
-      {/* Stats Grid with ProgressRing */}
+      {/* Stats Grid with ProgressRing and Equity Curve */}
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-[10px] text-muted-foreground mb-0.5">Balance</div>
-          <div className="font-mono font-semibold">
-            <AnimatedCounter
-              value={bot.portfolio.balance}
-              format="currency"
-              decimals={2}
-            />
-          </div>
-        </div>
-        <div>
-          <div className="text-[10px] text-muted-foreground mb-0.5">P&L</div>
-          <div
-            className={cn(
-              "font-mono font-semibold",
-              bot.stats.pnl >= 0 ? "text-success" : "text-danger"
-            )}
-          >
-            <AnimatedCounter
-              value={bot.stats.pnl}
-              format="currency"
-              decimals={2}
-              previousValue={bot.stats.pnl - 0.5}
-            />
-            <span className="text-[10px] ml-1">
-              ({pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(1)}%)
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <ProgressRing
-            value={bot.stats.winRate * 100}
-            size={28}
-            strokeWidth={2.5}
-          />
+        {/* Left Col: Balance, PnL, Trades */}
+        <div className="flex flex-col gap-2">
           <div>
-            <div className="text-[10px] text-muted-foreground">Win Rate</div>
-            <div className="font-mono text-sm">
-              {bot.stats.winRate > 0 ? `${(bot.stats.winRate * 100).toFixed(0)}%` : "-"}
+            <div className="text-[10px] text-muted-foreground mb-0.5">Balance</div>
+            <div className="font-mono font-semibold">
+              <AnimatedCounter
+                value={bot.portfolio.balance}
+                format="currency"
+                decimals={2}
+              />
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] text-muted-foreground mb-0.5">P&L</div>
+            <div
+              className={cn(
+                "font-mono font-semibold",
+                bot.stats.pnl >= 0 ? "text-success" : "text-danger"
+              )}
+            >
+              <AnimatedCounter
+                value={bot.stats.pnl}
+                format="currency"
+                decimals={2}
+                previousValue={bot.stats.pnl - 0.5}
+              />
+              <span className="text-[10px] ml-1">
+                ({pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[10px] text-muted-foreground">Recent:</span>
+            <div className="flex items-center gap-0.5" title="Last 5 trades">
+              {recentTrades.map((pnl: number, i: number) => (
+                <div
+                  key={i}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: pnl > 0 ? "var(--success)" : pnl < 0 ? "var(--danger)" : "var(--muted-foreground)"
+                  }}
+                />
+              ))}
+              {recentTrades.length === 0 && (
+                <span className="text-[10px] text-muted-foreground">-</span>
+              )}
             </div>
           </div>
         </div>
-        <div>
-          <div className="text-[10px] text-muted-foreground">Trades</div>
-          <div className="font-mono">{bot.stats.trades}</div>
+
+        {/* Right Col: WinRate Ring, Equity Curve */}
+        <div className="flex flex-col items-end justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <div className="text-[10px] text-muted-foreground">Win Rate</div>
+              <div className="font-mono text-sm leading-tight">
+                {bot.stats.winRate > 0 ? `${(bot.stats.winRate * 100).toFixed(0)}%` : "-"}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">
+                {bot.stats.trades} trades
+              </div>
+            </div>
+            <ProgressRing
+              value={bot.stats.winRate * 100}
+              size={36}
+              strokeWidth={3}
+            />
+          </div>
+          
+          <div className="mt-auto w-full flex justify-end">
+            <MiniEquityCurve
+              data={equityCurvePlot}
+              color={strategyColor}
+              size={32}
+            />
+          </div>
         </div>
       </div>
 
@@ -203,6 +296,97 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
             />{" "}
             <span className="text-muted-foreground">unrealized</span>
           </div>
+        </div>
+      )}
+
+      {/* Win/Loss Breakdown & Streaks */}
+      {bot.stats.trades > 0 && (
+        <div className="grid grid-cols-3 gap-2 p-2 bg-black/20 rounded-md text-xs">
+          {/* Wins */}
+          <div className="flex flex-col items-center">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Wins</div>
+            <div className="font-mono font-semibold text-success">{bot.stats.wins}</div>
+            {bot.stats.avgWin > 0 && (
+              <div className="text-[10px] text-success/70">+${bot.stats.avgWin.toFixed(2)} avg</div>
+            )}
+          </div>
+          {/* Losses */}
+          <div className="flex flex-col items-center">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Losses</div>
+            <div className="font-mono font-semibold text-danger">{bot.stats.losses}</div>
+            {bot.stats.avgLoss > 0 && (
+              <div className="text-[10px] text-danger/70">-${bot.stats.avgLoss.toFixed(2)} avg</div>
+            )}
+          </div>
+          {/* Streak */}
+          <div className="flex flex-col items-center">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Streak</div>
+            <div className="flex items-center gap-0.5">
+              {currentStreak.type === "win" ? (
+                <>
+                  <Flame className="w-3 h-3 text-orange-400" />
+                  <span className="font-mono font-semibold text-orange-400">{currentStreak.count}</span>
+                </>
+              ) : currentStreak.type === "loss" ? (
+                <>
+                  <Snowflake className="w-3 h-3 text-blue-400" />
+                  <span className="font-mono font-semibold text-blue-400">{currentStreak.count}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              )}
+            </div>
+            {bot.stats.maxConsecutiveWins > 1 && (
+              <div className="text-[10px] text-muted-foreground">Best: {bot.stats.maxConsecutiveWins}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Profit Factor */}
+      {bot.stats.trades >= 3 && (
+        <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
+          <div className="flex items-center gap-1">
+            <BarChart2 className="w-3 h-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Profit Factor</span>
+          </div>
+          <div className={cn(
+            "font-mono font-semibold",
+            bot.stats.profitFactor >= 1.5 ? "text-success" :
+            bot.stats.profitFactor >= 1 ? "text-warning" : "text-danger"
+          )}>
+            {bot.stats.profitFactor >= 999 ? "∞" : bot.stats.profitFactor.toFixed(2)}
+          </div>
+        </div>
+      )}
+
+      {/* Max Drawdown & Sharpe Ratio */}
+      {(bot.portfolio.maxDrawdown !== undefined || bot.portfolio.sharpeRatio !== undefined) && (
+        <div className="grid grid-cols-2 gap-2">
+          {bot.portfolio.maxDrawdown !== undefined && (
+            <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
+              <span className="text-muted-foreground">Max DD</span>
+              <span className={cn(
+                "font-mono font-semibold",
+                bot.portfolio.maxDrawdown <= -0.1 ? "text-danger" :
+                bot.portfolio.maxDrawdown <= -0.05 ? "text-warning" : "text-foreground"
+              )}>
+                {(bot.portfolio.maxDrawdown * 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+          {bot.portfolio.sharpeRatio !== undefined && bot.stats.trades >= 10 && (
+            <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
+              <span className="text-muted-foreground">Sharpe</span>
+              <span className={cn(
+                "font-mono font-semibold",
+                bot.portfolio.sharpeRatio >= 1 ? "text-success" :
+                bot.portfolio.sharpeRatio >= 0 ? "text-warning" : "text-danger"
+              )}>
+                {bot.portfolio.sharpeRatio.toFixed(2)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

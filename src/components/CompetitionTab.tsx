@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trophy, Play, Square, Clock, Target, Zap } from "lucide-react";
 import { formatCurrency, formatPercentage } from "../lib/utils";
+import { MiniEquityCurve } from "./charts/MiniEquityCurve";
+import type { BotData } from "../hooks/useTradingData";
 
 interface CompetitionEntry {
   botId: string;
@@ -31,7 +33,11 @@ interface CompetitionState {
   };
 }
 
-export function CompetitionTab() {
+interface CompetitionTabProps {
+  bots?: BotData[];
+}
+
+export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
   const [competition, setCompetition] = useState<CompetitionState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -356,6 +362,7 @@ export function CompetitionTab() {
                   <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Strategy</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Trades</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Win Rate</th>
+                  <th style={{ textAlign: "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Equity</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>P&L</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>ROI</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Balance</th>
@@ -365,6 +372,25 @@ export function CompetitionTab() {
                 {competition.leaderboard.map((entry) => {
                   const isWinner = entry.botId === competition.winner;
                   const isQualified = entry.trades >= competition.minTrades;
+                  
+                  // Compute equity curve for this bot
+                  const matchingBot = bots.find(b => b.id === entry.botId);
+                  const closedPositions = (matchingBot?.portfolio?.closedPositions || []) as any[];
+                  
+                  // Start equity with either competition startBalance or bot's initial config balance
+                  const startBalanceForCurve = competition.startBalance || 10;
+                  const equityCurvePlot = [startBalanceForCurve];
+                  let currentBalance = startBalanceForCurve;
+                  
+                  closedPositions.forEach((p: any) => {
+                    currentBalance += (p.pnl || 0);
+                    equityCurvePlot.push(currentBalance);
+                  });
+                  
+                  if (equityCurvePlot.length === 1) {
+                    equityCurvePlot.push(startBalanceForCurve); // need 2 points for a line
+                  }
+                  
                   return (
                     <tr
                       key={entry.botId}
@@ -405,6 +431,15 @@ export function CompetitionTab() {
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
                         {formatPercentage(entry.winRate)}
+                      </td>
+                      <td style={{ padding: "0.75rem 0.5rem" }}>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <MiniEquityCurve
+                            data={equityCurvePlot}
+                            color={getStrategyColor(entry.strategy)}
+                            size={20}
+                          />
+                        </div>
                       </td>
                       <td style={{
                         padding: "0.75rem 0.5rem",

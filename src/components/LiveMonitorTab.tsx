@@ -1,15 +1,16 @@
 import { useState, useCallback } from "react";
-import { Activity, Target, DollarSign, BarChart3 } from "lucide-react";
+import { Activity, Target, DollarSign, BarChart3, Clock } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { BotStatusCard } from "./BotStatusCard";
 import { BotConfigPanel } from "./BotConfigPanel";
-import type { BotData } from "../hooks/useTradingData";
+import type { BotData, MarketData } from "../hooks/useTradingData";
 import type { BotLog } from "../types";
 
 interface LiveMonitorTabProps {
   bots: BotData[];
   botLogs: BotLog[];
   yesPrice: number;
+  noPrice: number;
   positions: Array<{
     id: string;
     botId?: string;
@@ -18,16 +19,16 @@ interface LiveMonitorTabProps {
     stake: number;
   }>;
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
+  timeRemaining: number;
+  marketData: MarketData | null;
 }
 
 type SortField = 'pnl' | 'winRate' | 'trades' | 'balance';
 
-export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState }: LiveMonitorTabProps) {
+export function LiveMonitorTab({ bots, botLogs, yesPrice, noPrice, positions, updateBotState, timeRemaining, marketData }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [showActivityFeed, setShowActivityFeed] = useState(true);
   const [configBot, setConfigBot] = useState<BotData | null>(null);
-
-  const noPrice = 1 - yesPrice;
 
   // Calculate summary stats
   const activeBots = bots.filter(b => b.enabled);
@@ -154,6 +155,8 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
             positions={positions}
             onToggle={handleToggleBot}
             onOpenConfig={setConfigBot}
+            timeRemaining={timeRemaining}
+            marketData={marketData}
           />
         ))}
       </div>

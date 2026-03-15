@@ -7,7 +7,7 @@ import { dbService } from "./database";
 import { polymarketProvider } from "./providers/polymarket-provider";
 
 const FEE_RATE = 0.02; // 2%
-const MARKET_PRICE_UPDATE_INTERVAL = 500; // 500ms - faster updates for 5min markets
+const MARKET_PRICE_UPDATE_INTERVAL = 200; // 200ms - faster updates for real-time feel
 const MARKET_SWITCH_COOLDOWN = 3000; // 3 seconds between switches
 
 export interface MarketEngineConfig {
@@ -15,6 +15,12 @@ export interface MarketEngineConfig {
   startingBalance?: number;
   timeframe?: string;
   asset?: string;
+  /** Base bid-ask spread (fraction 0-1, default 0.01 = 1%) */
+  baseSpread?: number;
+  /** Max random slippage above spread (fraction 0-1, default 0.01 = 1%) */
+  maxSlippage?: number;
+  /** Whether slippage is enabled (default true) */
+  slippageEnabled?: boolean;
 }
 
 export class MarketEngine {
@@ -28,6 +34,7 @@ export class MarketEngine {
   private config: Required<MarketEngineConfig>;
   private priceUpdateTimer: Timer | null = null;
   private lastMarketSwitch = 0;
+  private settledMarketIds: Set<string> = new Set();
   private priceUpdateCallbacks: Array<(price: { yes: number; no: number; timestamp: number }) => void> = [];
 
   constructor(config: MarketEngineConfig = {}) {
@@ -36,6 +43,9 @@ export class MarketEngine {
       startingBalance: config.startingBalance ?? 10,
       timeframe: config.timeframe ?? "5",
       asset: config.asset ?? "BTC",
+      baseSpread: config.baseSpread ?? 0.01,
+      maxSlippage: config.maxSlippage ?? 0.01,
+      slippageEnabled: config.slippageEnabled ?? true,
     };
 
     this.mainPortfolio = this.createEmptyPortfolio();
@@ -100,7 +110,7 @@ export class MarketEngine {
     // Find market for this asset
     const markets = await polymarketProvider.fetchActiveMarkets(this.config.timeframe);
     const assetMarket = markets.find(m =>
-      (m as any).asset === asset || m.category?.startsWith(asset)
+      m.asset === asset || m.category?.startsWith(asset)
     );
 
     if (assetMarket) {
@@ -178,18 +188,29 @@ export class MarketEngine {
     const markets = await polymarketProvider.fetchActiveMarkets(this.config.timeframe);
     this.availableMarkets = markets;
 
-    if (markets.length === 0) {
-      console.warn(`[MarketEngine] No active Polymarket markets found for ${this.config.timeframe}, retrying in 10s...`);
+    const now = Date.now();
+    // Filter markets: not settled, not expired, and has at least 30s remaining
+    const validMarkets = markets.filter(m => 
+      !this.settledMarketIds.has(m.id) && 
+      m.endTime > now + 30000 && 
+      m.status === "active"
+    );
+
+    if (validMarkets.length === 0) {
+      console.warn(`[MarketEngine] No valid Polymarket markets found for ${this.config.timeframe} (checked ${markets.length}), retrying in 10s...`);
+      // If we are stuck, we might need to clear settledMarketIds if it's too large, but for now just wait
+      if (this.settledMarketIds.size > 100) this.settledMarketIds.clear();
+      
       setTimeout(() => this.startNewMarket(), 10000);
       return;
     }
 
     // Find market for current asset, or use first available
-    const assetMarket = markets.find(m =>
-      (m as any).asset === this.config.asset || m.category?.startsWith(this.config.asset)
+    const assetMarket = validMarkets.find(m =>
+      m.asset === this.config.asset || m.category?.startsWith(this.config.asset)
     );
 
-    this.setActiveMarket(assetMarket || markets[0]);
+    this.setActiveMarket(assetMarket || validMarkets[0]);
   }
 
   private setActiveMarket(market: Market): void {
@@ -201,11 +222,11 @@ export class MarketEngine {
     this.currentMarket = market;
 
     // Update config from market data
-    if ((market as any).timeframe) {
-      this.config.timeframe = (market as any).timeframe;
+    if (market.timeframe) {
+      this.config.timeframe = market.timeframe;
     }
-    if ((market as any).asset) {
-      this.config.asset = (market as any).asset;
+    if (market.asset) {
+      this.config.asset = market.asset;
     }
 
     this.startPriceUpdateTimer();
@@ -217,10 +238,20 @@ export class MarketEngine {
 
   private startPriceUpdateTimer(): void {
     if (this.priceUpdateTimer) {
-      clearInterval(this.priceUpdateTimer);
+      clearTimeout(this.priceUpdateTimer);
     }
-    this.priceUpdateTimer = setInterval(() => {
-      this.updateMarketPrices();
+    this.scheduleNextPriceUpdate();
+  }
+
+  private scheduleNextPriceUpdate(): void {
+    this.priceUpdateTimer = setTimeout(async () => {
+      try {
+        await this.updateMarketPrices();
+      } finally {
+        if (this.currentMarket && this.currentMarket.status === "active") {
+          this.scheduleNextPriceUpdate();
+        }
+      }
     }, MARKET_PRICE_UPDATE_INTERVAL);
   }
 
@@ -236,7 +267,7 @@ export class MarketEngine {
     }
 
     // Always fetch real prices from Polymarket API
-    const prices = await polymarketProvider.fetchMarketPriceByMarketId(this.currentMarket.id);
+    const prices = await polymarketProvider.fetchMarketPriceByMarketId(this.currentMarket.id, this.currentMarket.tokens);
     if (prices) {
       const oldYesPrice = parseFloat(this.currentMarket.outcomePrices.yes);
       this.currentMarket.outcomePrices = prices;
@@ -260,6 +291,8 @@ export class MarketEngine {
           console.error("[MarketEngine] Price callback error:", e);
         }
       }
+    } else {
+      console.warn(`[MarketEngine] Failed to fetch prices for market ${this.currentMarket.id}`);
     }
 
     // Track YES price history for chart
@@ -283,6 +316,9 @@ export class MarketEngine {
     market.endPrice = finalYesPrice;
     market.status = "settled";
     market.result = finalYesPrice >= 0.5 ? "UP" : "DOWN";
+    
+    // Add to settled set to avoid immediate rollover back to this market
+    this.settledMarketIds.add(market.id);
 
     // Settle all open positions
     const marketPositions: Position[] = [];
@@ -301,6 +337,9 @@ export class MarketEngine {
       position.exitTime = Date.now();
       position.currentValue = payout;
       position.unrealizedPnl = position.pnl;
+
+      // Enhanced settlement logging
+      console.log(`[MarketEngine] SETTLEMENT: ${position.botId || 'manual'} | ${position.outcome} | ${won ? 'WON' : 'LOST'} | Entry: ${position.odds.toFixed(3)} | Exit: ${finalYesPrice.toFixed(3)} | PnL: $${position.pnl.toFixed(2)} | Market: ${market.result} (YES=${finalYesPrice.toFixed(3)})`);
 
       // Update portfolio
       const portfolio = position.botId
@@ -384,6 +423,30 @@ export class MarketEngine {
     }
   }
 
+  /**
+   * Calculate slippage for a trade based on amount and current odds.
+   * Returns a positive number (buyer pays more) or 0 if disabled.
+   * Components: base spread + random slippage + size impact.
+   */
+  private calculateSlippage(amount: number, currentOdds: number): number {
+    if (!this.config.slippageEnabled) return 0;
+
+    // 1) Half-spread: buyer pays above mid-price
+    const halfSpread = this.config.baseSpread / 2;
+
+    // 2) Random slippage component (uniform 0..maxSlippage)
+    const randomSlippage = Math.random() * this.config.maxSlippage;
+
+    // 3) Size-based impact: larger bets move price more
+    //    Linear scaling: $1 = 0%, $5 = 0.5%, $10 = 1%
+    const sizeImpact = Math.max(0, (amount - 1) * 0.001);
+
+    // Total slippage — capped to prevent odds > 0.99 or < 0.01
+    const totalSlippage = halfSpread + randomSlippage + sizeImpact;
+
+    return totalSlippage;
+  }
+
   // === Public API ===
 
   getCurrentMarket(): Market | null {
@@ -450,7 +513,11 @@ export class MarketEngine {
     }
 
     const yesPrice = parseFloat(this.currentMarket.outcomePrices.yes);
-    const odds = outcome === "YES" ? yesPrice : 1 - yesPrice;
+    const rawOdds = outcome === "YES" ? yesPrice : 1 - yesPrice;
+
+    // Apply slippage: buyer gets slightly worse fill price
+    const slippage = this.calculateSlippage(amount, rawOdds);
+    const odds = Math.max(0.01, Math.min(0.99, rawOdds + slippage));
 
     const position: Position = {
       id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`,

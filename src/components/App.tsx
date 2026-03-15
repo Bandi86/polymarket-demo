@@ -9,7 +9,10 @@ import { PositionsPanel } from "./PositionsPanel";
 import { ActivityLog } from "./ActivityLog";
 import { BotDashboardPage } from "./BotDashboardPage";
 import { QuickActions } from "./quick-actions";
+import { OrderBook } from "./OrderBook";
+import { BotSummaryStrip } from "./BotSummaryStrip";
 import { SoundToggle } from "./ui/SoundToggle";
+import { useToastActions } from "./ui/toast";
 
 function useRoute(): [string, (route: string) => void] {
   const [route, setRoute] = useState<string>(() => {
@@ -73,6 +76,7 @@ export function App() {
   } = useTradingData();
 
   const { enabled: soundEnabled, playTrade, toggleEnabled: toggleSound } = useSoundNotifications();
+  const toast = useToastActions();
 
   // Sync timeframe and asset to backend
   useEffect(() => {
@@ -122,6 +126,10 @@ export function App() {
 
     if (data.success) {
       playTrade();
+      toast.success(
+        `${direction === "YES" ? "📈 Bought UP" : "📉 Bought DOWN"}`,
+        `$${amount.toFixed(2)} at ${((direction === "YES" ? yesPrice : noPrice) * 100).toFixed(1)}¢ — Potential return: $${(amount / (direction === "YES" ? yesPrice : noPrice)).toFixed(2)}`
+      );
       addTradeEvent({
         id: `evt-${Date.now()}`,
         type: "BUY",
@@ -131,6 +139,8 @@ export function App() {
         time: Date.now(),
       });
       await fetchData();
+    } else {
+      toast.error("Trade Failed", data.error || "Unknown error");
     }
   }, [marketData, yesPrice, noPrice, addTradeEvent, fetchData]);
 
@@ -292,6 +302,8 @@ export function App() {
               coinColor={coinColor}
               selectedAsset={selectedAsset}
               selectedTimeframe={selectedTimeframe}
+              btcPrice={marketData?.spotPrice}
+              priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
             />
 
             {/* Quick Actions */}
@@ -299,6 +311,13 @@ export function App() {
               isBotRunning={isBotRunning}
               onToggleBot={handleToggleBot}
               onReset={handleReset}
+              coinColor={coinColor}
+            />
+
+            {/* Order Book */}
+            <OrderBook
+              yesPrice={yesPrice}
+              noPrice={noPrice}
               coinColor={coinColor}
             />
           </div>
@@ -334,6 +353,17 @@ export function App() {
             <ActivityLog events={events} coinColor={coinColor} />
           </div>
         </div>
+
+        {/* Bot Summary Strip */}
+        {bots.length > 0 && (
+          <div style={{ marginTop: "1rem" }}>
+            <BotSummaryStrip
+              bots={bots}
+              isBotRunning={isBotRunning}
+              onOpenDashboard={() => navigate('bots')}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

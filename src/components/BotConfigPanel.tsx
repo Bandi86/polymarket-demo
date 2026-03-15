@@ -30,18 +30,25 @@ const STRATEGY_DESCRIPTIONS: Record<string, string> = {
 export function BotConfigPanel({ bot, onClose, onSave }: BotConfigPanelProps) {
   const [betSize, setBetSize] = useState(bot.betSize);
   const [interval, setInterval] = useState(bot.interval);
+  const [useKelly, setUseKelly] = useState(bot.useKelly ?? true);
+  const [kellyFraction, setKellyFraction] = useState(bot.kellyFraction ?? 0.5);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    setHasChanges(betSize !== bot.betSize || interval !== bot.interval);
-  }, [betSize, interval, bot.betSize, bot.interval]);
+    setHasChanges(
+      betSize !== bot.betSize ||
+      interval !== bot.interval ||
+      useKelly !== (bot.useKelly ?? true) ||
+      kellyFraction !== (bot.kellyFraction ?? 0.5)
+    );
+  }, [betSize, interval, useKelly, kellyFraction, bot.betSize, bot.interval, bot.useKelly, bot.kellyFraction]);
 
   const handleSave = async () => {
     if (isSaving || !hasChanges) return;
     setIsSaving(true);
     try {
-      await onSave(bot.id, { betSize, interval });
+      await onSave(bot.id, { betSize, interval, useKelly, kellyFraction });
       onClose();
     } finally {
       setIsSaving(false);
@@ -51,6 +58,8 @@ export function BotConfigPanel({ bot, onClose, onSave }: BotConfigPanelProps) {
   const handleReset = () => {
     setBetSize(bot.betSize);
     setInterval(bot.interval);
+    setUseKelly(bot.useKelly ?? true);
+    setKellyFraction(bot.kellyFraction ?? 0.5);
   };
 
   // Calculate potential outcomes
@@ -165,6 +174,84 @@ export function BotConfigPanel({ bot, onClose, onSave }: BotConfigPanelProps) {
           <span>5s (Aggressive)</span>
           <span>60s (Conservative)</span>
         </div>
+      </div>
+
+      {/* Kelly Criterion Toggle */}
+      <div style={{
+        padding: "1rem",
+        background: useKelly ? "rgba(34, 197, 94, 0.1)" : "rgba(0,0,0,0.2)",
+        borderRadius: 8,
+        marginBottom: "1.5rem",
+        border: useKelly ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid transparent"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: useKelly ? "1rem" : "0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>Kelly Criterion</label>
+            <span style={{
+              fontSize: "0.625rem",
+              padding: "0.125rem 0.375rem",
+              borderRadius: 4,
+              background: useKelly ? "rgba(34, 197, 94, 0.2)" : "rgba(107, 114, 128, 0.2)",
+              color: useKelly ? "#22c55e" : "var(--text-muted)"
+            }}>
+              {useKelly ? "Active" : "Fixed"}
+            </span>
+          </div>
+          <button
+            onClick={() => setUseKelly(!useKelly)}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              border: "none",
+              background: useKelly ? "#22c55e" : "var(--glass-border)",
+              cursor: "pointer",
+              position: "relative",
+              transition: "background 0.2s"
+            }}
+          >
+            <div style={{
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "white",
+              position: "absolute",
+              top: 2,
+              left: useKelly ? 22 : 2,
+              transition: "left 0.2s"
+            }} />
+          </button>
+        </div>
+
+        {useKelly && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+              <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Kelly Fraction</label>
+              <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.75rem", fontWeight: 600, color: "#22c55e" }}>
+                {(kellyFraction * 100).toFixed(0)}% (Half-Kelly)
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.1}
+              max={1}
+              step={0.1}
+              value={kellyFraction}
+              onChange={(e) => setKellyFraction(parseFloat(e.target.value))}
+              style={{
+                width: "100%",
+                accentColor: "#22c55e"
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.625rem", color: "var(--text-muted)" }}>
+              <span>10% (Conservative)</span>
+              <span>100% (Full Kelly)</span>
+            </div>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.625rem", color: "var(--text-muted)" }}>
+              Kelly dynamically adjusts bet size based on your edge and bankroll. Half-Kelly is recommended for safety.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Preview Stats */}

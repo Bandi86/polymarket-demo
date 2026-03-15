@@ -15,6 +15,9 @@ export interface PolymarketEvent {
   volume: number;
   liquidityClob: number;
   markets: PolymarketMarket[];
+  eventMetadata?: {
+    priceToBeat?: number;
+  };
 }
 
 export interface PolymarketMarket {
@@ -32,6 +35,7 @@ export interface PolymarketMarket {
   active: boolean;
   closed: boolean;
   tokens?: { token_id: string; outcome: string }[];
+  clobTokenIds?: string;
 }
 
 const GAMMA_API = "https://gamma-api.polymarket.com";
@@ -48,12 +52,35 @@ const TIMEFRAME_DURATIONS: Record<string, number> = {
 export class PolymarketProvider {
   private cachedMarkets: Map<string, Market[]> = new Map();
   private lastFetchTime = 0;
-  private readonly CACHE_TTL = 2000; // 2s cache for live markets
+  private readonly CACHE_TTL = 1000; // 1s cache for live markets
   private currentTimeframe = "5"; // Default to 5m
 
   // Price cache for faster updates
   private priceCache: Map<string, { yes: string; no: string; timestamp: number }> = new Map();
   private readonly PRICE_CACHE_TTL = 100; // 100ms cache for near-real-time prices
+  
+  // Market metadata (tokens, etc.) that don't change
+  private marketMetadataCache: Map<string, { tokens: any[] }> = new Map();
+
+  /**
+   * Parse clobTokenIds string into tokens array format.
+   * The clobTokenIds field contains a JSON string like '["token1", "token2"]'
+   * We need to map them to the outcomes from the market.
+   */
+  private parseClobTokenIds(clobTokenIds: string | undefined): { token_id: string; outcome: string }[] | null {
+    if (!clobTokenIds) return null;
+    try {
+      const ids = JSON.parse(clobTokenIds);
+      if (!Array.isArray(ids) || ids.length < 2) return null;
+      // Assume first token is UP/YES, second is DOWN/NO for up/down markets
+      return [
+        { token_id: ids[0], outcome: "Up" },
+        { token_id: ids[1], outcome: "Down" }
+      ];
+    } catch {
+      return null;
+    }
+  }
 
   /** Set BTC price for display (used by price service) */
   setBtcPrice(_price: number): void {
@@ -104,38 +131,42 @@ export class PolymarketProvider {
 
       const markets: Market[] = [];
 
-      // Try to find markets for each asset
+      // Parallel discovery for all assets
       const assets = ["btc", "eth", "sol", "xrp"];
+      const marketPromises = assets.map(async (asset) => {
+        // Parallel check for current and previous offsets (0-3)
+        const offsets = [0, 1, 2, 3];
+        const offsetPromises = offsets.map(async (offset) => {
+          const tryTime = roundedTime - offset * duration;
+          const slug = `${asset}-updown-${
+            tf === "D" ? "1d" : tf === "240" ? "4h" : tf === "60" ? "1h" : tf === "15" ? "15m" : "5m"
+          }-${tryTime}`;
 
-      for (const asset of assets) {
-        // Try current period and previous periods
-        for (let offset = 0; offset <= 3; offset++) {
-          const tryTime = roundedTime - (offset * duration);
-          const slug = `${asset}-updown-${tf === "D" ? "1d" : tf === "240" ? "4h" : tf === "60" ? "1h" : tf === "15" ? "15m" : "5m"}-${tryTime}`;
+          return this.fetchMarketBySlug(slug, asset.toUpperCase(), tf);
+        });
 
-          const market = await this.fetchMarketBySlug(slug, asset.toUpperCase(), tf);
-          if (market && (market as any).active && !(market as any).closed) {
-            console.log(`[PolymarketProvider] Found live ${asset.toUpperCase()} ${tf} market: ${slug}`);
-            markets.push(market);
-            break; // Found one for this asset, move to next
-          }
-        }
-      }
+        const offsetResults = await Promise.all(offsetPromises);
+        // Return soonest expiration or first active
+        return offsetResults.find((m) => m && m.active && !m.closed) || null;
+      });
+
+      const results = await Promise.all(marketPromises);
+      const marketsArray = results.filter((m): m is Market => m !== null);
 
       // Sort by time remaining (soonest first)
-      markets.sort((a, b) => a.endTime - b.endTime);
+      marketsArray.sort((a, b) => a.endTime - b.endTime);
 
-      this.cachedMarkets.set(tf, markets);
+      this.cachedMarkets.set(tf, marketsArray);
       this.lastFetchTime = now;
 
-      console.log(`[PolymarketProvider] Found ${markets.length} live up/down markets for ${tf} timeframe`);
-      if (markets.length > 0) {
-        const top = markets[0];
+      console.log(`[PolymarketProvider] Found ${marketsArray.length} live up/down markets for ${tf} timeframe`);
+      if (marketsArray.length > 0) {
+        const top = marketsArray[0];
         const remaining = Math.floor((top.endTime - now) / 1000);
         console.log(`[PolymarketProvider] Top: "${top.question}" YES=${top.outcomePrices.yes} Remaining: ${remaining}s`);
       }
 
-      return markets;
+      return marketsArray;
     } catch (error) {
       console.error("[PolymarketProvider] Fetch error:", error);
       return this.cachedMarkets.get(tf) || [];
@@ -186,7 +217,11 @@ export class PolymarketProvider {
 
       const upPrice = parseFloat(outcomePrices[0] || "0.5");
       const downPrice = parseFloat(outcomePrices[1] || "0.5");
-      const startTime = new Date(event.startDate || Date.now()).getTime();
+
+      // Calculate startTime from endTime and duration for accurate market duration
+      // The event.startDate is when the event series started, not the current market window
+      const durationMs = (TIMEFRAME_DURATIONS[timeframe] || 300) * 1000;
+      const startTime = endTime - durationMs;
 
       const category = `${asset} ${timeframe}`;
 
@@ -209,17 +244,18 @@ export class PolymarketProvider {
         category,
         resolutionSource: event.resolutionSource || "Polymarket",
         imageUrl: market.image || event.image,
+        priceToBeat: event.eventMetadata?.priceToBeat,
       };
 
       // Store additional properties for internal use
-      (result as any).is5Min = timeframe === "5";
-      (result as any).isSimulated = false;
-      (result as any).active = true;
-      (result as any).closed = false;
-      (result as any).conditionId = market.conditionId;
-      (result as any).tokens = market.tokens;
-      (result as any).timeframe = timeframe;
-      (result as any).asset = asset;
+      result.is5Min = timeframe === "5";
+      result.isSimulated = false;
+      result.active = true;
+      result.closed = false;
+      result.conditionId = market.conditionId;
+      result.tokens = this.parseClobTokenIds(market.clobTokenIds) || market.tokens;
+      result.timeframe = timeframe;
+      result.asset = asset;
 
       return result;
     } catch (error) {
@@ -232,7 +268,7 @@ export class PolymarketProvider {
    * Fetch current YES/NO prices for a specific market by its market ID.
    * Uses a short cache to avoid spamming the API while still being responsive.
    */
-  async fetchMarketPriceByMarketId(marketId: string): Promise<{ yes: string; no: string } | null> {
+  async fetchMarketPriceByMarketId(marketId: string, tokens?: { token_id: string; outcome: string }[]): Promise<{ yes: string; no: string } | null> {
     const now = Date.now();
 
     // Check cache first - return cached price if fresh
@@ -242,37 +278,97 @@ export class PolymarketProvider {
     }
 
     try {
+      let currentTokens = tokens;
+      
+      // Check metadata cache if tokens passed in are empty
+      if (!currentTokens || currentTokens.length === 0) {
+        currentTokens = this.marketMetadataCache.get(marketId)?.tokens;
+      }
+      
+      // Strategy 1: Fast CLOB Midpoint API (if tokens available)
+      if (currentTokens && currentTokens.length >= 1) {
+        const yesToken = currentTokens.find(t => 
+          t.outcome.toLowerCase() === 'yes' || 
+          t.outcome === 'Long' || 
+          t.outcome.toLowerCase().includes('up')
+        );
+        if (yesToken) {
+          try {
+            const clobResponse = await fetch(`https://clob.polymarket.com/midpoint?token_id=${yesToken.token_id}`, {
+              signal: AbortSignal.timeout(800),
+            });
+            if (clobResponse.ok) {
+              const data = await clobResponse.json();
+              const yesPrice = parseFloat(data.mid);
+              if (!isNaN(yesPrice) && yesPrice > 0 && yesPrice < 1) {
+                const result = {
+                  yes: yesPrice.toFixed(3),
+                  no: (1 - yesPrice).toFixed(3),
+                };
+                this.priceCache.set(marketId, { ...result, timestamp: now });
+                return result;
+              }
+            }
+          } catch (e) {
+            // Fall through
+          }
+        }
+      }
+
+      // Strategy 2: Gamma API
       const response = await fetch(`${GAMMA_API}/markets/${marketId}`, {
-        signal: AbortSignal.timeout(1500), // Faster timeout (1.5s)
+        signal: AbortSignal.timeout(1000),
       });
 
-      if (!response.ok) return cached || null; // Fall back to cache on error
+      if (!response.ok) return cached || null;
 
       const market = await response.json();
+      
+      // Update tokens for future CLOB calls if they were missing
+      if (!currentTokens && market.tokens) {
+        currentTokens = market.tokens;
+      }
 
-      let prices: number[] = [0.5, 0.5];
+      let prices = { yes: "0.500", no: "0.500" };
 
       if (market.outcomePrices) {
         const parsed = JSON.parse(market.outcomePrices);
-        prices = [parseFloat(parsed[0] || "0.5"), parseFloat(parsed[1] || "0.5")];
-      } else if (market.bestAsk !== undefined) {
-        prices = [market.bestAsk || 0.5, 1 - (market.bestAsk || 0.5)];
+        
+        // Cache tokens for future CLOB strategy
+        if (market.tokens && market.tokens.length > 0) {
+          this.marketMetadataCache.set(marketId, { tokens: market.tokens });
+        }
+
+        // Find which index is YES. Usually index 0.
+        let yesIndex = 0;
+        const tokensToUse = market.tokens || (currentTokens?.length ? currentTokens : []);
+        if (tokensToUse.length > 0) {
+          const foundIndex = tokensToUse.findIndex((t: any) => 
+            t.outcome.toLowerCase() === 'yes' || 
+            t.outcome === 'Long' || 
+            t.outcome.toLowerCase().includes('up')
+          );
+          if (foundIndex !== -1) yesIndex = foundIndex;
+        }
+        
+        const yesPrice = parseFloat(parsed[yesIndex] || "0.5");
+        const noPrice = parseFloat(parsed[1 - yesIndex] || "0.5");
+        
+        prices = {
+          yes: yesPrice.toFixed(3),
+          no: noPrice.toFixed(3)
+        };
       }
 
       const result = {
-        yes: prices[0].toFixed(3),
-        no: prices[1].toFixed(3),
+        ...prices,
+        // We could also return the updated tokens here if we wanted to update the engine
       };
 
-      // Update cache
       this.priceCache.set(marketId, { ...result, timestamp: now });
-
       return result;
     } catch (error) {
-      // On error, return cached value if available
-      if (cached) {
-        return { yes: cached.yes, no: cached.no };
-      }
+      if (cached) return { yes: cached.yes, no: cached.no };
       return null;
     }
   }
@@ -288,6 +384,7 @@ export class PolymarketProvider {
   clearCache(): void {
     this.cachedMarkets.clear();
     this.priceCache.clear();
+    this.marketMetadataCache.clear();
     this.lastFetchTime = 0;
   }
 

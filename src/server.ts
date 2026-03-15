@@ -58,22 +58,9 @@ function broadcastUpdate(data: unknown) {
   })
 }
 
-// Fallback broadcast every 1 second for connection health
-setInterval(() => {
-  const market = marketEngine.getCurrentMarket()
-  if (!market) return
-
-  broadcastUpdate({
-    type: 'market',
-    data: {
-      yesPrice: parseFloat(market.outcomePrices?.yes || '0.5'),
-      noPrice: parseFloat(market.outcomePrices?.no || '0.5'),
-      btcPrice: priceService.getPrice(),
-      timeRemaining: marketEngine.getTimeRemaining(),
-      timestamp: Date.now(),
-    },
-  })
-}, 1000)
+// Health heartbeat removed as onPriceUpdate handles real-time sync.
+// We can keep a minimal heartbeat if needed for connection detection,
+// but the client-side useTradingData handles disconnects already.
 
 // CORS headers
 const corsHeaders = {
@@ -104,8 +91,10 @@ serve({
 
     // SSE endpoint for real-time updates
     if (path === '/api/sse') {
+      let heartbeatInterval: Timer | null = null;
       const stream = new ReadableStream({
         start(controller) {
+          console.log(`[Server] SSE client connected. Total clients: ${sseClients.size + 1}`);
           sseClients.add(controller)
 
           // Send initial data
@@ -118,22 +107,42 @@ serve({
               btcPrice: priceService.getPrice(),
               timeRemaining: marketEngine.getTimeRemaining(),
               timestamp: Date.now(),
+              // Include primary market for frontend initialization fallback
+              market: market, 
             },
           }
+          
+          // Prime the stream for Chrome & send retry instruction
+          controller.enqueue(new TextEncoder().encode(`retry: 1000\n\n`))
+          controller.enqueue(new TextEncoder().encode(`: priming\n\n`))
+          
           controller.enqueue(
             new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`),
           )
+
+          // Heartbeat to keep connection alive
+          heartbeatInterval = setInterval(() => {
+            try {
+              controller.enqueue(new TextEncoder().encode(`: heartbeat\n\n`))
+            } catch {
+              if (heartbeatInterval) clearInterval(heartbeatInterval)
+              sseClients.delete(controller)
+            }
+          }, 15000)
         },
         cancel(controller) {
+          console.log(`[Server] SSE client disconnected.`);
           sseClients.delete(controller)
+          if (heartbeatInterval) clearInterval(heartbeatInterval)
         },
       })
 
       return new Response(stream, {
         headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
           ...corsHeaders,
         },
       })
@@ -144,6 +153,8 @@ serve({
       Object.entries(corsHeaders).forEach(([k, v]) =>
         response.headers.set(k, v),
       )
+      // Prevent all API caching
+      response.headers.set('Cache-Control', 'no-store, must-revalidate')
       return response
     }
 
@@ -184,6 +195,16 @@ async function handleApiRoute(
   method: string,
 ): Promise<Response> {
   const url = new URL(req.url)
+
+  // GET /api/debug/engine
+  if (path === '/api/debug/engine' && method === 'GET') {
+    return Response.json({
+      currentMarket: marketEngine.getCurrentMarket(),
+      config: (marketEngine as any).config,
+      settledMarketIds: Array.from((marketEngine as any).settledMarketIds || []),
+      lastUpdate: (marketEngine as any).lastUpdate
+    })
+  }
 
   // GET /api/market - Current market state
   if (path === '/api/market' && method === 'GET') {
@@ -588,7 +609,7 @@ async function handleApiRoute(
           reason,
           inScalpWindow,
         },
-        is5Min: (market as any).is5Min,
+        is5Min: market.is5Min,
       }
     })
 
@@ -812,6 +833,39 @@ async function handleApiRoute(
     } catch (error) {
       return Response.json({ success: false, error: 'Failed to connect to Polymarket API' })
     }
+  }
+
+  // POST /api/backtest - Run strategies against simulated historical data
+  if (path === '/api/backtest' && method === 'POST') {
+    const body = (await parseBody(req)) as {
+      strategies?: string[]
+      startBalance?: number
+      betSize?: number
+      numMarkets?: number
+      slippageEnabled?: boolean
+    }
+
+    const { runBacktest } = await import('./lib/backtest-engine')
+
+    const results = runBacktest({
+      strategies: body?.strategies || [
+        'momentum_chaser',
+        'mean_reversion_sniper',
+        'sum_to_one_arb',
+        'whale_follower',
+        'ta_signal_engine',
+        'market_maker',
+      ],
+      startBalance: body?.startBalance ?? 10,
+      betSize: body?.betSize ?? 1,
+      feeRate: 0.02,
+      slippageEnabled: body?.slippageEnabled ?? true,
+      baseSpread: 0.01,
+      maxSlippage: 0.01,
+      numMarkets: body?.numMarkets ?? 50,
+    })
+
+    return Response.json({ success: true, results })
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 })
