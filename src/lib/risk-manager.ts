@@ -53,7 +53,7 @@ export interface RiskStatus {
 const DEFAULT_SETTINGS: RiskSettings = {
   maxDailyLoss: 5,              // Stop if loss > $5
   maxPositionSize: 3,           // Max $3 per position
-  maxOpenPositions: 5,          // Max 5 open positions
+  maxOpenPositions: 999,        // No practical limit - let strategies trade freely
   maxDrawdownPercent: 20,       // Stop at 20% drawdown
 
   minConfidence: 0.5,           // Min 50% confidence

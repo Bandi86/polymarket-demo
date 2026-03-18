@@ -46,6 +46,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
   const [config, setConfig] = useState({
     minTrades: 50,
     startBalance: 10,
+    durationMinutes: 30, // 30 minutes default
   });
 
   const fetchCompetitionState = useCallback(async () => {
@@ -70,10 +71,15 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     setLoading(true);
     setError(null);
     try {
+      // Convert minutes to milliseconds for the backend
+      const durationMs = config.durationMinutes > 0 ? config.durationMinutes * 60 * 1000 : null;
       const res = await fetch("/api/competition/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify({
+          ...config,
+          duration: durationMs,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -209,6 +215,19 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                   max={100}
                 />
               </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Duration (min)</label>
+                <input
+                  type="number"
+                  value={config.durationMinutes}
+                  onChange={(e) => setConfig(c => ({ ...c, durationMinutes: parseInt(e.target.value) || 30 }))}
+                  className="input"
+                  style={{ width: 100, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
+                  min={1}
+                  max={1440}
+                  placeholder="0 = unlimited"
+                />
+              </div>
               <button
                 onClick={startCompetition}
                 disabled={loading}
@@ -329,6 +348,19 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
               </span>
             )}
           </div>
+          {competition.active && competition.config.duration && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ color: "var(--text-muted)" }}>Time Left:</span>
+              <span style={{
+                fontFamily: "ui-monospace, monospace",
+                color: Math.max(0, competition.config.duration - (Date.now() - competition.startTime)) < 60000
+                  ? "#ef4444"
+                  : "var(--text-primary)"
+              }}>
+                {formatDuration(Math.max(0, competition.config.duration - (Date.now() - competition.startTime)))}
+              </span>
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Target className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
             <span style={{ color: "var(--text-muted)" }}>Min Trades:</span>

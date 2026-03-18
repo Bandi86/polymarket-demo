@@ -36,6 +36,8 @@ export class MarketEngine {
   private lastMarketSwitch = 0;
   private settledMarketIds: Set<string> = new Set();
   private priceUpdateCallbacks: Array<(price: { yes: number; no: number; timestamp: number }) => void> = [];
+  /** BTC price at market start - used for realistic settlement */
+  private marketStartBtcPrice: number | null = null;
 
   constructor(config: MarketEngineConfig = {}) {
     this.config = {
@@ -221,6 +223,31 @@ export class MarketEngine {
 
     this.currentMarket = market;
 
+    // Record BTC price at market start for realistic settlement
+    // If price service not ready, wait for it or fetch directly
+    if (priceService.isReady()) {
+      this.marketStartBtcPrice = priceService.getPrice();
+      console.log(`[MarketEngine] BTC at market start: $${this.marketStartBtcPrice?.toFixed(2)}`);
+    } else {
+      // Fetch price directly from Binance API if service not ready
+      fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+        .then(res => res.json())
+        .then(data => {
+          this.marketStartBtcPrice = parseFloat(data.price);
+          console.log(`[MarketEngine] BTC at market start (fetched): $${this.marketStartBtcPrice?.toFixed(2)}`);
+        })
+        .catch(err => {
+          console.error("[MarketEngine] Failed to fetch BTC price:", err);
+          // Fallback: wait for price service to be ready
+          priceService.onReady(() => {
+            if (!this.marketStartBtcPrice) {
+              this.marketStartBtcPrice = priceService.getPrice();
+              console.log(`[MarketEngine] BTC at market start (onReady): $${this.marketStartBtcPrice?.toFixed(2)}`);
+            }
+          });
+        });
+    }
+
     // Update config from market data
     if (market.timeframe) {
       this.config.timeframe = market.timeframe;
@@ -315,8 +342,16 @@ export class MarketEngine {
     const market = this.currentMarket;
     market.endPrice = finalYesPrice;
     market.status = "settled";
-    market.result = finalYesPrice >= 0.5 ? "UP" : "DOWN";
-    
+
+    // Use actual BTC price movement for settlement (not market sentiment)
+    const currentBtcPrice = priceService.getPrice();
+    const btcStartPrice = this.marketStartBtcPrice || currentBtcPrice;
+    const btcChange = currentBtcPrice - btcStartPrice;
+    const btcChangePercent = (btcChange / btcStartPrice) * 100;
+    market.result = btcChange >= 0 ? "UP" : "DOWN";
+
+    console.log(`[MarketEngine] SETTLEMENT: BTC $${btcStartPrice.toFixed(2)} → $${currentBtcPrice.toFixed(2)} (${btcChangePercent >= 0 ? '+' : ''}${btcChangePercent.toFixed(3)}%) → ${market.result}`);
+
     // Add to settled set to avoid immediate rollover back to this market
     this.settledMarketIds.add(market.id);
 
@@ -377,8 +412,6 @@ export class MarketEngine {
       endTime: Date.now(),
       volume: market.volumeNum || 0,
     });
-
-    console.log(`[MarketEngine] Market settled: ${market.result} (YES=${finalYesPrice.toFixed(3)})`);
 
     // Save to DB async
     this.saveToDatabase(market, marketPositions).catch((e) =>

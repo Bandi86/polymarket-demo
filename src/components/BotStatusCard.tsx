@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle, Timer, Flame, Snowflake, BarChart2 } from "lucide-react";
+import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle, Timer, Flame, Snowflake, BarChart2, DollarSign, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
@@ -356,6 +356,107 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
             bot.stats.profitFactor >= 1 ? "text-warning" : "text-danger"
           )}>
             {bot.stats.profitFactor >= 999 ? "∞" : bot.stats.profitFactor.toFixed(2)}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Trades Detail - NEW SECTION */}
+      {closedPositions.length > 0 && (
+        <div className="p-2 bg-black/20 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Activity className="w-3 h-3" />
+              <span>Recent Trades</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              {closedPositions.length} total
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+            {closedPositions.slice(-10).reverse().map((trade: any, i: number) => {
+              const isWin = (trade.pnl || 0) > 0;
+              const outcome = trade.outcome || "YES";
+              const entryPrice = trade.entryPrice || trade.avgEntry || trade.stake / trade.amount || 0;
+              const stake = trade.stake || 0;
+
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex items-center justify-between p-1.5 rounded text-[10px]",
+                    isWin ? "bg-success/10" : "bg-danger/10"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {/* Outcome Badge */}
+                    <span className={cn(
+                      "px-1 py-0.5 rounded font-mono font-semibold",
+                      outcome === "YES" ? "bg-success/20 text-success" : "bg-danger/20 text-danger"
+                    )}>
+                      {outcome}
+                    </span>
+                    {/* Entry Price */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">@</span>
+                      <span className="font-mono">{(entryPrice * 100).toFixed(1)}¢</span>
+                    </div>
+                    {/* Stake */}
+                    <div className="flex items-center gap-0.5">
+                      <DollarSign className="w-2 h-2 text-muted-foreground" />
+                      <span className="font-mono">{stake.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  {/* PnL */}
+                  <div className={cn(
+                    "font-mono font-semibold",
+                    isWin ? "text-success" : "text-danger"
+                  )}>
+                    {isWin ? "+" : ""}{(trade.pnl || 0).toFixed(2)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Trade Performance Summary - NEW SECTION */}
+      {bot.stats.trades >= 3 && (
+        <div className="grid grid-cols-4 gap-1 p-2 bg-black/20 rounded-md text-[10px]">
+          <div className="flex flex-col items-center">
+            <div className="text-muted-foreground">Avg Entry</div>
+            <div className="font-mono">
+              {closedPositions.length > 0
+                ? `${(closedPositions.reduce((s: number, p: any) => s + (p.entryPrice || p.avgEntry || p.stake / p.amount || 0), 0) / closedPositions.length * 100).toFixed(1)}¢`
+                : "-"}
+            </div>
+          </div>
+          <div className="flex flex-col items-center">
+            <div className="text-muted-foreground">Best Win</div>
+            <div className="font-mono text-success">
+              {closedPositions.length > 0
+                ? `+${Math.max(...closedPositions.map((p: any) => p.pnl || 0)).toFixed(2)}`
+                : "-"}
+            </div>
+          </div>
+          <div className="flex flex-col items-center">
+            <div className="text-muted-foreground">Worst Loss</div>
+            <div className="font-mono text-danger">
+              {closedPositions.length > 0
+                ? `${Math.min(...closedPositions.map((p: any) => p.pnl || 0)).toFixed(2)}`
+                : "-"}
+            </div>
+          </div>
+          <div className="flex flex-col items-center">
+            <div className="text-muted-foreground">Avg Trade</div>
+            <div className={cn(
+              "font-mono",
+              bot.stats.pnl >= 0 ? "text-success" : "text-danger"
+            )}>
+              {bot.stats.trades > 0
+                ? `${(bot.stats.pnl / bot.stats.trades).toFixed(2)}`
+                : "-"}
+            </div>
           </div>
         </div>
       )}

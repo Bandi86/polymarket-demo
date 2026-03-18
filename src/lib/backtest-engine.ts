@@ -4,10 +4,6 @@
  * Uses the same strategy implementations from bot-manager to ensure consistency.
  */
 
-import { dbService } from "./database";
-import type { StrategyType, StrategyContext, Strategy } from "../types";
-import { marketEngine } from "./market-engine";
-
 // === Strategy Implementations (duplicated from bot-manager for isolation) ===
 
 function calculateEMA(prices: number[], period: number): number {
@@ -36,65 +32,138 @@ function calculateRSI(prices: number[], period: number = 14): number {
   return 100 - (100 / (1 + rs));
 }
 
-// Backtest-compatible strategy logic (simplified but matching real execution)
+// Backtest-compatible strategy logic (matching real execution from bot-manager.ts)
 const backtestStrategies: Record<string, (ctx: BacktestContext) => BacktestDecision> = {
   momentum_chaser: (ctx) => {
-    if (ctx.timeRemaining > 30000 || ctx.timeRemaining < 5000) {
-      return { action: null, reason: "Not in entry window" };
+    // Entry window: T-90s to T-5s
+    if (ctx.timeRemaining > 90000 || ctx.timeRemaining < 5000) {
+      return { action: null, reason: "Not in entry window (T-90s)" };
     }
-    if (ctx.priceChange === undefined || Math.abs(ctx.priceChange) < 0.0002) {
-      return { action: null, reason: "Flat market" };
+    // Need price change data (using simulated BTC price change)
+    if (ctx.btcPriceChange === undefined || ctx.btcPriceChange === null) {
+      return { action: null, reason: "No BTC price data" };
     }
-    const action = ctx.priceChange > 0 ? "YES" : "NO";
-    const targetPrice = action === "YES" ? ctx.yesPrice : ctx.noPrice;
-    if (targetPrice > 0.88) return { action: null, reason: "Token too expensive" };
-    return { action, reason: `Momentum: ${ctx.priceChange > 0 ? "+" : ""}${(ctx.priceChange * 100).toFixed(3)}%` };
+    // Lowered threshold: 0.01% delta (matching bot-manager)
+    const threshold = 0.0001;
+    if (Math.abs(ctx.btcPriceChange) < threshold) {
+      return { action: null, reason: `Flat market: delta ${(ctx.btcPriceChange * 100).toFixed(3)}%` };
+    }
+    const action = ctx.btcPriceChange > 0 ? "YES" : "NO";
+    return { action, reason: `Momentum: BTC ${ctx.btcPriceChange >= 0 ? "+" : ""}${(ctx.btcPriceChange * 100).toFixed(3)}%` };
   },
 
   mean_reversion_sniper: (ctx) => {
     if (ctx.timeRemaining < 10000) return { action: null, reason: "Too close to settlement" };
-    const hasSpike = ctx.yesPrice > 0.93 || ctx.noPrice > 0.93;
-    if (!hasSpike) return { action: null, reason: "No spike" };
-    if (Math.abs(ctx.priceChange || 0) > 0.0001) return { action: null, reason: "BTC moved" };
-    return { action: ctx.yesPrice > 0.93 ? "NO" : "YES", reason: "Fade spike" };
+    const yesPrice = ctx.yesPrice;
+    const noPrice = ctx.noPrice;
+    // Spike threshold: 90% (lowered to catch more opportunities)
+    const hasSpike = yesPrice > 0.90 || noPrice > 0.90;
+    if (!hasSpike) return { action: null, reason: `No spike detected (need >90%)` };
+    // Determine spike direction
+    const spikeIsUp = yesPrice > noPrice; // Market expects UP
+    const spikeIsDown = noPrice > yesPrice; // Market expects DOWN
+    // Check BTC momentum
+    const btcDelta = ctx.btcPriceChange || 0;
+    // KEY: Only fade if BTC moves AGAINST the spike
+    const btcMovingUp = btcDelta > 0.0003;
+    const btcMovingDown = btcDelta < -0.0003;
+    if (spikeIsUp && btcMovingDown) {
+      return { action: "NO", reason: `Fade UP spike: BTC down, buying NO at ${(noPrice * 100).toFixed(0)}¢` };
+    }
+    if (spikeIsDown && btcMovingUp) {
+      return { action: "YES", reason: `Fade DOWN spike: BTC up, buying YES at ${(yesPrice * 100).toFixed(0)}¢` };
+    }
+    return { action: null, reason: `Spike aligns with BTC: no fade opportunity` };
   },
 
   sum_to_one_arb: (ctx) => {
-    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close" };
-    const sum = ctx.yesPrice + ctx.noPrice;
-    if (sum >= 0.98) return { action: null, reason: `No arb: sum=${(sum * 100).toFixed(1)}%` };
-    return { action: ctx.yesPrice < ctx.noPrice ? "YES" : "NO", reason: `Arb: sum=${(sum * 100).toFixed(1)}%` };
+    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close to settlement" };
+
+    const yesPrice = ctx.yesPrice;
+    const noPrice = ctx.noPrice;
+    const btcDelta = ctx.btcPriceChange || 0;
+
+    // Look for market expectations vs BTC direction
+    const marketExpectsUp = yesPrice > 0.55;
+    const marketExpectsDown = noPrice > 0.55;
+
+    // Need clear market bias
+    if (!marketExpectsUp && !marketExpectsDown) {
+      return { action: null, reason: `Market undecided: YES ${(yesPrice * 100).toFixed(0)}¢` };
+    }
+
+    // Require strong BTC contradiction
+    const btcStrongUp = btcDelta > 0.001;
+    const btcStrongDown = btcDelta < -0.001;
+
+    // Fade market expectation when BTC strongly contradicts
+    if (marketExpectsUp && btcStrongDown) {
+      return { action: "NO", reason: `Arb fade UP: Market ${(yesPrice * 100).toFixed(0)}¢ but BTC down` };
+    }
+
+    if (marketExpectsDown && btcStrongUp) {
+      return { action: "YES", reason: `Arb fade DOWN: Market ${(noPrice * 100).toFixed(0)}¢ but BTC up` };
+    }
+
+    return { action: null, reason: `Market and BTC aligned - no arb opportunity` };
   },
 
   whale_follower: (ctx) => {
-    if (ctx.timeRemaining < 5000) return { action: null, reason: "Too close" };
-    // Simulated whale signal based on price momentum
-    if (ctx.priceHistory.length < 3) return { action: null, reason: "Insufficient data" };
-    const recent = ctx.priceHistory.slice(-3);
-    const trend = recent[2] - recent[0];
-    if (Math.abs(trend) < 0.01) return { action: null, reason: "No whale activity" };
-    return { action: trend > 0 ? "YES" : "NO", reason: `Whale signal: ${trend > 0 ? "bullish" : "bearish"}` };
+    if (ctx.timeRemaining < 10000) return { action: null, reason: "Too close to settlement" };
+    const btcDelta = ctx.btcPriceChange || 0;
+    // KEY: Only trade at extreme prices where market is confident
+    // AND BTC strongly contradicts the market direction
+    const extremeUp = ctx.yesPrice > 0.85;  // Market very confident UP
+    const extremeDown = ctx.noPrice > 0.85; // Market very confident DOWN
+    // Require STRONG BTC contradiction (0.15% = 3x higher threshold)
+    const btcStrongUp = btcDelta > 0.0015;   // BTC up > 0.15%
+    const btcStrongDown = btcDelta < -0.0015; // BTC down > 0.15%
+    // Fade UP extreme when BTC is strongly going DOWN
+    if (extremeUp && btcStrongDown) {
+      return { action: "NO", reason: `Whale fade UP: Market at ${(ctx.yesPrice * 100).toFixed(0)}¢ but BTC down` };
+    }
+    // Fade DOWN extreme when BTC is strongly going UP
+    if (extremeDown && btcStrongUp) {
+      return { action: "YES", reason: `Whale fade DOWN: Market at ${(ctx.noPrice * 100).toFixed(0)}¢ but BTC up` };
+    }
+    return { action: null, reason: `No extreme fade opportunity (need 85%+ price, 0.15%+ BTC contra)` };
   },
 
   ta_signal_engine: (ctx) => {
-    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close" };
-    if (ctx.priceHistory.length < 21) return { action: null, reason: "Insufficient data" };
+    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close to settlement" };
+    // Reduced required candles: 14 (matching bot-manager)
+    if (ctx.priceHistory.length < 14) return { action: null, reason: `Insufficient data: ${ctx.priceHistory.length} candles (need 14)` };
     const ema9 = calculateEMA(ctx.priceHistory, 9);
-    const ema21 = calculateEMA(ctx.priceHistory, 21);
+    const ema14 = calculateEMA(ctx.priceHistory, 14); // Use 14 instead of 21
     const rsi = calculateRSI(ctx.priceHistory, 14);
-    if (rsi > 80 || rsi < 20) return { action: null, reason: `RSI extreme: ${rsi.toFixed(1)}` };
-    if (ema9 > ema21 && rsi < 70) return { action: "YES", reason: `Bullish EMA crossover` };
-    if (ema9 < ema21 && rsi > 30) return { action: "NO", reason: `Bearish EMA crossover` };
-    return { action: null, reason: "No signal" };
+    // Widened RSI bands: 15-85 (matching bot-manager)
+    if (rsi > 85) return { action: null, reason: `RSI overbought: ${rsi.toFixed(1)}` };
+    if (rsi < 15) return { action: null, reason: `RSI oversold: ${rsi.toFixed(1)}` };
+    // Bullish: EMA9 > EMA14 and RSI not overbought
+    if (ema9 > ema14 && rsi < 75) return { action: "YES", reason: `Bullish: EMA9 > EMA14, RSI=${rsi.toFixed(1)}` };
+    // Bearish: EMA9 < EMA14 and RSI not oversold
+    if (ema9 < ema14 && rsi > 25) return { action: "NO", reason: `Bearish: EMA9 < EMA14, RSI=${rsi.toFixed(1)}` };
+    return { action: null, reason: `No clear signal: RSI=${rsi.toFixed(1)}` };
   },
 
   market_maker: (ctx) => {
-    if (ctx.timeRemaining < 60000) return { action: null, reason: "T-60s exit" };
-    const spread = Math.abs(ctx.yesPrice - ctx.noPrice);
-    if (spread < 0.015) return { action: null, reason: "Tight spread" };
-    if (ctx.yesPrice > 0.55) return { action: "NO", reason: "Market making: bid NO" };
-    if (ctx.noPrice > 0.55) return { action: "YES", reason: "Market making: bid YES" };
-    return { action: null, reason: "Market balanced" };
+    // Exit at T-60s
+    if (ctx.timeRemaining < 60000) return { action: null, reason: "Exiting: T-60s reached" };
+    const btcDelta = ctx.btcPriceChange || 0;
+    // Only fade EXTREME prices (>70%) AND when BTC contradicts
+    const extremeUp = ctx.yesPrice > 0.70;
+    const extremeDown = ctx.noPrice > 0.70;
+    const btcUp = btcDelta > 0.0005;
+    const btcDown = btcDelta < -0.0005;
+    // Fade UP spike when BTC is going DOWN
+    if (extremeUp && btcDown) {
+      return { action: "NO", reason: `MM fade UP: BTC down, buy NO` };
+    }
+    // Fade DOWN spike when BTC is going UP
+    if (extremeDown && btcUp) {
+      return { action: "YES", reason: `MM fade DOWN: BTC up, buy YES` };
+    }
+    return { action: null, reason: `Market aligned with BTC: no fade` };
   },
 };
 
@@ -105,6 +174,7 @@ interface BacktestContext {
   priceChange: number;
   timeRemaining: number;
   marketDuration: number;
+  btcPriceChange: number; // Simulated BTC price change (matching real bot behavior)
 }
 
 interface BacktestDecision {
@@ -201,6 +271,10 @@ export function runBacktest(config: BacktestConfig): BacktestResult[] {
           ? (pricePoint.yes - priceHistory[priceHistory.length - 2]) / priceHistory[priceHistory.length - 2]
           : 0;
 
+        // Simulated BTC price change - correlates with market direction but with noise
+        // This mimics real bot behavior where BTC momentum influences decisions
+        const btcPriceChange = market.btcChange + (Math.random() - 0.5) * 0.002;
+
         const ctx: BacktestContext = {
           yesPrice: pricePoint.yes,
           noPrice: pricePoint.no,
@@ -208,6 +282,7 @@ export function runBacktest(config: BacktestConfig): BacktestResult[] {
           priceChange,
           timeRemaining,
           marketDuration,
+          btcPriceChange,
         };
 
         const decision = strategyFn(ctx);
@@ -316,9 +391,16 @@ export function runBacktest(config: BacktestConfig): BacktestResult[] {
 function generateSimulatedMarket(): {
   getPriceAt: (progress: number) => { yes: number; no: number };
   result: "UP" | "DOWN";
+  btcChange: number; // Simulated BTC price movement
 } {
   // Random final result
   const result: "UP" | "DOWN" = Math.random() > 0.5 ? "UP" : "DOWN";
+
+  // Simulate BTC price change - correlates with market outcome
+  // BTC up -> market tends UP, BTC down -> market tends DOWN
+  const btcChange = result === "UP"
+    ? 0.0005 + Math.random() * 0.002  // +0.05% to +0.25%
+    : -0.0025 + Math.random() * 0.002; // -0.25% to -0.05%
 
   // Generate a price path using a mean-reverting random walk
   const steps = 60; // 60 price points for 5 min
@@ -353,6 +435,7 @@ function generateSimulatedMarket(): {
       return { yes, no: 1 - yes };
     },
     result,
+    btcChange,
   };
 }
 

@@ -3,13 +3,10 @@
 
 import type {
   BotConfig,
-  BotStats,
   BotSession,
-  Position,
   StrategyType,
   StrategyContext,
   Strategy,
-  Portfolio,
   Outcome,
 } from "../types";
 import { marketEngine } from "./market-engine";
@@ -18,331 +15,401 @@ import { generateId, clamp } from "./utils";
 import { binanceKlineProvider } from "./providers/binance-kline-provider";
 import { priceService } from "./price";
 import { riskManager } from "./risk-manager";
-
-// === Technical Analysis Helpers ===
-
-function calculateEMA(prices: number[], period: number): number {
-  if (prices.length < period) return prices[prices.length - 1] || 0;
-
-  const multiplier = 2 / (period + 1);
-  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
-
-  for (let i = period; i < prices.length; i++) {
-    ema = (prices[i] - ema) * multiplier + ema;
-  }
-
-  return ema;
-}
-
-function calculateRSI(prices: number[], period: number = 14): number {
-  if (prices.length < period + 1) return 50;
-
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
-  }
-
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
+import { strategyCoordinator } from "./strategy-coordinator";
+import { parameterOptimizer } from "./parameter-optimizer";
 
 // === Strategy Implementations ===
 
 const strategies: Record<StrategyType, Strategy> = {
+  // === SPECTRUM POSITION 1: AGGRESSIVE - Always trades ===
   momentum_chaser: {
-    name: "Momentum Chaser",
-    description: "Computes BTC price delta from window open; enters at T−60s",
+    name: "BTC Pure",
+    description: "Follows BTC direction - only trades when market price is attractive",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, btcPrice, btcPriceChange, marketPrice } = ctx;
+      const { timeRemaining, btcPriceChange, marketPrice } = ctx;
 
-      // Extended entry window: T-60s to T-5s
-      if (timeRemaining > 60000 || timeRemaining < 5000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (T-60s)" };
+      // Don't trade in last 30 seconds
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // Need BTC price change data
+      // Need BTC price data
       if (btcPriceChange === undefined || btcPriceChange === null) {
         return { action: null, confidence: 0, reason: "No BTC price data" };
       }
 
-      // Lowered threshold: 0.01% delta (was 0.02%)
-      const threshold = 0.0001; // 0.01%
+      // Minimum BTC movement threshold (0.01% = 0.0001)
       const delta = btcPriceChange;
-
-      // Skip if flat market
-      if (Math.abs(delta) < threshold) {
-        return { action: null, confidence: 0, reason: `Flat market: delta ${(delta * 100).toFixed(3)}%` };
-      }
-
-      // Determine direction
-      const action = delta > 0 ? "YES" : "NO";
-
-      // Calculate confidence based on momentum strength
-      const confidence = Math.min(0.75, 0.5 + Math.abs(delta) * 500);
-
-      return {
-        action,
-        confidence,
-        reason: `Momentum: BTC ${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(3)}%`,
-      };
-    },
-  },
-
-  mean_reversion_sniper: {
-    name: "Mean Reversion Sniper",
-    description: "Fades spikes when one token exceeds 0.88 without a real BTC move",
-    category: "mean_reversion",
-    execute: (ctx) => {
-      const { marketPrice, btcPriceChange, timeRemaining } = ctx;
-
-      if (timeRemaining < 10000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      if (Math.abs(delta) < 0.0001) {
+        return { action: null, confidence: 0, reason: `BTC movement too small (${(delta * 100).toFixed(4)}%)` };
       }
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
       const noPrice = marketPrice?.noPrice || 0.5;
 
-      // Lowered spike threshold: 88% (was 93%)
-      const hasSpike = yesPrice > 0.88 || noPrice > 0.88;
-      if (!hasSpike) {
-        return { action: null, confidence: 0, reason: `No spike detected (need >88%)` };
+      // Max buy price to ensure profitable trades after fees (80¢)
+      const MAX_BUY_PRICE = 0.80;
+
+      // Determine direction based on BTC delta
+      // Only trade if the price is attractive (not too expensive)
+      if (delta >= 0) {
+        // BTC going UP - buy YES if it's cheap enough
+        if (yesPrice <= MAX_BUY_PRICE) {
+          const confidence = Math.min(0.75, 0.55 + Math.abs(delta) * 50);
+          return {
+            action: "YES",
+            confidence,
+            reason: `BTC Pure: BTC +${(delta * 100).toFixed(3)}% → YES at ${(yesPrice * 100).toFixed(0)}¢`,
+          };
+        } else {
+          return { action: null, confidence: 0, reason: `BTC Pure: BTC up but YES too expensive (${(yesPrice * 100).toFixed(0)}¢)` };
+        }
+      } else {
+        // BTC going DOWN - buy NO if it's cheap enough
+        if (noPrice <= MAX_BUY_PRICE) {
+          const confidence = Math.min(0.75, 0.55 + Math.abs(delta) * 50);
+          return {
+            action: "NO",
+            confidence,
+            reason: `BTC Pure: BTC -${(Math.abs(delta) * 100).toFixed(3)}% → NO at ${(noPrice * 100).toFixed(0)}¢`,
+          };
+        } else {
+          return { action: null, confidence: 0, reason: `BTC Pure: BTC down but NO too expensive (${(noPrice * 100).toFixed(0)}¢)` };
+        }
+      }
+    },
+  },
+
+  // === SPECTRUM POSITION 2: AGGRESSIVE - Late entry always trades ===
+  mean_reversion_sniper: {
+    name: "Quick Strike",
+    description: "Late entry (T-90s to T-20s) - follows market consensus with good odds",
+    category: "momentum",
+    execute: (ctx) => {
+      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+
+      // Only trade in the 20-90 second window
+      if (timeRemaining > 90000 || timeRemaining < 20000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (20-90s)" };
       }
 
-      // Increased BTC delta tolerance: 0.03% (was 0.01%)
-      const btcDelta = Math.abs(btcPriceChange || 0);
-      if (btcDelta > 0.0003) {
-        return { action: null, confidence: 0, reason: `BTC moved: ${(btcDelta * 100).toFixed(3)}%` };
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      const noPrice = marketPrice?.noPrice || 0.5;
+
+      // Never buy at extreme prices - fees make it -EV
+      // Max buy price = 0.80 (80¢) to ensure profitable trades after fees
+      const MAX_BUY_PRICE = 0.80;
+
+      // If market has clear direction, follow it - but only at good prices
+      if (yesPrice > noPrice + 0.02 && yesPrice <= MAX_BUY_PRICE) {
+        return {
+          action: "YES",
+          confidence: 0.60,
+          reason: `Quick Strike: Market bullish ${(yesPrice * 100).toFixed(0)}¢ → YES`,
+        };
       }
 
-      // Fade the spike: buy the cheaper token
-      const action = yesPrice > 0.88 ? "NO" : "YES";
-      const targetPrice = action === "YES" ? yesPrice : noPrice;
+      if (noPrice > yesPrice + 0.02 && noPrice <= MAX_BUY_PRICE) {
+        return {
+          action: "NO",
+          confidence: 0.60,
+          reason: `Quick Strike: Market bearish ${(noPrice * 100).toFixed(0)}¢ → NO`,
+        };
+      }
 
-      // Higher confidence for larger spikes
-      const spikeSize = Math.max(yesPrice, noPrice) - 0.88;
-      const confidence = Math.min(0.85, 0.55 + spikeSize * 2);
+      // Market direction clear but price too extreme
+      if (yesPrice > MAX_BUY_PRICE || noPrice > MAX_BUY_PRICE) {
+        return { action: null, confidence: 0, reason: `Price too extreme (>${(MAX_BUY_PRICE * 100).toFixed(0)}¢) - fees make it -EV` };
+      }
+
+      // Market is undecided (50-50), use BTC direction
+      const btcDelta = btcPriceChange || 0;
+      const action: Outcome = btcDelta >= 0 ? "YES" : "NO";
 
       return {
         action,
-        confidence,
-        reason: `Fade spike: ${action === "YES" ? "YES" : "NO"} at ${(targetPrice * 100).toFixed(0)}¢`,
+        confidence: 0.55,
+        reason: `Quick Strike: Market undecided, BTC ${btcDelta >= 0 ? "+" : ""}${(btcDelta * 100).toFixed(3)}% → ${action}`,
       };
     },
   },
 
+  // === SPECTRUM POSITION 3: BALANCED - Trades on alignment or strong contradiction ===
   sum_to_one_arb: {
-    name: "Sum-to-One Arbitrage",
-    description: "Buys both UP and DOWN when combined asks < $0.99 — guaranteed edge",
-    category: "arbitrage",
+    name: "Balanced Signal",
+    description: "Trades when BTC and market align OR when BTC strongly contradicts market",
+    category: "momentum",
     execute: (ctx) => {
-      const { marketPrice, orderBook, timeRemaining } = ctx;
+      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
       if (timeRemaining < 30000) {
         return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // Get best asks from order book or market price
-      let yesAsk = 1;
-      let noAsk = 1;
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      const noPrice = marketPrice?.noPrice || 0.5;
+      const btcDelta = btcPriceChange || 0;
 
-      if (orderBook?.yesAsks?.length) {
-        yesAsk = orderBook.yesAsks[0].price;
-      } else if (marketPrice?.yesPrice) {
-        yesAsk = marketPrice.yesPrice + 0.01; // Estimate ask
+      // Determine market direction
+      const marketExpectsUp = yesPrice > 0.55;
+      const marketExpectsDown = noPrice > 0.55;
+
+      // Need market to have an opinion
+      if (!marketExpectsUp && !marketExpectsDown) {
+        return { action: null, confidence: 0, reason: `Market undecided: YES ${(yesPrice * 100).toFixed(0)}¢` };
       }
 
-      if (orderBook?.noAsks?.length) {
-        noAsk = orderBook.noAsks[0].price;
-      } else if (marketPrice?.noPrice) {
-        noAsk = marketPrice.noPrice + 0.01; // Estimate ask
+      // BTC direction thresholds
+      const btcUp = btcDelta > 0.0003;      // BTC up > 0.03%
+      const btcDown = btcDelta < -0.0003;   // BTC down > 0.03%
+      const btcStrongUp = btcDelta > 0.001; // BTC up > 0.1%
+      const btcStrongDown = btcDelta < -0.001; // BTC down > 0.1%
+
+      // Case 1: Market UP + BTC UP = Strong YES signal
+      if (marketExpectsUp && btcUp) {
+        return {
+          action: "YES",
+          confidence: 0.70,
+          reason: `Balanced: Market & BTC both UP → YES`,
+        };
       }
 
-      const sum = yesAsk + noAsk;
-
-      // Increased threshold: 99% (was 98%)
-      if (sum >= 0.99) {
-        return { action: null, confidence: 0, reason: `No arb: sum=${(sum * 100).toFixed(1)}%` };
+      // Case 2: Market DOWN + BTC DOWN = Strong NO signal
+      if (marketExpectsDown && btcDown) {
+        return {
+          action: "NO",
+          confidence: 0.70,
+          reason: `Balanced: Market & BTC both DOWN → NO`,
+        };
       }
 
-      const edge = 1 - sum;
-      const confidence = Math.min(0.95, 0.6 + edge * 20);
+      // Case 3: Market UP + BTC STRONGLY DOWN = Fade market, buy NO
+      if (marketExpectsUp && btcStrongDown) {
+        return {
+          action: "NO",
+          confidence: 0.65,
+          reason: `Balanced: Fade UP market, BTC down ${(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
 
-      // Buy the cheaper one for higher potential return
-      const action = yesAsk < noAsk ? "YES" : "NO";
+      // Case 4: Market DOWN + BTC STRONGLY UP = Fade market, buy YES
+      if (marketExpectsDown && btcStrongUp) {
+        return {
+          action: "YES",
+          confidence: 0.65,
+          reason: `Balanced: Fade DOWN market, BTC up +${(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
 
+      // Case 5: Weak contradiction - no trade
       return {
-        action,
-        confidence,
-        reason: `Arb opportunity: sum=${(sum * 100).toFixed(1)}%, edge=${(edge * 100).toFixed(1)}%`,
+        action: null,
+        confidence: 0,
+        reason: `Balanced: BTC/Market contradiction too weak`,
       };
     },
   },
 
+  // === SPECTRUM POSITION 4: BALANCED - Fades extreme prices ===
   whale_follower: {
-    name: "Whale Follower",
-    description: "Follows whale signals or BTC momentum as fallback",
-    category: "social",
+    name: "Contrarian Lite",
+    description: "Fades extreme prices (>75%) when BTC contradicts market direction",
+    category: "mean_reversion",
     execute: (ctx) => {
-      const { timeRemaining, binanceSignal, btcPriceChange, marketPrice } = ctx;
+      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
-      if (timeRemaining < 5000) {
+      if (timeRemaining < 45000) {
         return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
-      // Primary: Use binanceSignal if available
-      if (binanceSignal && binanceSignal.type !== "NEUTRAL") {
-        const action = binanceSignal.predictedOutcome ||
-          (binanceSignal.type === "UP" ? "YES" : "NO");
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      const noPrice = marketPrice?.noPrice || 0.5;
+      const btcDelta = btcPriceChange || 0;
 
+      // Extreme prices: market is confident
+      const extremeUp = yesPrice > 0.75;   // Market expects UP
+      const extremeDown = noPrice > 0.75;  // Market expects DOWN
+
+      if (!extremeUp && !extremeDown) {
+        return { action: null, confidence: 0, reason: `No extreme price (need >75%)` };
+      }
+
+      // BTC moving significantly (>0.03%)
+      const btcUp = btcDelta > 0.0003;
+      const btcDown = btcDelta < -0.0003;
+
+      // Fade UP spike when BTC is going DOWN
+      if (extremeUp && btcDown) {
+        const confidence = Math.min(0.80, 0.60 + Math.abs(btcDelta) * 100);
         return {
-          action,
-          confidence: binanceSignal.confidence * 0.8,
-          reason: `Following whale signal: ${binanceSignal.type}`,
+          action: "NO",
+          confidence,
+          reason: `Contrarian: Fade UP spike, BTC down ${(btcDelta * 100).toFixed(2)}%`,
         };
       }
 
-      // Fallback: Use BTC price momentum
-      if (btcPriceChange !== undefined && btcPriceChange !== null) {
-        const threshold = 0.0005; // 0.05% threshold for momentum
-        if (Math.abs(btcPriceChange) > threshold) {
-          const action = btcPriceChange > 0 ? "YES" : "NO";
-          const confidence = Math.min(0.65, 0.4 + Math.abs(btcPriceChange) * 200);
-          return {
-            action,
-            confidence,
-            reason: `BTC momentum fallback: ${btcPriceChange > 0 ? "+" : ""}${(btcPriceChange * 100).toFixed(3)}%`,
-          };
+      // Fade DOWN spike when BTC is going UP
+      if (extremeDown && btcUp) {
+        const confidence = Math.min(0.80, 0.60 + Math.abs(btcDelta) * 100);
+        return {
+          action: "YES",
+          confidence,
+          reason: `Contrarian: Fade DOWN spike, BTC up +${(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
+
+      // Spike confirmed by BTC - no fade
+      return { action: null, confidence: 0, reason: `Spike confirmed by BTC - no fade` };
+    },
+  },
+
+  // === SPECTRUM POSITION 5: SELECTIVE - Strong signals only ===
+  ta_signal_engine: {
+    name: "High Conviction",
+    description: "Only trades on strong signals with good risk/reward",
+    category: "technical",
+    execute: (ctx) => {
+      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+
+      // Only trade in 60-240s window
+      if (timeRemaining > 240000 || timeRemaining < 60000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (60-240s)" };
+      }
+
+      const yesPrice = marketPrice?.yesPrice || 0.5;
+      const noPrice = marketPrice?.noPrice || 0.5;
+      const btcDelta = btcPriceChange || 0;
+
+      // Max buy price for good risk/reward
+      const MAX_BUY_PRICE = 0.70;
+
+      // Strong BTC move threshold
+      const strongBtcUp = btcDelta > 0.0008;   // > 0.08%
+      const strongBtcDown = btcDelta < -0.0008;
+
+      // Setup 1: Strong BTC + market alignment (but price must be good)
+      if (strongBtcUp && yesPrice > 0.55 && yesPrice <= MAX_BUY_PRICE) {
+        return {
+          action: "YES",
+          confidence: 0.72,
+          reason: `High Conviction: BTC +${(btcDelta * 100).toFixed(2)}% + YES at ${(yesPrice * 100).toFixed(0)}¢`,
+        };
+      }
+
+      if (strongBtcDown && noPrice > 0.55 && noPrice <= MAX_BUY_PRICE) {
+        return {
+          action: "NO",
+          confidence: 0.72,
+          reason: `High Conviction: BTC -${Math.abs(btcDelta * 100).toFixed(2)}% + NO at ${(noPrice * 100).toFixed(0)}¢`,
+        };
+      }
+
+      // Skip if price too expensive
+      if (strongBtcUp && yesPrice > MAX_BUY_PRICE) {
+        return { action: null, confidence: 0, reason: `High Conviction: BTC up but YES too expensive (${(yesPrice * 100).toFixed(0)}¢)` };
+      }
+      if (strongBtcDown && noPrice > MAX_BUY_PRICE) {
+        return { action: null, confidence: 0, reason: `High Conviction: BTC down but NO too expensive (${(noPrice * 100).toFixed(0)}¢)` };
+      }
+
+      // Setup 2: Large spread - buy the cheaper side ONLY if BTC confirms
+      const spread = Math.abs(yesPrice - noPrice);
+      if (spread > 0.03) {
+        // Spread > 3%
+        const cheaperSide: Outcome = yesPrice < noPrice ? "YES" : "NO";
+        const cheaperPrice = Math.min(yesPrice, noPrice);
+
+        // Only buy if:
+        // 1. Price is attractive (< 35%)
+        // 2. BTC direction STRONGLY CONFIRMS the trade (not just neutral)
+        if (cheaperPrice < 0.35) {
+          // Buying YES cheap - only if BTC is ACTUALLY going UP (not just flat)
+          // Require btcDelta > 0.0005 (0.05%) to avoid false signals
+          if (cheaperSide === "YES" && btcDelta > 0.0005) {
+            return {
+              action: "YES",
+              confidence: 0.70,
+              reason: `High Conviction: Cheap YES at ${(cheaperPrice * 100).toFixed(0)}¢ + BTC up ${(btcDelta * 100).toFixed(3)}%`,
+            };
+          }
+          // Buying NO cheap - only if BTC is ACTUALLY going DOWN (not just flat)
+          if (cheaperSide === "NO" && btcDelta < -0.0005) {
+            return {
+              action: "NO",
+              confidence: 0.70,
+              reason: `High Conviction: Cheap NO at ${(cheaperPrice * 100).toFixed(0)}¢ + BTC down ${(Math.abs(btcDelta) * 100).toFixed(3)}%`,
+            };
+          }
+          // BTC doesn't confirm strongly enough - don't buy cheap side, it's cheap for a reason
+          return { action: null, confidence: 0, reason: `High Conviction: Cheap ${cheaperSide} but BTC not moving enough (${(btcDelta * 100).toFixed(3)}%)` };
         }
       }
 
-      // Secondary fallback: Follow price imbalance
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      if (yesPrice > 0.65) {
-        return {
-          action: "NO",
-          confidence: 0.5,
-          reason: `Price imbalance: YES at ${(yesPrice * 100).toFixed(0)}¢`,
-        };
-      }
-      if (yesPrice < 0.35) {
-        return {
-          action: "YES",
-          confidence: 0.5,
-          reason: `Price imbalance: YES at ${(yesPrice * 100).toFixed(0)}¢`,
-        };
-      }
-
-      return { action: null, confidence: 0, reason: "No whale activity or momentum detected" };
+      return { action: null, confidence: 0, reason: `No high conviction setup` };
     },
   },
 
-  ta_signal_engine: {
-    name: "TA Signal Engine",
-    description: "EMA9/EMA21 crossover + RSI on 1-min Binance candles",
-    category: "technical",
-    execute: (ctx) => {
-      const { priceHistory, timeRemaining, btcPrice } = ctx;
-
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
-      }
-
-      // Reduced required candles: 14 (was 21)
-      if (priceHistory.length < 14) {
-        return { action: null, confidence: 0, reason: `Insufficient data: ${priceHistory.length} candles (need 14)` };
-      }
-
-      // Calculate EMAs
-      const ema9 = calculateEMA(priceHistory, 9);
-      const ema21 = calculateEMA(priceHistory, 14); // Use 14 instead of 21
-
-      // Calculate RSI
-      const rsi = calculateRSI(priceHistory, 14);
-
-      // Widened RSI bands: 15-85 (was 20-80)
-      if (rsi > 85) {
-        return { action: null, confidence: 0, reason: `RSI overbought: ${rsi.toFixed(1)}` };
-      }
-      if (rsi < 15) {
-        return { action: null, confidence: 0, reason: `RSI oversold: ${rsi.toFixed(1)}` };
-      }
-
-      // Bullish: EMA9 > EMA21 and RSI not overbought
-      if (ema9 > ema21 && rsi < 75) {
-        const confidence = 0.5 + (ema9 - ema21) / ema21 * 50;
-        return {
-          action: "YES",
-          confidence: Math.min(0.8, confidence),
-          reason: `Bullish: EMA9(${ema9.toFixed(4)}) > EMA21(${ema21.toFixed(4)}), RSI=${rsi.toFixed(1)}`,
-        };
-      }
-
-      // Bearish: EMA9 < EMA21 and RSI not oversold
-      if (ema9 < ema21 && rsi > 25) {
-        const confidence = 0.5 + (ema21 - ema9) / ema21 * 50;
-        return {
-          action: "NO",
-          confidence: Math.min(0.8, confidence),
-          reason: `Bearish: EMA9(${ema9.toFixed(4)}) < EMA21(${ema21.toFixed(4)}), RSI=${rsi.toFixed(1)}`,
-        };
-      }
-
-      return { action: null, confidence: 0, reason: `No clear signal: EMA9=${ema9.toFixed(4)}, EMA21=${ema21.toFixed(4)}, RSI=${rsi.toFixed(1)}` };
-    },
-  },
-
+  // === SPECTRUM POSITION 6: ULTRA-SELECTIVE - Best setups only ===
   market_maker: {
-    name: "Market Maker",
-    description: "Posts bid/ask limit orders to earn the spread; cancels at T−60s",
-    category: "market_making",
+    name: "Sniper",
+    description: "Ultra-selective: only trades on very strong setups with high confidence",
+    category: "momentum",
     execute: (ctx) => {
-      const { marketPrice, timeRemaining, orderBook } = ctx;
+      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
-      // Cancel all orders at T-60s
-      if (timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Exiting market making: T-60s reached" };
+      // Only trade in 60-180s window
+      if (timeRemaining > 180000 || timeRemaining < 60000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (60-180s)" };
       }
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
       const noPrice = marketPrice?.noPrice || 0.5;
+      const btcDelta = btcPriceChange || 0;
 
-      // Calculate spread
-      const spread = orderBook?.spread || 0.02;
+      // Strong BTC move thresholds (>0.08% - lowered for 5-minute markets)
+      const veryStrongBtcUp = btcDelta > 0.0008;
+      const veryStrongBtcDown = btcDelta < -0.0008;
 
-      // Market make when spread is wide enough
-      if (spread < 0.015) {
-        return { action: null, confidence: 0, reason: `Spread too tight: ${(spread * 100).toFixed(1)}%` };
-      }
-
-      // Post on the side with better value
-      // If YES is expensive (>0.55), sell NO (bid)
-      // If NO is expensive (<0.45), sell YES (bid)
-      if (yesPrice > 0.55) {
-        return {
-          action: "NO",
-          confidence: 0.5,
-          reason: `Market making: bid NO at ${((noPrice - 0.015) * 100).toFixed(0)}¢`,
-        };
-      }
-
-      if (noPrice > 0.55) {
+      // Setup 1: Strong BTC move with market not yet reacted
+      // BTC up 0.08%+ but market price still < 65%
+      if (veryStrongBtcUp && yesPrice < 0.65) {
         return {
           action: "YES",
-          confidence: 0.5,
-          reason: `Market making: bid YES at ${((yesPrice - 0.015) * 100).toFixed(0)}¢`,
+          confidence: 0.78,
+          reason: `Sniper: BTC +${(btcDelta * 100).toFixed(2)}%, market lagging at ${(yesPrice * 100).toFixed(0)}¢`,
         };
       }
 
-      return { action: null, confidence: 0, reason: "Market balanced, no edge" };
+      if (veryStrongBtcDown && noPrice < 0.65) {
+        return {
+          action: "NO",
+          confidence: 0.78,
+          reason: `Sniper: BTC -${Math.abs(btcDelta * 100).toFixed(2)}%, market lagging at ${(noPrice * 100).toFixed(0)}¢`,
+        };
+      }
+
+      // Setup 2: Extreme fade (>80% price + BTC contradiction) - lowered from 85%
+      const extremeUp = yesPrice > 0.80;
+      const extremeDown = noPrice > 0.80;
+
+      if (extremeUp && veryStrongBtcDown) {
+        return {
+          action: "NO",
+          confidence: 0.82,
+          reason: `Sniper: Fade extreme UP at ${(yesPrice * 100).toFixed(0)}¢, BTC down ${Math.abs(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
+
+      if (extremeDown && veryStrongBtcUp) {
+        return {
+          action: "YES",
+          confidence: 0.82,
+          reason: `Sniper: Fade extreme DOWN at ${(noPrice * 100).toFixed(0)}¢, BTC up +${(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: `Sniper: No high-quality setup` };
     },
   },
 };
@@ -358,7 +425,7 @@ export interface BotLog {
   id: string;
   botId: string;
   botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION";
+  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD";
   message: string;
   details?: Record<string, unknown>;
   timestamp: number;
@@ -478,12 +545,13 @@ export class BotManager {
 
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
-      { id: "bot-momentum-chaser", name: "BOT-01: Momentum Chaser", strategy: "momentum_chaser", interval: 30000, betSize: 5, maxBet: 10, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-mean-reversion-sniper", name: "BOT-02: Mean Reversion Sniper", strategy: "mean_reversion_sniper", interval: 5000, betSize: 3, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-sum-to-one-arb", name: "BOT-03: Sum-to-One Arbitrage", strategy: "sum_to_one_arb", interval: 2000, betSize: 10, maxBet: 20, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-whale-follower", name: "BOT-04: Whale Follower", strategy: "whale_follower", interval: 1000, betSize: 5, maxBet: 15, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-ta-signal-engine", name: "BOT-05: TA Signal Engine", strategy: "ta_signal_engine", interval: 5000, betSize: 4, maxBet: 8, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-market-maker", name: "BOT-06: Market Maker", strategy: "market_maker", interval: 3000, betSize: 5, maxBet: 10, useKelly: true, kellyFraction: 0.5 },
+      // Spectrum: Aggressive → Selective
+      { id: "bot-momentum-chaser", name: "BOT-01: BTC Pure", strategy: "momentum_chaser", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-mean-reversion-sniper", name: "BOT-02: Quick Strike", strategy: "mean_reversion_sniper", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-sum-to-one-arb", name: "BOT-03: Balanced Signal", strategy: "sum_to_one_arb", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-whale-follower", name: "BOT-04: Contrarian Lite", strategy: "whale_follower", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-ta-signal-engine", name: "BOT-05: High Conviction", strategy: "ta_signal_engine", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-market-maker", name: "BOT-06: Sniper", strategy: "market_maker", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -500,7 +568,7 @@ export class BotManager {
         maxBet: 3,
         stopLoss: 0.1,
         takeProfit: 0.2,
-        maxPositions: 5,
+        maxPositions: 999, // No practical limit - let strategies trade freely
         stats: {
           trades: 0,
           wins: 0,
@@ -641,6 +709,27 @@ export class BotManager {
     // Clear existing interval
     this.stopBot(id);
 
+    // Apply optimized parameters if available
+    const optimizedParams = parameterOptimizer.getOptimizedParameters(
+      bot.strategy,
+      {
+        betSize: bot.betSize,
+        interval: bot.interval,
+        kellyFraction: bot.kellyFraction,
+        maxBet: bot.maxBet,
+        stopLoss: bot.stopLoss,
+        takeProfit: bot.takeProfit,
+      }
+    );
+
+    // Update bot with optimized parameters (with small randomization for exploration)
+    if (bot.useKelly || bot.useKelly === undefined) {
+      bot.betSize = optimizedParams.betSize;
+      bot.interval = Math.round(optimizedParams.interval);
+      bot.kellyFraction = optimizedParams.kellyFraction;
+      bot.maxBet = optimizedParams.maxBet;
+    }
+
     // Start session
     const portfolio = marketEngine.getBotPortfolio(id);
     const market = marketEngine.getCurrentMarket();
@@ -721,6 +810,29 @@ export class BotManager {
 
       // Save to database
       this.saveBotSessionToDB(session, bot);
+
+      // Record performance for parameter optimization
+      if (bot && portfolio.totalTrades >= 5) {
+        parameterOptimizer.recordPerformance(
+          bot.strategy,
+          id,
+          {
+            betSize: bot.betSize,
+            interval: bot.interval,
+            kellyFraction: bot.kellyFraction,
+            maxBet: bot.maxBet,
+            stopLoss: bot.stopLoss,
+            takeProfit: bot.takeProfit,
+          },
+          {
+            trades: portfolio.totalTrades,
+            wins: portfolio.winningTrades,
+            pnl: portfolio.totalPnL,
+            sharpeRatio: portfolio.sharpeRatio,
+            maxDrawdown: portfolio.maxDrawdown,
+          }
+        );
+      }
     }
 
     // Only clear runTime - do NOT clear enabled flag as it may be set by caller
@@ -731,7 +843,7 @@ export class BotManager {
     }
   }
 
-  private saveBotSessionToDB(session: BotSession, bot?: BotConfig | null): void {
+  private saveBotSessionToDB(session: BotSession, _bot?: BotConfig | null): void {
     dbService.saveBotSession({
       id: session.id,
       botId: session.botId,
@@ -847,6 +959,14 @@ export class BotManager {
       return;
     }
 
+    // Check if bot already has an open position on this market - one position per market
+    const existingPositions = marketEngine.getOpenPositions(id);
+    const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
+    if (hasPositionOnMarket) {
+      // Already have a position on this market, skip
+      return;
+    }
+
     // Log the decision to trade
     this.addLog(id, "DECISION", `Trade decision: ${decision.action} - ${decision.reason}`, {
       action: decision.action,
@@ -894,7 +1014,7 @@ export class BotManager {
 
       // Cap at max bet and 25% of bankroll for safety
       betSize = Math.min(kellyBet, bot.maxBet || betSize, portfolio.balance * 0.25);
-      betSize = Math.max(0.1, betSize);
+      betSize = Math.max(1, betSize); // Minimum $1 bet
 
       // Log Kelly calculation for transparency
       if (kellyBet > 0) {
@@ -904,9 +1024,9 @@ export class BotManager {
 
     // Adjust bet size based on confidence
     betSize = betSize * (0.5 + decision.confidence * 0.5);
+    betSize = Math.max(1, betSize); // Minimum $1 bet (after confidence adjustment)
 
     const portfolio = marketEngine.getBotPortfolio(id);
-    const fee = betSize * 0.02;
 
     // Risk check: Can open position?
     const riskCheck = riskManager.canOpenPosition(id, betSize, decision.confidence);
@@ -918,27 +1038,71 @@ export class BotManager {
       return;
     }
 
-    if (portfolio.balance < betSize + fee) {
-      this.addLog(id, "ERROR", `Insufficient balance for trade - Required: $${(betSize + fee).toFixed(2)}, Available: $${portfolio.balance.toFixed(2)}`);
+    // Coordinator check: Prevent conflicting trades between bots
+    const totalBalance = Array.from(this.bots.values())
+      .reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
+    const coordination = strategyCoordinator.registerDecision(
+      market.id,
+      {
+        botId: id,
+        botName: bot.name,
+        strategy: bot.strategy,
+        action: decision.action,
+        confidence: decision.confidence,
+        betSize,
+      },
+      totalBalance
+    );
+
+    if (!coordination.allowed) {
+      this.addLog(id, "COORD", `Trade blocked by coordinator: ${coordination.reason}`, {
+        action: decision.action,
+        betSize,
+        reason: coordination.reason,
+      });
       return;
     }
 
-    const position = marketEngine.placeTrade(decision.action, betSize, id);
+    // Log coordinator warnings
+    if (coordination.warnings && coordination.warnings.length > 0) {
+      this.addLog(id, "COORD", `Warnings: ${coordination.warnings.join("; ")}`, {
+        warnings: coordination.warnings,
+      });
+    }
+
+    // Use adjusted bet size if coordinator reduced it
+    const finalBetSize = coordination.adjustedBetSize ?? betSize;
+    const adjustedFee = finalBetSize * 0.02;
+
+    if (portfolio.balance < finalBetSize + adjustedFee) {
+      strategyCoordinator.cancelDecision(market.id, id);
+      this.addLog(id, "ERROR", `Insufficient balance for trade - Required: $${(finalBetSize + adjustedFee).toFixed(2)}, Available: $${portfolio.balance.toFixed(2)}`);
+      return;
+    }
+
+    const position = marketEngine.placeTrade(decision.action, finalBetSize, id);
     if (position) {
-      this.addLog(id, "TRADE", `Executed ${decision.action} trade for $${betSize.toFixed(2)} at ${position.odds.toFixed(3)} odds`, {
+      // Confirm execution with coordinator
+      strategyCoordinator.confirmExecution(market.id, id, decision.action, finalBetSize);
+
+      this.addLog(id, "TRADE", `Executed ${decision.action} trade for $${finalBetSize.toFixed(2)} at ${position.odds.toFixed(3)} odds`, {
         action: decision.action,
-        amount: betSize,
+        amount: finalBetSize,
         odds: position.odds,
         fee: position.fee,
         positionId: position.id,
         confidence: decision.confidence,
-        balanceAfter: portfolio.balance - betSize - fee,
+        balanceAfter: portfolio.balance - finalBetSize - adjustedFee,
         openPositions: portfolio.openPositions.length + 1,
         kellyUsed: bot.useKelly,
         strategy: bot.strategy,
+        coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
       });
       // Note: stats are synced from portfolio on getBots() / after market settlement
       // Do NOT call updateBotStats here — position.pnl is null at placement time
+    } else {
+      // Trade failed, cancel with coordinator
+      strategyCoordinator.cancelDecision(market.id, id);
     }
   }
 
@@ -1089,6 +1253,9 @@ export class BotManager {
       return this.getCompetitionState();
     }
 
+    // Mark as inactive FIRST to prevent recursion from updateLeaderboard
+    this.competition.active = false;
+
     // Stop all bots
     this.stopAllBots();
 
@@ -1101,7 +1268,6 @@ export class BotManager {
       this.competition.winner = qualified[0].botId;
     }
 
-    this.competition.active = false;
     this.competition.completedAt = Date.now();
 
     this.addCompetitionLog("Competition ended", {

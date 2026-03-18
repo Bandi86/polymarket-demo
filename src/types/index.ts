@@ -229,7 +229,7 @@ export interface BotLog {
   id: string;
   botId: string;
   botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR";
+  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD";
   message: string;
   details?: Record<string, unknown>;
   timestamp: number;

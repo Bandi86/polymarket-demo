@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { renderHook } from '@testing-library/react';
 import { ThemeToggle, useTheme } from '../src/components/ui/ThemeToggle';
@@ -14,23 +14,26 @@ const localStorageMock = (() => {
     setItem: (key: string, value: string) => { store[key] = value; },
     removeItem: (key: string) => { delete store[key]; },
     clear: () => { store = {}; },
+    get length() { return Object.keys(store).length; },
+    key: (i: number) => Object.keys(store)[i] || null,
   };
 })();
 
-Object.defineProperty(window, 'localStorage', { value: localStorageMock });
-
-// Mock matchMedia
-const matchMediaMock = vi.fn(() => ({
+// Set globals directly
+(globalThis as any).localStorage = localStorageMock;
+(globalThis as any).matchMedia = () => ({
   matches: false,
   addEventListener: vi.fn(),
   removeEventListener: vi.fn(),
-}));
-Object.defineProperty(window, 'matchMedia', { value: matchMediaMock });
+});
 
 describe('ThemeToggle', () => {
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
     document.documentElement.classList.remove('dark');
   });
 
@@ -70,6 +73,9 @@ describe('ThemeToggle', () => {
 describe('useTheme', () => {
   beforeEach(() => {
     localStorageMock.clear();
+  });
+
+  afterEach(() => {
     document.documentElement.classList.remove('dark');
   });
 
