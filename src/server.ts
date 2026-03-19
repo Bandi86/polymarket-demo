@@ -389,6 +389,96 @@ async function handleApiRoute(
     return Response.json({ success: true, competition })
   }
 
+  // POST /api/competition/one-hour-run - Start 1-hour run with auto-save
+  if (path === '/api/competition/one-hour-run' && method === 'POST') {
+    // Reset everything first
+    botManager.resetAllBots()
+    riskManager.resetAll()
+    marketEngine.reset()
+
+    // Wait for market to be ready (max 10 seconds)
+    let retries = 0
+    while (!marketEngine.getCurrentMarket() && retries < 50) {
+      await new Promise(r => setTimeout(r, 200))
+      retries++
+    }
+
+    if (!marketEngine.getCurrentMarket()) {
+      return Response.json({
+        success: false,
+        error: 'Failed to get market data. Please try again.'
+      })
+    }
+
+    // Start competition for 1 hour
+    const ONE_HOUR_MS = 60 * 60 * 1000
+    const competition = botManager.startCompetition({
+      minTrades: 0, // No minimum trades requirement
+      startBalance: 10,
+      duration: ONE_HOUR_MS,
+    })
+
+    // Note: startCompetition already enables and starts all bots
+
+    // Schedule auto-stop and save after 1 hour
+    setTimeout(async () => {
+      console.log('[Server] 1-hour run complete, stopping and saving data...')
+      botManager.stopCompetition()
+
+      // Save all data to file
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `/tmp/polymarket-1hr-run-${timestamp}.json`
+
+      const data = {
+        timestamp: new Date().toISOString(),
+        competition: botManager.getCompetitionState(),
+        bots: botManager.getBots().map(b => ({
+          id: b.id,
+          name: b.name,
+          strategy: b.strategy,
+          balance: b.portfolio?.balance,
+          stats: b.stats,
+          portfolio: b.portfolio,
+        })),
+        logs: botManager.getLogs(500),
+      }
+
+      try {
+        await Bun.write(filename, JSON.stringify(data, null, 2))
+        console.log(`[Server] Data saved to ${filename}`)
+      } catch (e) {
+        console.error('[Server] Failed to save data:', e)
+      }
+    }, ONE_HOUR_MS)
+
+    return Response.json({
+      success: true,
+      competition,
+      message: '1-hour run started. All bots enabled. Data will be auto-saved to /tmp/polymarket-1hr-run-*.json'
+    })
+  }
+
+  // GET /api/competition/export - Export all competition data
+  if (path === '/api/competition/export' && method === 'GET') {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      competition: botManager.getCompetitionState(),
+      bots: botManager.getBots().map(b => ({
+        id: b.id,
+        name: b.name,
+        strategy: b.strategy,
+        enabled: b.enabled,
+        balance: b.portfolio?.balance,
+        stats: b.stats,
+        portfolio: b.portfolio,
+      })),
+      logs: botManager.getLogs(500),
+      market: marketEngine.getCurrentMarket(),
+    }
+
+    return Response.json(data)
+  }
+
   // GET /api/sessions
   if (path === '/api/sessions' && method === 'GET') {
     return Response.json(botManager.getSessions())

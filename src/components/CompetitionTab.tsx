@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Trophy, Play, Square, Clock, Target, Zap } from "lucide-react";
+import { Trophy, Play, Square, Clock, Target, Zap, Timer, Download } from "lucide-react";
 import { formatCurrency, formatPercentage } from "../lib/utils";
 import { MiniEquityCurve } from "./charts/MiniEquityCurve";
 import type { BotData } from "../hooks/useTradingData";
@@ -111,6 +111,44 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       setError("Failed to stop competition");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startOneHourRun = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/competition/one-hour-run", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCompetition(data.competition);
+      } else {
+        setError(data.error || "Failed to start 1-hour run");
+      }
+    } catch (err) {
+      setError("Failed to start 1-hour run");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportData = async () => {
+    try {
+      const res = await fetch("/api/competition/export");
+      const data = await res.json();
+
+      // Create downloadable JSON
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `polymarket-export-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export data:", err);
     }
   };
 
@@ -237,19 +275,52 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                 <Play className="w-4 h-4" />
                 Start Competition
               </button>
+              <button
+                onClick={startOneHourRun}
+                disabled={loading}
+                className="trade-btn up"
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #8b5cf6, #6366f1)" }}
+              >
+                <Timer className="w-4 h-4" />
+                1-Hour Run
+              </button>
             </>
           ) : (
-            <button
-              onClick={stopCompetition}
-              disabled={loading}
-              className="trade-btn down"
-              style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem" }}
-            >
-              <Square className="w-4 h-4" />
-              End Competition
-            </button>
+            <>
+              <button
+                onClick={stopCompetition}
+                disabled={loading}
+                className="trade-btn down"
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem" }}
+              >
+                <Square className="w-4 h-4" />
+                End Competition
+              </button>
+              <button
+                onClick={exportData}
+                className="trade-btn up"
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #06b6d4, #0ea5e9)" }}
+              >
+                <Download className="w-4 h-4" />
+                Export Data
+              </button>
+            </>
           )}
         </div>
+
+        {/* Export button when competition ended */}
+        {!competition?.active && (competition?.leaderboard?.length ?? 0) > 0 && (
+          <div style={{ marginTop: "1rem" }}>
+            <button
+              onClick={exportData}
+              className="trade-btn up"
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #06b6d4, #0ea5e9)" }}
+            >
+              <Download className="w-4 h-4" />
+              Export All Data
+            </button>
+          </div>
+        )}
 
         {error && (
           <div style={{

@@ -56,9 +56,9 @@ const backtestStrategies: Record<string, (ctx: BacktestContext) => BacktestDecis
     if (ctx.timeRemaining < 10000) return { action: null, reason: "Too close to settlement" };
     const yesPrice = ctx.yesPrice;
     const noPrice = ctx.noPrice;
-    // Spike threshold: 90% (lowered to catch more opportunities)
-    const hasSpike = yesPrice > 0.90 || noPrice > 0.90;
-    if (!hasSpike) return { action: null, reason: `No spike detected (need >90%)` };
+    // Lowered spike threshold: 80% (was 90%)
+    const hasSpike = yesPrice > 0.80 || noPrice > 0.80;
+    if (!hasSpike) return { action: null, reason: `No spike detected (need >80%)` };
     // Determine spike direction
     const spikeIsUp = yesPrice > noPrice; // Market expects UP
     const spikeIsDown = noPrice > yesPrice; // Market expects DOWN
@@ -92,49 +92,59 @@ const backtestStrategies: Record<string, (ctx: BacktestContext) => BacktestDecis
       return { action: null, reason: `Market undecided: YES ${(yesPrice * 100).toFixed(0)}¢` };
     }
 
-    // Require strong BTC contradiction
-    const btcStrongUp = btcDelta > 0.001;
-    const btcStrongDown = btcDelta < -0.001;
+    // BTC direction thresholds
+    const btcUp = btcDelta > 0.0003;   // BTC up > 0.03%
+    const btcDown = btcDelta < -0.0003; // BTC down > 0.03%
 
-    // Fade market expectation when BTC strongly contradicts
-    if (marketExpectsUp && btcStrongDown) {
-      return { action: "NO", reason: `Arb fade UP: Market ${(yesPrice * 100).toFixed(0)}¢ but BTC down` };
+    // Case 1: Market UP + BTC UP = Strong YES signal
+    if (marketExpectsUp && btcUp) {
+      return { action: "YES", reason: `Balanced: Market & BTC both UP → YES` };
     }
 
-    if (marketExpectsDown && btcStrongUp) {
-      return { action: "YES", reason: `Arb fade DOWN: Market ${(noPrice * 100).toFixed(0)}¢ but BTC up` };
+    // Case 2: Market DOWN + BTC DOWN = Strong NO signal
+    if (marketExpectsDown && btcDown) {
+      return { action: "NO", reason: `Balanced: Market & BTC both DOWN → NO` };
     }
 
-    return { action: null, reason: `Market and BTC aligned - no arb opportunity` };
+    // Fade cases removed - were causing losses
+    return { action: null, reason: `BTC/Market contradiction - no trade` };
   },
 
   whale_follower: (ctx) => {
-    if (ctx.timeRemaining < 10000) return { action: null, reason: "Too close to settlement" };
+    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close to settlement" };
     const btcDelta = ctx.btcPriceChange || 0;
-    // KEY: Only trade at extreme prices where market is confident
-    // AND BTC strongly contradicts the market direction
-    const extremeUp = ctx.yesPrice > 0.85;  // Market very confident UP
-    const extremeDown = ctx.noPrice > 0.85; // Market very confident DOWN
-    // Require STRONG BTC contradiction (0.15% = 3x higher threshold)
-    const btcStrongUp = btcDelta > 0.0015;   // BTC up > 0.15%
-    const btcStrongDown = btcDelta < -0.0015; // BTC down > 0.15%
-    // Fade UP extreme when BTC is strongly going DOWN
-    if (extremeUp && btcStrongDown) {
-      return { action: "NO", reason: `Whale fade UP: Market at ${(ctx.yesPrice * 100).toFixed(0)}¢ but BTC down` };
+
+    // FOLLOW extreme prices when BTC confirms
+    const extremeUp = ctx.yesPrice > 0.70;  // Market confident UP
+    const extremeDown = ctx.noPrice > 0.70; // Market confident DOWN
+
+    if (!extremeUp && !extremeDown) {
+      return { action: null, reason: `No extreme price (need >70%)` };
     }
-    // Fade DOWN extreme when BTC is strongly going UP
-    if (extremeDown && btcStrongUp) {
-      return { action: "YES", reason: `Whale fade DOWN: Market at ${(ctx.noPrice * 100).toFixed(0)}¢ but BTC up` };
+
+    // BTC confirming the move (>0.03%)
+    const btcUp = btcDelta > 0.0003;
+    const btcDown = btcDelta < -0.0003;
+
+    // FOLLOW UP spike when BTC confirms (both going UP)
+    if (extremeUp && btcUp) {
+      return { action: "YES", reason: `Momentum: Follow UP spike, BTC up +${(btcDelta * 100).toFixed(2)}%` };
     }
-    return { action: null, reason: `No extreme fade opportunity (need 85%+ price, 0.15%+ BTC contra)` };
+    // FOLLOW DOWN spike when BTC confirms (both going DOWN)
+    if (extremeDown && btcDown) {
+      return { action: "NO", reason: `Momentum: Follow DOWN spike, BTC down ${(btcDelta * 100).toFixed(2)}%` };
+    }
+
+    return { action: null, reason: `BTC contradicts extreme - waiting for confirmation` };
   },
 
   ta_signal_engine: (ctx) => {
-    if (ctx.timeRemaining < 30000) return { action: null, reason: "Too close to settlement" };
+    // Wider entry window: 30-240s (was 60-240s)
+    if (ctx.timeRemaining > 240000 || ctx.timeRemaining < 30000) return { action: null, reason: "Not in entry window (30-240s)" };
     // Reduced required candles: 14 (matching bot-manager)
     if (ctx.priceHistory.length < 14) return { action: null, reason: `Insufficient data: ${ctx.priceHistory.length} candles (need 14)` };
     const ema9 = calculateEMA(ctx.priceHistory, 9);
-    const ema14 = calculateEMA(ctx.priceHistory, 14); // Use 14 instead of 21
+    const ema14 = calculateEMA(ctx.priceHistory, 14);
     const rsi = calculateRSI(ctx.priceHistory, 14);
     // Widened RSI bands: 15-85 (matching bot-manager)
     if (rsi > 85) return { action: null, reason: `RSI overbought: ${rsi.toFixed(1)}` };
@@ -147,23 +157,29 @@ const backtestStrategies: Record<string, (ctx: BacktestContext) => BacktestDecis
   },
 
   market_maker: (ctx) => {
-    // Exit at T-60s
-    if (ctx.timeRemaining < 60000) return { action: null, reason: "Exiting: T-60s reached" };
+    // Wider entry window: 30-180s (was 60-180s)
+    if (ctx.timeRemaining > 180000 || ctx.timeRemaining < 30000) return { action: null, reason: "Not in entry window (30-180s)" };
     const btcDelta = ctx.btcPriceChange || 0;
-    // Only fade EXTREME prices (>70%) AND when BTC contradicts
-    const extremeUp = ctx.yesPrice > 0.70;
-    const extremeDown = ctx.noPrice > 0.70;
-    const btcUp = btcDelta > 0.0005;
-    const btcDown = btcDelta < -0.0005;
-    // Fade UP spike when BTC is going DOWN
-    if (extremeUp && btcDown) {
-      return { action: "NO", reason: `MM fade UP: BTC down, buy NO` };
+    // Lower threshold: >0.05% (was 0.08%)
+    const veryStrongBtcUp = btcDelta > 0.0005;
+    const veryStrongBtcDown = btcDelta < -0.0005;
+    // Setup 1: Strong BTC move with market not yet reacted
+    if (veryStrongBtcUp && ctx.yesPrice < 0.65) {
+      return { action: "YES", reason: `Sniper: BTC +${(btcDelta * 100).toFixed(2)}%, market lagging` };
     }
-    // Fade DOWN spike when BTC is going UP
-    if (extremeDown && btcUp) {
-      return { action: "YES", reason: `MM fade DOWN: BTC up, buy YES` };
+    if (veryStrongBtcDown && ctx.noPrice < 0.65) {
+      return { action: "NO", reason: `Sniper: BTC -${Math.abs(btcDelta * 100).toFixed(2)}%, market lagging` };
     }
-    return { action: null, reason: `Market aligned with BTC: no fade` };
+    // Setup 2: Extreme fade (>80%) with BTC contradiction
+    const extremeUp = ctx.yesPrice > 0.80;
+    const extremeDown = ctx.noPrice > 0.80;
+    if (extremeUp && veryStrongBtcDown) {
+      return { action: "NO", reason: `Sniper fade: UP extreme, BTC down` };
+    }
+    if (extremeDown && veryStrongBtcUp) {
+      return { action: "YES", reason: `Sniper fade: DOWN extreme, BTC up` };
+    }
+    return { action: null, reason: `No high-quality setup` };
   },
 };
 
@@ -224,10 +240,10 @@ export interface BacktestConfig {
 const STRATEGY_NAMES: Record<string, string> = {
   momentum_chaser: "Momentum Chaser",
   mean_reversion_sniper: "Mean Reversion Sniper",
-  sum_to_one_arb: "Sum-to-One Arbitrage",
-  whale_follower: "Whale Follower",
-  ta_signal_engine: "TA Signal Engine",
-  market_maker: "Market Maker",
+  sum_to_one_arb: "Balanced Signal",
+  whale_follower: "Momentum Follow",
+  ta_signal_engine: "High Conviction",
+  market_maker: "Sniper",
 };
 
 /**

@@ -163,8 +163,6 @@ const strategies: Record<StrategyType, Strategy> = {
       // BTC direction thresholds
       const btcUp = btcDelta > 0.0003;      // BTC up > 0.03%
       const btcDown = btcDelta < -0.0003;   // BTC down > 0.03%
-      const btcStrongUp = btcDelta > 0.001; // BTC up > 0.1%
-      const btcStrongDown = btcDelta < -0.001; // BTC down > 0.1%
 
       // Case 1: Market UP + BTC UP = Strong YES signal
       if (marketExpectsUp && btcUp) {
@@ -184,23 +182,9 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      // Case 3: Market UP + BTC STRONGLY DOWN = Fade market, buy NO
-      if (marketExpectsUp && btcStrongDown) {
-        return {
-          action: "NO",
-          confidence: 0.65,
-          reason: `Balanced: Fade UP market, BTC down ${(btcDelta * 100).toFixed(2)}%`,
-        };
-      }
-
-      // Case 4: Market DOWN + BTC STRONGLY UP = Fade market, buy YES
-      if (marketExpectsDown && btcStrongUp) {
-        return {
-          action: "YES",
-          confidence: 0.65,
-          reason: `Balanced: Fade DOWN market, BTC up +${(btcDelta * 100).toFixed(2)}%`,
-        };
-      }
+      // Case 3: Market UP + BTC STRONGLY DOWN = Skip (fade was losing)
+      // Case 4: Market DOWN + BTC STRONGLY UP = Skip (fade was losing)
+      // REMOVED: Fade logic was causing losses on NO signals
 
       // Case 5: Weak contradiction - no trade
       return {
@@ -211,15 +195,15 @@ const strategies: Record<StrategyType, Strategy> = {
     },
   },
 
-  // === SPECTRUM POSITION 4: BALANCED - Fades extreme prices ===
+  // === SPECTRUM POSITION 4: BALANCED - Follows extreme moves ===
   whale_follower: {
-    name: "Contrarian Lite",
-    description: "Fades extreme prices (>75%) when BTC contradicts market direction",
-    category: "mean_reversion",
+    name: "Momentum Follow",
+    description: "Follows extreme prices (>70%) when BTC confirms market direction",
+    category: "momentum",
     execute: (ctx) => {
       const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
-      if (timeRemaining < 45000) {
+      if (timeRemaining < 30000) {
         return { action: null, confidence: 0, reason: "Too close to settlement" };
       }
 
@@ -228,39 +212,39 @@ const strategies: Record<StrategyType, Strategy> = {
       const btcDelta = btcPriceChange || 0;
 
       // Extreme prices: market is confident
-      const extremeUp = yesPrice > 0.75;   // Market expects UP
-      const extremeDown = noPrice > 0.75;  // Market expects DOWN
+      const extremeUp = yesPrice > 0.70;   // Market expects UP
+      const extremeDown = noPrice > 0.70;  // Market expects DOWN
 
       if (!extremeUp && !extremeDown) {
-        return { action: null, confidence: 0, reason: `No extreme price (need >75%)` };
+        return { action: null, confidence: 0, reason: `No extreme price (need >70%)` };
       }
 
-      // BTC moving significantly (>0.03%)
+      // BTC moving significantly (>0.03%) - CONFIRMING the move
       const btcUp = btcDelta > 0.0003;
       const btcDown = btcDelta < -0.0003;
 
-      // Fade UP spike when BTC is going DOWN
-      if (extremeUp && btcDown) {
-        const confidence = Math.min(0.80, 0.60 + Math.abs(btcDelta) * 100);
-        return {
-          action: "NO",
-          confidence,
-          reason: `Contrarian: Fade UP spike, BTC down ${(btcDelta * 100).toFixed(2)}%`,
-        };
-      }
-
-      // Fade DOWN spike when BTC is going UP
-      if (extremeDown && btcUp) {
-        const confidence = Math.min(0.80, 0.60 + Math.abs(btcDelta) * 100);
+      // FOLLOW UP spike when BTC confirms (both going UP)
+      if (extremeUp && btcUp) {
+        const confidence = Math.min(0.82, 0.65 + Math.abs(btcDelta) * 100);
         return {
           action: "YES",
           confidence,
-          reason: `Contrarian: Fade DOWN spike, BTC up +${(btcDelta * 100).toFixed(2)}%`,
+          reason: `Momentum: Follow UP spike, BTC up +${(btcDelta * 100).toFixed(2)}%`,
         };
       }
 
-      // Spike confirmed by BTC - no fade
-      return { action: null, confidence: 0, reason: `Spike confirmed by BTC - no fade` };
+      // FOLLOW DOWN spike when BTC confirms (both going DOWN)
+      if (extremeDown && btcDown) {
+        const confidence = Math.min(0.82, 0.65 + Math.abs(btcDelta) * 100);
+        return {
+          action: "NO",
+          confidence,
+          reason: `Momentum: Follow DOWN spike, BTC down ${(btcDelta * 100).toFixed(2)}%`,
+        };
+      }
+
+      // BTC contradicts the extreme - skip (no fade)
+      return { action: null, confidence: 0, reason: `BTC contradicts extreme - waiting for confirmation` };
     },
   },
 
@@ -272,9 +256,9 @@ const strategies: Record<StrategyType, Strategy> = {
     execute: (ctx) => {
       const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
-      // Only trade in 60-240s window
-      if (timeRemaining > 240000 || timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (60-240s)" };
+      // Trade in wider window: 30-240s (was 60-240s)
+      if (timeRemaining > 240000 || timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (30-240s)" };
       }
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
@@ -282,11 +266,11 @@ const strategies: Record<StrategyType, Strategy> = {
       const btcDelta = btcPriceChange || 0;
 
       // Max buy price for good risk/reward
-      const MAX_BUY_PRICE = 0.70;
+      const MAX_BUY_PRICE = 0.72;
 
-      // Strong BTC move threshold
-      const strongBtcUp = btcDelta > 0.0008;   // > 0.08%
-      const strongBtcDown = btcDelta < -0.0008;
+      // Strong BTC move threshold - lowered from 0.0008 to 0.0005
+      const strongBtcUp = btcDelta > 0.0005;   // > 0.05%
+      const strongBtcDown = btcDelta < -0.0005;
 
       // Setup 1: Strong BTC + market alignment (but price must be good)
       if (strongBtcUp && yesPrice > 0.55 && yesPrice <= MAX_BUY_PRICE) {
@@ -358,18 +342,18 @@ const strategies: Record<StrategyType, Strategy> = {
     execute: (ctx) => {
       const { timeRemaining, marketPrice, btcPriceChange } = ctx;
 
-      // Only trade in 60-180s window
-      if (timeRemaining > 180000 || timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (60-180s)" };
+      // Trade in wider window: 30-180s (was 60-180s)
+      if (timeRemaining > 180000 || timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Not in entry window (30-180s)" };
       }
 
       const yesPrice = marketPrice?.yesPrice || 0.5;
       const noPrice = marketPrice?.noPrice || 0.5;
       const btcDelta = btcPriceChange || 0;
 
-      // Strong BTC move thresholds (>0.08% - lowered for 5-minute markets)
-      const veryStrongBtcUp = btcDelta > 0.0008;
-      const veryStrongBtcDown = btcDelta < -0.0008;
+      // Strong BTC move thresholds - lowered from 0.0008 to 0.0005
+      const veryStrongBtcUp = btcDelta > 0.0005;
+      const veryStrongBtcDown = btcDelta < -0.0005;
 
       // Setup 1: Strong BTC move with market not yet reacted
       // BTC up 0.08%+ but market price still < 65%
@@ -549,7 +533,7 @@ export class BotManager {
       { id: "bot-momentum-chaser", name: "BOT-01: BTC Pure", strategy: "momentum_chaser", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
       { id: "bot-mean-reversion-sniper", name: "BOT-02: Quick Strike", strategy: "mean_reversion_sniper", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
       { id: "bot-sum-to-one-arb", name: "BOT-03: Balanced Signal", strategy: "sum_to_one_arb", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-whale-follower", name: "BOT-04: Contrarian Lite", strategy: "whale_follower", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-whale-follower", name: "BOT-04: Momentum Follow", strategy: "whale_follower", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
       { id: "bot-ta-signal-engine", name: "BOT-05: High Conviction", strategy: "ta_signal_engine", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
       { id: "bot-market-maker", name: "BOT-06: Sniper", strategy: "market_maker", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
     ];

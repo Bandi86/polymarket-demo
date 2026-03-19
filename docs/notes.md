@@ -1,0 +1,1 @@
+Data will auto-save to /tmp/polymarket-1hr-run-*.json when complete
