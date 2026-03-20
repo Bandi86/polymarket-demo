@@ -18,383 +18,839 @@ import { riskManager } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
 
+// Debug mode - set to true to enable verbose logging
+const DEBUG_STRATEGIES = true;
+
+function debugLog(strategy: string, message: string, data?: Record<string, unknown>) {
+  if (DEBUG_STRATEGIES) {
+    const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+    console.log(`[${timestamp}][${strategy}] ${message}`, data ? JSON.stringify(data) : '');
+  }
+}
+
 // === Strategy Implementations ===
+// Improved strategies based on research: Window Delta, Oracle Lag, Monte Carlo
+// Key insight: BTC price relative to window open is the best predictor, not YES/NO price history
 
 const strategies: Record<StrategyType, Strategy> = {
-  // === SPECTRUM POSITION 1: AGGRESSIVE - Always trades ===
-  momentum_chaser: {
-    name: "BTC Pure",
-    description: "Follows BTC direction - only trades when market price is attractive",
+
+  // ──────────────────────────────────────────────────────────
+  // #1 WINDOW_DELTA - Legfontosabb stratégia
+  // Az ablakon belüli BTC elmozdulás alapján kereskedik
+  // Bizonyítottan a legjobb megközelítés 5-perces piacokon
+  // ──────────────────────────────────────────────────────────
+  window_delta: {
+    name: "Window Delta",
+    description: "BTC ár vs ablak nyitóár alapján - a legjobb 5m stratégia",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, btcPriceChange, marketPrice } = ctx;
+      const { timeRemaining, btcPrice, btcWindowOpen } = ctx;
 
-      // Don't trade in last 30 seconds
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      // Ne kereskedj ha nincs BTC adat
+      if (!btcPrice) {
+        debugLog('WindowDelta', '❌ Nincs BTC ár');
+        return { action: null, confidence: 0, reason: "Nincs BTC ár adat" };
       }
 
-      // Need BTC price data
-      if (btcPriceChange === undefined || btcPriceChange === null) {
-        return { action: null, confidence: 0, reason: "No BTC price data" };
+      // Calculate delta from window open
+      const windowOpen = btcWindowOpen || btcPrice;
+      const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+
+      // Debug: log key values
+      debugLog('WindowDelta', 'BTC ár vs window', {
+        btcPrice,
+        windowOpen,
+        deltaPct: deltaPct.toFixed(4) + '%',
+        timeRemaining: Math.floor(timeRemaining / 1000) + 's'
+      });
+
+      // Ne kereskedj az utolsó 3 másodpercben (túl késő)
+      if (timeRemaining < 3000) {
+        return { action: null, confidence: 0, reason: "Túl késő - utolsó 3mp" };
       }
 
-      // Minimum BTC movement threshold (0.01% = 0.0001)
-      const delta = btcPriceChange;
-      if (Math.abs(delta) < 0.0001) {
-        return { action: null, confidence: 0, reason: `BTC movement too small (${(delta * 100).toFixed(4)}%)` };
+      // Ne kereskedj az első 30 másodpercben (még nincs elég adat)
+      if (timeRemaining > 270000) {
+        return { action: null, confidence: 0, reason: "Ablak eleje - várakozás" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-
-      // Max buy price to ensure profitable trades after fees (80¢)
-      const MAX_BUY_PRICE = 0.80;
-
-      // Determine direction based on BTC delta
-      // Only trade if the price is attractive (not too expensive)
-      if (delta >= 0) {
-        // BTC going UP - buy YES if it's cheap enough
-        if (yesPrice <= MAX_BUY_PRICE) {
-          const confidence = Math.min(0.75, 0.55 + Math.abs(delta) * 50);
-          return {
-            action: "YES",
-            confidence,
-            reason: `BTC Pure: BTC +${(delta * 100).toFixed(3)}% → YES at ${(yesPrice * 100).toFixed(0)}¢`,
-          };
-        } else {
-          return { action: null, confidence: 0, reason: `BTC Pure: BTC up but YES too expensive (${(yesPrice * 100).toFixed(0)}¢)` };
-        }
-      } else {
-        // BTC going DOWN - buy NO if it's cheap enough
-        if (noPrice <= MAX_BUY_PRICE) {
-          const confidence = Math.min(0.75, 0.55 + Math.abs(delta) * 50);
-          return {
-            action: "NO",
-            confidence,
-            reason: `BTC Pure: BTC -${(Math.abs(delta) * 100).toFixed(3)}% → NO at ${(noPrice * 100).toFixed(0)}¢`,
-          };
-        } else {
-          return { action: null, confidence: 0, reason: `BTC Pure: BTC down but NO too expensive (${(noPrice * 100).toFixed(0)}¢)` };
-        }
+      // ERŐS jel: delta > 0.12% (növelve a megbízhatóságért)
+      if (deltaPct > 0.12) {
+        const conf = Math.min(0.92, 0.70 + (deltaPct - 0.12) * 3);
+        debugLog('WindowDelta', '✅ ERŐS UP jel', { action: 'YES', confidence: conf.toFixed(2) });
+        return {
+          action: "YES",
+          confidence: conf,
+          reason: `Erős UP delta: +${deltaPct.toFixed(3)}% az ablakon belül`
+        };
       }
+      if (deltaPct < -0.12) {
+        const conf = Math.min(0.92, 0.70 + (-deltaPct - 0.12) * 3);
+        debugLog('WindowDelta', '✅ ERŐS DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
+        return {
+          action: "NO",
+          confidence: conf,
+          reason: `Erős DOWN delta: ${deltaPct.toFixed(3)}% az ablakon belül`
+        };
+      }
+
+      // KÖZEPES jel: delta > 0.07% (növelve a megbízhatóságért)
+      if (deltaPct > 0.07) {
+        const conf = 0.55 + (deltaPct - 0.07) * 4;
+        debugLog('WindowDelta', '⚠️ KÖZEPES UP jel', { action: 'YES', confidence: conf.toFixed(2) });
+        return {
+          action: "YES",
+          confidence: Math.min(0.78, conf),
+          reason: `UP delta: +${deltaPct.toFixed(3)}%`
+        };
+      }
+      if (deltaPct < -0.07) {
+        const conf = 0.55 + (-deltaPct - 0.07) * 4;
+        debugLog('WindowDelta', '⚠️ KÖZEPES DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
+        return {
+          action: "NO",
+          confidence: Math.min(0.78, conf),
+          reason: `DOWN delta: ${deltaPct.toFixed(3)}%`
+        };
+      }
+
+      debugLog('WindowDelta', '⏸️ Delta túl kicsi');
+      return { action: null, confidence: 0, reason: `Delta túl kicsi: ${deltaPct.toFixed(4)}%` };
     },
   },
 
-  // === SPECTRUM POSITION 2: AGGRESSIVE - Late entry always trades ===
-  mean_reversion_sniper: {
-    name: "Quick Strike",
-    description: "Late entry (T-90s to T-20s) - follows market consensus with good odds",
+  // ──────────────────────────────────────────────────────────
+  // #2 ORACLE LAG - Chainlink oracle késedelmet kihasználó
+  // A Binance ár 15-45mp-el megelőzi a Polymarket frissülését
+  // ──────────────────────────────────────────────────────────
+  binance_signal: {
+    name: "Oracle Lag",
+    description: "Binance valós idejű BTC ár előnye a Chainlink oracle felett",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { binanceSignal, timeRemaining, marketPrice, btcPrice, btcWindowOpen } = ctx;
 
-      // Only trade in the 20-90 second window
-      if (timeRemaining > 90000 || timeRemaining < 20000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (20-90s)" };
+      if (!binanceSignal || binanceSignal.type === "NEUTRAL") {
+        return { action: null, confidence: 0, reason: "Nincs Binance jel" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-
-      // Never buy at extreme prices - fees make it -EV
-      // Max buy price = 0.80 (80¢) to ensure profitable trades after fees
-      const MAX_BUY_PRICE = 0.80;
-
-      // If market has clear direction, follow it - but only at good prices
-      if (yesPrice > noPrice + 0.02 && yesPrice <= MAX_BUY_PRICE) {
-        return {
-          action: "YES",
-          confidence: 0.60,
-          reason: `Quick Strike: Market bullish ${(yesPrice * 100).toFixed(0)}¢ → YES`,
-        };
+      // Jel kora - csak friss jeleket fogadj el (< 8 másodperc)
+      const signalAge = Date.now() - binanceSignal.timestamp;
+      if (signalAge > 8000) {
+        debugLog('OracleLag', '❌ Jel lejárt', { age: (signalAge / 1000).toFixed(1) + 's' });
+        return { action: null, confidence: 0, reason: `Jel lejárt: ${(signalAge / 1000).toFixed(1)}mp` };
       }
 
-      if (noPrice > yesPrice + 0.02 && noPrice <= MAX_BUY_PRICE) {
-        return {
-          action: "NO",
-          confidence: 0.60,
-          reason: `Quick Strike: Market bearish ${(noPrice * 100).toFixed(0)}¢ → NO`,
-        };
+      // Debug: log signal info
+      debugLog('OracleLag', 'Jel érkezett', {
+        type: binanceSignal.type,
+        change: binanceSignal.changePercent.toFixed(4) + '%',
+        age: (signalAge / 1000).toFixed(1) + 's',
+        confidence: binanceSignal.confidence.toFixed(2)
+      });
+
+      // Ne kereskedj a lezárás előtti utolsó 3 másodpercben
+      if (timeRemaining < 3000) {
+        return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
       }
 
-      // Market direction clear but price too extreme
-      if (yesPrice > MAX_BUY_PRICE || noPrice > MAX_BUY_PRICE) {
-        return { action: null, confidence: 0, reason: `Price too extreme (>${(MAX_BUY_PRICE * 100).toFixed(0)}¢) - fees make it -EV` };
+      // Window delta megerősítés
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+      const signalAlignedWithDelta =
+        (binanceSignal.type === "UP" && deltaPct > 0) ||
+        (binanceSignal.type === "DOWN" && deltaPct < 0);
+
+      // Ellenőrizd, hogy a piac még nem árazta be
+      const marketImplied = binanceSignal.type === "UP"
+        ? marketPrice.yesPrice
+        : marketPrice.noPrice;
+
+      // Ha a piac már 80%+ feletti, nem éri meg
+      if (marketImplied > 0.82) {
+        debugLog('OracleLag', '❌ Piac már beárazta', { price: (marketImplied * 100).toFixed(0) + '¢' });
+        return { action: null, confidence: 0, reason: "Piac már beárazta" };
       }
 
-      // Market is undecided (50-50), use BTC direction
-      const btcDelta = btcPriceChange || 0;
-      const action: Outcome = btcDelta >= 0 ? "YES" : "NO";
+      const action = binanceSignal.type === "UP" ? "YES" : "NO";
+
+      // Konfidencia számítás
+      let confidence = binanceSignal.confidence;
+
+      // Bónusz ha a window delta megerősíti
+      if (signalAlignedWithDelta) {
+        confidence = Math.min(0.95, confidence + 0.10);
+        debugLog('OracleLag', '✅ Delta megerősít', { deltaPct: deltaPct.toFixed(4) + '%' });
+      } else {
+        confidence = confidence * 0.7;
+        debugLog('OracleLag', '⚠️ Delta nem erősít', { deltaPct: deltaPct.toFixed(4) + '%' });
+      }
+
+      // Magasabb konfidencia ha erősebb az elmozdulás
+      if (Math.abs(binanceSignal.changePercent) > 0.05) {
+        confidence = Math.min(0.95, confidence + 0.08);
+      }
+
+      if (confidence < 0.45) {
+        debugLog('OracleLag', '❌ Konfidencia túl alacsony', { confidence: confidence.toFixed(2) });
+        return { action: null, confidence, reason: "Konfidencia túl alacsony" };
+      }
+
+      debugLog('OracleLag', '✅ TRADE', { action, confidence: confidence.toFixed(2), price: (marketImplied * 100).toFixed(0) + '¢' });
+      return {
+        action,
+        confidence,
+        reason: `Oracle lag: BTC ${binanceSignal.type} ${binanceSignal.changePercent >= 0 ? "+" : ""}${binanceSignal.changePercent.toFixed(4)}% | Piac: ${(marketImplied * 100).toFixed(1)}¢`,
+      };
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // #3 LAST_SECONDS_SCALP - T-10 sniper stratégia
+  // Az utolsó 30 másodpercben lép, amikor az irány már látható
+  // ──────────────────────────────────────────────────────────
+  last_seconds_scalp: {
+    name: "T-10 Sniper",
+    description: "Utolsó 10-30mp-ban lép amikor BTC irány már egyértelmű",
+    category: "arbitrage",
+    execute: (ctx) => {
+      const { timeRemaining, btcPrice, btcWindowOpen, marketPrice, binanceSignal } = ctx;
+
+      // CSAK az utolsó 30 másodpercben aktív
+      if (timeRemaining > 30000 || timeRemaining < 4000) {
+        return { action: null, confidence: 0, reason: "Nem a T-10 sniper ablakban" };
+      }
+
+      // Szükség van BTC adatra
+      if (!btcPrice) {
+        return { action: null, confidence: 0, reason: "Nincs BTC ár" };
+      }
+
+      // Calculate delta
+      const windowOpen = btcWindowOpen || btcPrice;
+      const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+
+      // Minimális delta szükséges (növelve a megbízhatóságért)
+      const minDelta = 0.06;
+      if (Math.abs(deltaPct) < minDelta) {
+        return { action: null, confidence: 0, reason: `Delta ${deltaPct.toFixed(4)}% - túl kicsi` };
+      }
+
+      const action = deltaPct > 0 ? "YES" : "NO";
+
+      // KRITIKUS: Ellenőrizd az árat - SOHA ne vegyél 72¢ felett!
+      // A 2% fee miatt 72¢ felett már -EV a trade (csökkentve 75-ről)
+      const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
+      const MAX_BUY_PRICE = 0.72;
+
+      if (targetPrice > MAX_BUY_PRICE) {
+        return { action: null, confidence: 0, reason: `Ár túl magas: ${(targetPrice * 100).toFixed(0)}¢ > ${(MAX_BUY_PRICE * 100).toFixed(0)}¢ max (fee miatt -EV)` };
+      }
+
+      // Konfidencia a delta mérete alapján
+      let confidence = 0.60 + Math.min(0.25, Math.abs(deltaPct) * 3);
+
+      // Erősebb konfidencia ha a Binance jel is megerősíti
+      if (binanceSignal && binanceSignal.type !== "NEUTRAL") {
+        const signalAligned =
+          (binanceSignal.type === "UP" && deltaPct > 0) ||
+          (binanceSignal.type === "DOWN" && deltaPct < 0);
+        if (signalAligned) {
+          confidence = Math.min(0.85, confidence + 0.10);
+        }
+      }
 
       return {
         action,
-        confidence: 0.55,
-        reason: `Quick Strike: Market undecided, BTC ${btcDelta >= 0 ? "+" : ""}${(btcDelta * 100).toFixed(3)}% → ${action}`,
+        confidence,
+        reason: `T-10: ${action} @ ${(targetPrice * 100).toFixed(0)}¢ | delta ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(3)}%`,
       };
     },
   },
 
-  // === SPECTRUM POSITION 3: BALANCED - Trades on alignment or strong contradiction ===
-  sum_to_one_arb: {
-    name: "Balanced Signal",
-    description: "Trades when BTC and market align OR when BTC strongly contradicts market",
-    category: "momentum",
+  // ──────────────────────────────────────────────────────────
+  // #4 MONTE CARLO - Valószínűségi modell (JAVÍTOTT)
+  // A jelenlegi BTC delta alapján becsüli a végkifejlest
+  // ──────────────────────────────────────────────────────────
+  monte_carlo: {
+    name: "Monte Carlo",
+    description: "BTC delta alapú valószínűségi becslés",
+    category: "arbitrage",
     execute: (ctx) => {
-      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { timeRemaining, marketPrice, btcPrice, btcWindowOpen } = ctx;
 
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      if (!btcPrice) {
+        return { action: null, confidence: 0, reason: "Nincs BTC ár" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-      const btcDelta = btcPriceChange || 0;
-
-      // Determine market direction
-      const marketExpectsUp = yesPrice > 0.55;
-      const marketExpectsDown = noPrice > 0.55;
-
-      // Need market to have an opinion
-      if (!marketExpectsUp && !marketExpectsDown) {
-        return { action: null, confidence: 0, reason: `Market undecided: YES ${(yesPrice * 100).toFixed(0)}¢` };
+      // CSAK aktív időszakban: 30mp - 4 perc
+      if (timeRemaining < 30000 || timeRemaining > 240000) {
+        return { action: null, confidence: 0, reason: "Nem aktív ablakban" };
       }
 
-      // BTC direction thresholds
-      const btcUp = btcDelta > 0.0003;      // BTC up > 0.03%
-      const btcDown = btcDelta < -0.0003;   // BTC down > 0.03%
+      const windowOpen = btcWindowOpen || btcPrice;
+      const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
-      // Case 1: Market UP + BTC UP = Strong YES signal
-      if (marketExpectsUp && btcUp) {
+      // Ha nincs elmozdulás, nem kereskedj
+      if (Math.abs(deltaPct) < 0.03) {
+        return { action: null, confidence: 0, reason: `Delta túl kicsi: ${deltaPct.toFixed(3)}%` };
+      }
+
+      // EGYSZERŰSÍTETT: A delta alapján becsüljük P(UP)-ot
+      // delta > 0.05% → P(UP) ≈ 75%
+      // delta > 0.10% → P(UP) ≈ 85%
+      let upProb = 0.5;
+      if (deltaPct > 0) {
+        upProb = Math.min(0.88, 0.55 + deltaPct * 3.5);
+      } else {
+        upProb = Math.max(0.12, 0.55 + deltaPct * 3.5);
+      }
+
+      const yesPrice = marketPrice.yesPrice;
+      const noPrice = marketPrice.noPrice;
+      const edge = upProb - yesPrice;
+
+      // Szigorúbb edge küszöb
+      const minEdge = 0.08;
+
+      if (edge > minEdge && yesPrice < 0.70) {
         return {
           action: "YES",
-          confidence: 0.70,
-          reason: `Balanced: Market & BTC both UP → YES`,
+          confidence: Math.min(0.75, 0.5 + edge * 3),
+          reason: `MC: P(UP)=${(upProb * 100).toFixed(0)}% vs ${(yesPrice * 100).toFixed(0)}¢ | +${deltaPct.toFixed(3)}%`,
         };
       }
 
-      // Case 2: Market DOWN + BTC DOWN = Strong NO signal
-      if (marketExpectsDown && btcDown) {
+      if (-edge > minEdge && noPrice < 0.70) {
         return {
           action: "NO",
-          confidence: 0.70,
-          reason: `Balanced: Market & BTC both DOWN → NO`,
+          confidence: Math.min(0.75, 0.5 + (-edge) * 3),
+          reason: `MC: P(DOWN)=${((1-upProb) * 100).toFixed(0)}% vs ${(noPrice * 100).toFixed(0)}¢ | ${deltaPct.toFixed(3)}%`,
         };
       }
 
-      // Case 3: Market UP + BTC STRONGLY DOWN = Skip (fade was losing)
-      // Case 4: Market DOWN + BTC STRONGLY UP = Skip (fade was losing)
-      // REMOVED: Fade logic was causing losses on NO signals
-
-      // Case 5: Weak contradiction - no trade
       return {
         action: null,
         confidence: 0,
-        reason: `Balanced: BTC/Market contradiction too weak`,
+        reason: `MC: edge ${(Math.abs(edge) * 100).toFixed(1)}% vagy piac beárazva`
       };
     },
   },
 
-  // === SPECTRUM POSITION 4: BALANCED - Follows extreme moves ===
-  whale_follower: {
-    name: "Momentum Follow",
-    description: "Follows extreme prices (>70%) when BTC confirms market direction",
-    category: "momentum",
+  // ──────────────────────────────────────────────────────────
+  // #5 FAIR VALUE ARBITRAGE - Félreárazott piac kereső
+  // ──────────────────────────────────────────────────────────
+  fair_value: {
+    name: "Fair Value Arb",
+    description: "Piac félreárazást keres BTC delta vs Polymarket odds alapján",
+    category: "arbitrage",
     execute: (ctx) => {
-      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { timeRemaining, marketPrice, btcPrice, btcWindowOpen } = ctx;
 
-      if (timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Too close to settlement" };
+      if (timeRemaining < 15000) {
+        return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-      const btcDelta = btcPriceChange || 0;
-
-      // Extreme prices: market is confident
-      const extremeUp = yesPrice > 0.70;   // Market expects UP
-      const extremeDown = noPrice > 0.70;  // Market expects DOWN
-
-      if (!extremeUp && !extremeDown) {
-        return { action: null, confidence: 0, reason: `No extreme price (need >70%)` };
+      if (!btcPrice) {
+        return { action: null, confidence: 0, reason: "Nincs BTC ár" };
       }
 
-      // BTC moving significantly (>0.03%) - CONFIRMING the move
-      const btcUp = btcDelta > 0.0003;
-      const btcDown = btcDelta < -0.0003;
+      const windowOpen = btcWindowOpen || btcPrice;
+      const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
-      // FOLLOW UP spike when BTC confirms (both going UP)
-      if (extremeUp && btcUp) {
-        const confidence = Math.min(0.82, 0.65 + Math.abs(btcDelta) * 100);
+      // Fair probability calculation based on BTC delta
+      // delta < -0.10%: ~10% esély az UP-ra
+      // delta = 0%: ~50%
+      // delta > +0.10%: ~90% esély az UP-ra
+      const fairUpProb = Math.min(0.97, Math.max(0.03, 0.5 + Math.tanh(deltaPct / 0.05) * 0.45));
+
+      const marketYes = marketPrice.yesPrice;
+      const edge = fairUpProb - marketYes;
+
+      const minEdge = 0.07;
+
+      if (edge > minEdge) {
         return {
           action: "YES",
-          confidence,
-          reason: `Momentum: Follow UP spike, BTC up +${(btcDelta * 100).toFixed(2)}%`,
+          confidence: Math.min(0.85, 0.5 + edge * 3),
+          reason: `Fair value: számított=${(fairUpProb * 100).toFixed(1)}% vs piac=${(marketYes * 100).toFixed(1)}¢`,
         };
       }
 
-      // FOLLOW DOWN spike when BTC confirms (both going DOWN)
-      if (extremeDown && btcDown) {
-        const confidence = Math.min(0.82, 0.65 + Math.abs(btcDelta) * 100);
+      if (-edge > minEdge) {
+        const fairDownProb = 1 - fairUpProb;
         return {
           action: "NO",
-          confidence,
-          reason: `Momentum: Follow DOWN spike, BTC down ${(btcDelta * 100).toFixed(2)}%`,
+          confidence: Math.min(0.85, 0.5 + (-edge) * 3),
+          reason: `Fair value: számított DOWN=${(fairDownProb * 100).toFixed(1)}% vs piac=${(marketPrice.noPrice * 100).toFixed(1)}¢`,
         };
       }
 
-      // BTC contradicts the extreme - skip (no fade)
-      return { action: null, confidence: 0, reason: `BTC contradicts extreme - waiting for confirmation` };
+      return {
+        action: null,
+        confidence: 0,
+        reason: `Fair value: edge csak ${(Math.abs(edge) * 100).toFixed(1)}%`
+      };
     },
   },
 
-  // === SPECTRUM POSITION 5: SELECTIVE - Strong signals only ===
-  ta_signal_engine: {
-    name: "High Conviction",
-    description: "Only trades on strong signals with good risk/reward",
-    category: "technical",
+  // ──────────────────────────────────────────────────────────
+  // #6 MOMENTUM - Javított BTC momentum
+  // ──────────────────────────────────────────────────────────
+  momentum: {
+    name: "BTC Momentum",
+    description: "BTC valós idejű momentum alapján (nem Polymarket odds)",
+    category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen } = ctx;
 
-      // Trade in wider window: 30-240s (was 60-240s)
-      if (timeRemaining > 240000 || timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (30-240s)" };
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-      const btcDelta = btcPriceChange || 0;
-
-      // Max buy price for good risk/reward
-      const MAX_BUY_PRICE = 0.72;
-
-      // Strong BTC move threshold - lowered from 0.0008 to 0.0005
-      const strongBtcUp = btcDelta > 0.0005;   // > 0.05%
-      const strongBtcDown = btcDelta < -0.0005;
-
-      // Setup 1: Strong BTC + market alignment (but price must be good)
-      if (strongBtcUp && yesPrice > 0.55 && yesPrice <= MAX_BUY_PRICE) {
-        return {
-          action: "YES",
-          confidence: 0.72,
-          reason: `High Conviction: BTC +${(btcDelta * 100).toFixed(2)}% + YES at ${(yesPrice * 100).toFixed(0)}¢`,
-        };
-      }
-
-      if (strongBtcDown && noPrice > 0.55 && noPrice <= MAX_BUY_PRICE) {
-        return {
-          action: "NO",
-          confidence: 0.72,
-          reason: `High Conviction: BTC -${Math.abs(btcDelta * 100).toFixed(2)}% + NO at ${(noPrice * 100).toFixed(0)}¢`,
-        };
-      }
-
-      // Skip if price too expensive
-      if (strongBtcUp && yesPrice > MAX_BUY_PRICE) {
-        return { action: null, confidence: 0, reason: `High Conviction: BTC up but YES too expensive (${(yesPrice * 100).toFixed(0)}¢)` };
-      }
-      if (strongBtcDown && noPrice > MAX_BUY_PRICE) {
-        return { action: null, confidence: 0, reason: `High Conviction: BTC down but NO too expensive (${(noPrice * 100).toFixed(0)}¢)` };
-      }
-
-      // Setup 2: Large spread - buy the cheaper side ONLY if BTC confirms
-      const spread = Math.abs(yesPrice - noPrice);
-      if (spread > 0.03) {
-        // Spread > 3%
-        const cheaperSide: Outcome = yesPrice < noPrice ? "YES" : "NO";
-        const cheaperPrice = Math.min(yesPrice, noPrice);
-
-        // Only buy if:
-        // 1. Price is attractive (< 35%)
-        // 2. BTC direction STRONGLY CONFIRMS the trade (not just neutral)
-        if (cheaperPrice < 0.35) {
-          // Buying YES cheap - only if BTC is ACTUALLY going UP (not just flat)
-          // Require btcDelta > 0.0005 (0.05%) to avoid false signals
-          if (cheaperSide === "YES" && btcDelta > 0.0005) {
-            return {
-              action: "YES",
-              confidence: 0.70,
-              reason: `High Conviction: Cheap YES at ${(cheaperPrice * 100).toFixed(0)}¢ + BTC up ${(btcDelta * 100).toFixed(3)}%`,
-            };
-          }
-          // Buying NO cheap - only if BTC is ACTUALLY going DOWN (not just flat)
-          if (cheaperSide === "NO" && btcDelta < -0.0005) {
-            return {
-              action: "NO",
-              confidence: 0.70,
-              reason: `High Conviction: Cheap NO at ${(cheaperPrice * 100).toFixed(0)}¢ + BTC down ${(Math.abs(btcDelta) * 100).toFixed(3)}%`,
-            };
-          }
-          // BTC doesn't confirm strongly enough - don't buy cheap side, it's cheap for a reason
-          return { action: null, confidence: 0, reason: `High Conviction: Cheap ${cheaperSide} but BTC not moving enough (${(btcDelta * 100).toFixed(3)}%)` };
+      // BTC price change preferált (valós adat)
+      if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.0005) {
+        const pct = btcPriceChange * 100;
+        if (pct > 0.05) {
+          return {
+            action: "YES",
+            confidence: Math.min(0.78, 0.50 + pct * 5),
+            reason: `BTC momentum +${pct.toFixed(3)}%`,
+          };
+        }
+        if (pct < -0.05) {
+          return {
+            action: "NO",
+            confidence: Math.min(0.78, 0.50 + (-pct) * 5),
+            reason: `BTC momentum ${pct.toFixed(3)}%`,
+          };
         }
       }
 
-      return { action: null, confidence: 0, reason: `No high conviction setup` };
+      // Fallback: window delta
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+
+      if (deltaPct > 0.05) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.70, 0.50 + deltaPct * 4),
+          reason: `Window delta momentum +${deltaPct.toFixed(3)}%`
+        };
+      }
+      if (deltaPct < -0.05) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.70, 0.50 + (-deltaPct) * 4),
+          reason: `Window delta momentum ${deltaPct.toFixed(3)}%`
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Nem elég BTC momentum" };
     },
   },
 
-  // === SPECTRUM POSITION 6: ULTRA-SELECTIVE - Best setups only ===
-  market_maker: {
-    name: "Sniper",
-    description: "Ultra-selective: only trades on very strong setups with high confidence",
+  // ──────────────────────────────────────────────────────────
+  // #7 MEAN REVERSION - Átlag visszatérési stratégia
+  // ──────────────────────────────────────────────────────────
+  mean_reversion: {
+    name: "Mean Reversion",
+    description: "Extreme BTC elmozdulás után visszatérést vár",
+    category: "mean_reversion",
+    execute: (ctx) => {
+      const { timeRemaining, btcPrice, btcWindowOpen } = ctx;
+
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
+      }
+
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+
+      // Extrém UP elmozdulás → NO (visszatérés várható)
+      if (deltaPct > 0.20 && timeRemaining > 60000) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.68, 0.5 + (deltaPct - 0.20) * 2),
+          reason: `Extrém UP ${deltaPct.toFixed(3)}% - visszatérés várható`,
+        };
+      }
+      // Extrém DOWN elmozdulás → YES
+      if (deltaPct < -0.20 && timeRemaining > 60000) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.68, 0.5 + (-deltaPct - 0.20) * 2),
+          reason: `Extrém DOWN ${deltaPct.toFixed(3)}% - visszatérés várható`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs extrém elmozdulás" };
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // #8 TREND - Többszintű trend megerősítés
+  // ──────────────────────────────────────────────────────────
+  trend: {
+    name: "Multi-level Trend",
+    description: "Rövid és hosszú távú trend megerősítés",
+    category: "trend",
+    execute: (ctx) => {
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+
+      if (priceHistory.length < 10 || timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Nincs elég adat" };
+      }
+
+      const recent = priceHistory.slice(-3);
+      const older = priceHistory.slice(-10, -3);
+
+      const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+      const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+      const trend = (recentAvg - olderAvg) / olderAvg;
+
+      // BTC window delta is megerősíti?
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+      const btcAligned = (trend > 0 && deltaPct > 0) || (trend < 0 && deltaPct < 0);
+
+      if (trend > 0.0008 && btcAligned) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.72, 0.50 + trend * 200),
+          reason: `Trend UP: ${(trend * 100).toFixed(3)}% + BTC megerősítve`,
+        };
+      }
+      if (trend < -0.0008 && btcAligned) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.72, 0.50 + (-trend) * 200),
+          reason: `Trend DOWN: ${(trend * 100).toFixed(3)}% + BTC megerősítve`,
+        };
+      }
+
+      if (!btcAligned && Math.abs(deltaPct) > 0.03) {
+        return { action: null, confidence: 0, reason: "Trend és BTC ellentmondás" };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs egyértelmű trend" };
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // #9 SMART TREND - Fejlett multi-timeframe trend
+  // ──────────────────────────────────────────────────────────
+  smart_trend: {
+    name: "Smart Trend",
+    description: "Multi-timeframe trend + BTC megerősítés",
+    category: "trend",
+    execute: (ctx) => {
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+
+      if (priceHistory.length < 15 || timeRemaining < 45000) {
+        return { action: null, confidence: 0, reason: "Nincs elég adat" };
+      }
+
+      const shortTerm = priceHistory.slice(-3);
+      const mediumTerm = priceHistory.slice(-8);
+      const longTerm = priceHistory.slice(-15);
+
+      const shortAvg = shortTerm.reduce((a, b) => a + b, 0) / shortTerm.length;
+      const mediumAvg = mediumTerm.reduce((a, b) => a + b, 0) / mediumTerm.length;
+      const longAvg = longTerm.reduce((a, b) => a + b, 0) / longTerm.length;
+
+      const shortTrendUp = shortAvg > mediumAvg;
+      const mediumTrendUp = mediumAvg > longAvg;
+
+      // BTC megerősítés
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+      const btcConfirmsUp = deltaPct > 0.02;
+      const btcConfirmsDown = deltaPct < -0.02;
+
+      if (shortTrendUp && mediumTrendUp && btcConfirmsUp) {
+        return {
+          action: "YES",
+          confidence: 0.72,
+          reason: "Multi-timeframe bullish + BTC UP megerősítve",
+        };
+      }
+      if (!shortTrendUp && !mediumTrendUp && btcConfirmsDown) {
+        return {
+          action: "NO",
+          confidence: 0.72,
+          reason: "Multi-timeframe bearish + BTC DOWN megerősítve",
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Vegyes vagy BTC ellentmondó jelzések" };
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // #10 CONTRARIAN - Ellentétes stratégia
+  // ──────────────────────────────────────────────────────────
+  contrarian: {
+    name: "Contrarian",
+    description: "BTC ellentmondás a piaci trenddel",
+    category: "mean_reversion",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
+      }
+
+      if (!btcPrice) {
+        return { action: null, confidence: 0, reason: "Nincs BTC ár" };
+      }
+
+      const yesPrice = marketPrice.yesPrice;
+      const noPrice = marketPrice.noPrice;
+      const windowOpen = btcWindowOpen || btcPrice;
+      const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+
+      // EGYSZERŰSÍTETT: Ha BTC már mozdult, kövesd, még ha a piac mást is mutat
+      // Ez nem igazi "contrarian" - inkább "BTC follower"
+
+      // BTC UP de piac még alacsony YES ár → vedd YES-t
+      if (deltaPct > 0.05 && yesPrice < 0.60) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.75, 0.55 + deltaPct * 3),
+          reason: `BTC +${deltaPct.toFixed(3)}% de YES csak ${(yesPrice * 100).toFixed(0)}¢ → követés`,
+        };
+      }
+
+      // BTC DOWN de piac még alacsony NO ár → vedd NO-t
+      if (deltaPct < -0.05 && noPrice < 0.60) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.75, 0.55 + (-deltaPct) * 3),
+          reason: `BTC ${deltaPct.toFixed(3)}% de NO csak ${(noPrice * 100).toFixed(0)}¢ → követés`,
+        };
+      }
+
+      // Igazi contrarian: extrém piac de BTC ellentmond (ritka)
+      if (yesPrice > 0.80 && deltaPct < -0.05) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.75, 0.55 + (yesPrice - 0.70) * 3),
+          reason: `Contrarian: piac ${(yesPrice * 100).toFixed(0)}¢ YES de BTC le ${deltaPct.toFixed(3)}%`,
+        };
+      }
+      if (noPrice > 0.80 && deltaPct > 0.05) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.75, 0.55 + (noPrice - 0.70) * 3),
+          reason: `Contrarian: piac ${(noPrice * 100).toFixed(0)}¢ NO de BTC fel +${deltaPct.toFixed(3)}%`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs contrarian jelzés" };
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // #11-17: További stratégiák
+  // ──────────────────────────────────────────────────────────
+
+  volatility: {
+    name: "Volatility Breakout",
+    description: "Volatilitás kitörés kereskedés",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, marketPrice, btcPriceChange } = ctx;
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
 
-      // Trade in wider window: 30-180s (was 60-180s)
-      if (timeRemaining > 180000 || timeRemaining < 30000) {
-        return { action: null, confidence: 0, reason: "Not in entry window (30-180s)" };
+      if (priceHistory.length < 20 || timeRemaining < 60000) {
+        return { action: null, confidence: 0, reason: "Nincs elég adat" };
       }
 
-      const yesPrice = marketPrice?.yesPrice || 0.5;
-      const noPrice = marketPrice?.noPrice || 0.5;
-      const btcDelta = btcPriceChange || 0;
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
-      // Strong BTC move thresholds - lowered from 0.0008 to 0.0005
-      const veryStrongBtcUp = btcDelta > 0.0005;
-      const veryStrongBtcDown = btcDelta < -0.0005;
-
-      // Setup 1: Strong BTC move with market not yet reacted
-      // BTC up 0.08%+ but market price still < 65%
-      if (veryStrongBtcUp && yesPrice < 0.65) {
+      if (Math.abs(deltaPct) > 0.08) {
+        const action = deltaPct > 0 ? "YES" : "NO";
         return {
-          action: "YES",
-          confidence: 0.78,
-          reason: `Sniper: BTC +${(btcDelta * 100).toFixed(2)}%, market lagging at ${(yesPrice * 100).toFixed(0)}¢`,
+          action,
+          confidence: Math.min(0.72, 0.5 + Math.abs(deltaPct) * 3),
+          reason: `Volatilitás kitörés: ${deltaPct.toFixed(3)}%`,
         };
       }
 
-      if (veryStrongBtcDown && noPrice < 0.65) {
-        return {
-          action: "NO",
-          confidence: 0.78,
-          reason: `Sniper: BTC -${Math.abs(btcDelta * 100).toFixed(2)}%, market lagging at ${(noPrice * 100).toFixed(0)}¢`,
-        };
-      }
-
-      // Setup 2: Extreme fade (>80% price + BTC contradiction) - lowered from 85%
-      const extremeUp = yesPrice > 0.80;
-      const extremeDown = noPrice > 0.80;
-
-      if (extremeUp && veryStrongBtcDown) {
-        return {
-          action: "NO",
-          confidence: 0.82,
-          reason: `Sniper: Fade extreme UP at ${(yesPrice * 100).toFixed(0)}¢, BTC down ${Math.abs(btcDelta * 100).toFixed(2)}%`,
-        };
-      }
-
-      if (extremeDown && veryStrongBtcUp) {
-        return {
-          action: "YES",
-          confidence: 0.82,
-          reason: `Sniper: Fade extreme DOWN at ${(noPrice * 100).toFixed(0)}¢, BTC up +${(btcDelta * 100).toFixed(2)}%`,
-        };
-      }
-
-      return { action: null, confidence: 0, reason: `Sniper: No high-quality setup` };
+      return { action: null, confidence: 0, reason: "Nincs kitörés" };
     },
+  },
+
+  anomaly: {
+    name: "Anomaly",
+    description: "Árképzési anomáliák keresése",
+    category: "arbitrage",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining } = ctx;
+
+      if (timeRemaining < 30000) {
+        return { action: null, confidence: 0, reason: "Túl közel" };
+      }
+
+      const sum = marketPrice.yesPrice + marketPrice.noPrice;
+      if (sum < 0.96) {
+        const action = marketPrice.yesPrice < marketPrice.noPrice ? "YES" : "NO";
+        return {
+          action,
+          confidence: Math.min(0.80, (1 - sum) * 15),
+          reason: `Anomália: YES+NO=${(sum * 100).toFixed(1)}¢ < 100¢`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs anomália" };
+    },
+  },
+
+  momentum_burst: {
+    name: "Momentum Burst",
+    description: "Hirtelen BTC mozgások elkapása",
+    category: "momentum",
+    execute: (ctx) => {
+      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen } = ctx;
+
+      if (timeRemaining < 20000) {
+        return { action: null, confidence: 0, reason: "Nincs elég idő" };
+      }
+
+      if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.001) {
+        const pct = btcPriceChange * 100;
+        const windowOpen = btcWindowOpen || btcPrice || 0;
+        const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+        const aligned = (pct > 0 && deltaPct > 0) || (pct < 0 && deltaPct < 0);
+
+        if (aligned) {
+          return {
+            action: pct > 0 ? "YES" : "NO",
+            confidence: Math.min(0.78, 0.5 + Math.abs(pct) * 30),
+            reason: `Momentum burst: ${pct.toFixed(4)}% + delta megerősítve`,
+          };
+        }
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs momentum burst" };
+    },
+  },
+
+  grid_trading: {
+    name: "Grid Trading",
+    description: "Grid szinteken kereskedik",
+    category: "other",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining, priceHistory } = ctx;
+
+      if (timeRemaining < 60000 || priceHistory.length < 10) {
+        return { action: null, confidence: 0, reason: "Nincs elegendő idő/adat" };
+      }
+
+      const yesPrice = marketPrice.yesPrice;
+      const range = 0.04;
+      const center = 0.50;
+
+      if (yesPrice < center - range) {
+        return {
+          action: "YES",
+          confidence: 0.62,
+          reason: `Grid: YES alul ${(yesPrice * 100).toFixed(1)}¢`,
+        };
+      }
+      if (yesPrice > center + range) {
+        return {
+          action: "NO",
+          confidence: 0.62,
+          reason: `Grid: YES felül ${(yesPrice * 100).toFixed(1)}¢`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs grid jelzés" };
+    },
+  },
+
+  market_making: {
+    name: "Market Making",
+    description: "Likviditás biztosítás spread-ből",
+    category: "arbitrage",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining } = ctx;
+
+      if (timeRemaining < 60000) {
+        return { action: null, confidence: 0, reason: "Túl közel" };
+      }
+
+      const yesPrice = marketPrice.yesPrice;
+
+      if (yesPrice > 0.57) {
+        return { action: "NO", confidence: 0.52, reason: "Market making: YES magas" };
+      }
+      if (yesPrice < 0.43) {
+        return { action: "YES", confidence: 0.52, reason: "Market making: YES alacsony" };
+      }
+
+      return { action: null, confidence: 0, reason: "Nincs market making edge" };
+    },
+  },
+
+  arbitrage: {
+    name: "Arbitrage",
+    description: "BTC delta vs piac ár különbség kihasználása",
+    category: "arbitrage",
+    execute: (ctx) => {
+      const { marketPrice, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+
+      // Csak az első 4 percben aktív
+      if (timeRemaining < 30000 || timeRemaining > 240000) {
+        return { action: null, confidence: 0, reason: "Nem aktív időszak" };
+      }
+
+      const windowOpen = btcWindowOpen || btcPrice || 0;
+      const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
+      const yesPrice = marketPrice.yesPrice;
+      const noPrice = marketPrice.noPrice;
+
+      // Ha a delta nem egyértelmű, ne kereskedj
+      if (Math.abs(deltaPct) < 0.03) {
+        return { action: null, confidence: 0, reason: `Delta nem egyértelmű: ${deltaPct.toFixed(3)}%` };
+      }
+
+      // Számítsd ki a "fair" értéket a delta alapján
+      const fairProb = Math.min(0.95, Math.max(0.05, 0.5 + deltaPct * 3.5));
+      const edge = fairProb - yesPrice;
+
+      // Csak akkor ha van edge ÉS a piac még nem árazta be
+      if (edge > 0.06 && yesPrice < 0.70) {
+        return {
+          action: "YES",
+          confidence: Math.min(0.78, 0.5 + edge * 3),
+          reason: `Arb: fair=${(fairProb * 100).toFixed(0)}% vs piac=${(yesPrice * 100).toFixed(0)}¢ | delta +${deltaPct.toFixed(3)}%`,
+        };
+      }
+
+      if (-edge > 0.06 && noPrice < 0.70) {
+        return {
+          action: "NO",
+          confidence: Math.min(0.78, 0.5 + (-edge) * 3),
+          reason: `Arb: fair DOWN=${((1-fairProb) * 100).toFixed(0)}% vs piac=${(noPrice * 100).toFixed(0)}¢ | delta ${deltaPct.toFixed(3)}%`,
+        };
+      }
+
+      return { action: null, confidence: 0, reason: `Arb: nincs elegendő edge vagy piac beárazva` };
+    },
+  },
+
+  random: {
+    name: "Random",
+    description: "Véletlen kereskedés (baseline teszteléshez)",
+    category: "other",
+    execute: () => ({
+      action: Math.random() > 0.5 ? "YES" : "NO",
+      confidence: 0.5,
+      reason: "Véletlen döntés",
+    }),
   },
 };
 
@@ -529,13 +985,19 @@ export class BotManager {
 
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
-      // Spectrum: Aggressive → Selective
-      { id: "bot-momentum-chaser", name: "BOT-01: BTC Pure", strategy: "momentum_chaser", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-mean-reversion-sniper", name: "BOT-02: Quick Strike", strategy: "mean_reversion_sniper", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-sum-to-one-arb", name: "BOT-03: Balanced Signal", strategy: "sum_to_one_arb", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-whale-follower", name: "BOT-04: Momentum Follow", strategy: "whale_follower", interval: 3000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-ta-signal-engine", name: "BOT-05: High Conviction", strategy: "ta_signal_engine", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-market-maker", name: "BOT-06: Sniper", strategy: "market_maker", interval: 5000, betSize: 2, maxBet: 5, useKelly: true, kellyFraction: 0.5 },
+      // === PRIMARY BOTS - These are the winners based on research ===
+      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 1.5, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 1, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+
+      // === SECONDARY BOTS - Complementary strategies ===
+      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-random", name: "Random (baseline)", strategy: "random", interval: 10000, betSize: 0.25, maxBet: 1, useKelly: false, kellyFraction: 0.5 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -908,10 +1370,23 @@ export class BotManager {
 
     // Get BTC price and change
     const btcPrice = priceService.getPrice();
-    const btcPriceHistory = priceService.getPriceHistory(10);
-    const btcPriceChange = btcPriceHistory.length >= 2
-      ? (btcPrice - btcPriceHistory[0].price) / btcPriceHistory[0].price
+    const btcHistory = priceService.getPriceHistory(200);
+    const btcPriceHistory = btcHistory.slice(-20).map(p => p.price);
+    const btcPriceChange = btcHistory.length >= 2
+      ? (btcPrice - btcHistory[0].price) / btcHistory[0].price
       : 0;
+
+    // Calculate BTC window open price - the BTC price when the market window opened
+    let btcWindowOpen = btcPrice; // default: current price
+    if (btcHistory.length > 0 && market.startTime) {
+      // Find the BTC price closest to the market start time
+      const windowOpenTime = market.startTime;
+      const closest = btcHistory.reduce((prev, curr) =>
+        Math.abs(curr.timestamp - windowOpenTime) < Math.abs(prev.timestamp - windowOpenTime)
+        ? curr : prev
+      );
+      btcWindowOpen = closest.price;
+    }
 
     const context: StrategyContext = {
       currentPrice: yesPrice,
@@ -925,6 +1400,8 @@ export class BotManager {
       binanceSignal,
       btcPrice,
       btcPriceChange,
+      btcWindowOpen,
+      btcPriceHistory,
     };
 
     const decision = strategy.execute(context);
@@ -1179,6 +1656,8 @@ export class BotManager {
     // Reset all bots to equal starting conditions
     this.stopAllBots();
 
+    console.log(`[BotManager] Starting competition with ${this.bots.size} bots`);
+
     for (const [id, bot] of this.bots) {
       // Reset portfolio
       marketEngine.initBotPortfolio(id);
@@ -1204,6 +1683,7 @@ export class BotManager {
       this.bots.set(id, bot);
 
       // Start the bot
+      console.log(`[BotManager] Starting bot: ${bot.name} (${id})`);
       this.startBot(id);
     }
 

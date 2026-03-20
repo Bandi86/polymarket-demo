@@ -32,7 +32,7 @@ export interface KlineProviderConfig {
 const DEFAULT_CONFIG: KlineProviderConfig = {
   symbol: "btcusdt",
   interval: "1s",
-  threshold: 0.01, // 0.01% = signals from reference bot
+  threshold: 0.04, // 0.04% = less noise, more reliable signals (was 0.01%)
   enableSignals: true,
 };
 
