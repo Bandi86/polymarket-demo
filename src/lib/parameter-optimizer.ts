@@ -65,43 +65,113 @@ const DEFAULT_CONFIG: OptimizationConfig = {
   },
 };
 
+// Default parameter bounds for strategies without specific bounds
+const DEFAULT_BOUNDS: Record<string, [number, number]> = {
+  betSize: [0.1, 2.0],
+  interval: [1000, 15000],
+  kellyFraction: [0.1, 0.8],
+  maxBet: [0.5, 3.0],
+  stopLoss: [0.05, 0.2],
+  takeProfit: [0.1, 0.4],
+};
+
 // Parameter bounds by strategy
 const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> = {
-  momentum_chaser: {
-    betSize: [0.1, 2.0],
-    interval: [2000, 15000],
-    kellyFraction: [0.1, 0.8],
-    threshold: [0.005, 0.03],
+  // === NEW STRATEGIES (research-based) ===
+  window_delta: {
+    betSize: [0.5, 2.0],
+    interval: [1500, 5000],
+    kellyFraction: [0.2, 0.8],
+    threshold: [0.03, 0.15], // delta threshold %
   },
-  mean_reversion_sniper: {
-    betSize: [0.1, 2.0],
-    interval: [2000, 15000],
-    kellyFraction: [0.1, 0.8],
+  last_seconds_scalp: {
+    betSize: [0.5, 2.5],
+    interval: [300, 1000], // Very fast for sniper
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.02, 0.08], // min delta for snipe
+  },
+  binance_signal: {
+    betSize: [0.5, 2.0],
+    interval: [800, 2000],
+    kellyFraction: [0.2, 0.8],
     threshold: [0.02, 0.06],
   },
-  sum_to_one_arb: {
-    betSize: [0.1, 2.0],
-    interval: [1000, 10000],
-    kellyFraction: [0.2, 0.9],
+  monte_carlo: {
+    betSize: [0.3, 1.5],
+    interval: [3000, 10000],
+    kellyFraction: [0.2, 0.7],
   },
-  whale_follower: {
-    betSize: [0.1, 3.0],
-    interval: [2000, 10000],
-    kellyFraction: [0.1, 0.7],
-    threshold: [0.01, 0.05],
+  fair_value: {
+    betSize: [0.3, 1.5],
+    interval: [2000, 8000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.04, 0.10], // min edge %
   },
-  ta_signal_engine: {
-    betSize: [0.1, 2.0],
-    interval: [3000, 20000],
-    kellyFraction: [0.1, 0.8],
-    rsiPeriod: [7, 21],
-    emaShort: [5, 15],
-    emaLong: [15, 30],
+  momentum: {
+    betSize: [0.3, 1.5],
+    interval: [3000, 10000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.03, 0.08],
   },
-  market_maker: {
-    betSize: [0.1, 2.0],
-    interval: [1000, 8000],
-    kellyFraction: [0.1, 0.6],
+  mean_reversion: {
+    betSize: [0.3, 1.5],
+    interval: [3000, 10000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.15, 0.30], // extreme delta for reversion
+  },
+  trend: {
+    betSize: [0.3, 1.5],
+    interval: [5000, 15000],
+    kellyFraction: [0.2, 0.6],
+  },
+  smart_trend: {
+    betSize: [0.3, 1.5],
+    interval: [5000, 15000],
+    kellyFraction: [0.2, 0.6],
+  },
+  contrarian: {
+    betSize: [0.3, 1.5],
+    interval: [4000, 12000],
+    kellyFraction: [0.2, 0.6],
+    threshold: [0.65, 0.80], // extreme price threshold
+  },
+  volatility: {
+    betSize: [0.3, 2.0],
+    interval: [3000, 10000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.05, 0.12],
+  },
+  anomaly: {
+    betSize: [0.5, 2.0],
+    interval: [2000, 8000],
+    kellyFraction: [0.2, 0.7],
+  },
+  momentum_burst: {
+    betSize: [0.3, 2.0],
+    interval: [2000, 8000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.05, 0.15],
+  },
+  grid_trading: {
+    betSize: [0.2, 1.0],
+    interval: [5000, 15000],
+    kellyFraction: [0.1, 0.5],
+  },
+  market_making: {
+    betSize: [0.2, 1.0],
+    interval: [3000, 10000],
+    kellyFraction: [0.1, 0.5],
+  },
+  arbitrage: {
+    betSize: [0.3, 1.5],
+    interval: [3000, 10000],
+    kellyFraction: [0.2, 0.7],
+    threshold: [0.05, 0.12], // min edge
+  },
+  random: {
+    betSize: [0.1, 0.5],
+    interval: [5000, 15000],
+    kellyFraction: [0.1, 0.3],
   },
 };
 
@@ -350,7 +420,7 @@ class ParameterOptimizer {
     params: OptimizableParameters,
     mutationRate: number
   ): OptimizableParameters {
-    const bounds = PARAMETER_BOUNDS[strategy];
+    const bounds = PARAMETER_BOUNDS[strategy] || DEFAULT_BOUNDS;
     const mutated: OptimizableParameters = { ...params };
 
     for (const key of Object.keys(bounds)) {
@@ -395,7 +465,7 @@ class ParameterOptimizer {
     }
 
     // Clamp to bounds
-    const bounds = PARAMETER_BOUNDS[strategy];
+    const bounds = PARAMETER_BOUNDS[strategy] || DEFAULT_BOUNDS;
     for (const key of Object.keys(bounds)) {
       const k = key as keyof OptimizableParameters;
       const [min, max] = bounds[key];
@@ -411,7 +481,7 @@ class ParameterOptimizer {
    * Generate a random initial population.
    */
   private generateRandomPopulation(strategy: StrategyType): OptimizableParameters[] {
-    const bounds = PARAMETER_BOUNDS[strategy];
+    const bounds = PARAMETER_BOUNDS[strategy] || DEFAULT_BOUNDS;
     const population: OptimizableParameters[] = [];
 
     for (let i = 0; i < this.config.populationSize; i++) {

@@ -21,7 +21,8 @@ describe('BotManager Stats Sync', () => {
 
   beforeEach(() => {
     // We want to mock marketEngine's getBotPortfolio to return what we want
-    manager = new BotManager({ maxBots: 10 });
+    // maxBots: 20 allows for 10 default bots + test bots
+    manager = new BotManager({ maxBots: 20 });
   });
 
   afterEach(() => {
@@ -33,7 +34,7 @@ describe('BotManager Stats Sync', () => {
     const bot = manager.createBot({
       id: 'test-bot-1',
       name: 'Test Bot',
-      strategy: 'momentum_chaser',
+      strategy: 'window_delta',
       type: 'momentum',
       enabled: false,
       interval: 1000,

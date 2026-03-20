@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Trophy, Play, Square, Clock, Target, Zap, Timer, Download } from "lucide-react";
+import { Trophy, Play, Square, Clock, Zap, Download, RotateCcw, RefreshCw } from "lucide-react";
 import { formatCurrency, formatPercentage } from "../lib/utils";
 import { MiniEquityCurve } from "./charts/MiniEquityCurve";
 import type { BotData } from "../hooks/useTradingData";
@@ -37,16 +37,25 @@ interface CompetitionTabProps {
   bots?: BotData[];
 }
 
+// Quick run presets
+const QUICK_RUN_PRESETS = [
+  { label: "15m", duration: 15, color: "#22c55e" },
+  { label: "30m", duration: 30, color: "#3b82f6" },
+  { label: "1h", duration: 60, color: "#8b5cf6" },
+  { label: "2h", duration: 120, color: "#f59e0b" },
+];
+
 export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
   const [competition, setCompetition] = useState<CompetitionState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetingBot, setResetingBot] = useState<string | null>(null);
 
   // Config state
   const [config, setConfig] = useState({
     minTrades: 50,
     startBalance: 10,
-    durationMinutes: 30, // 30 minutes default
+    durationMinutes: 30,
   });
 
   const fetchCompetitionState = useCallback(async () => {
@@ -57,7 +66,6 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       setError(null);
     } catch (err) {
       console.error("Failed to fetch competition state:", err);
-      setError("Failed to load competition state");
     }
   }, []);
 
@@ -71,7 +79,6 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     setLoading(true);
     setError(null);
     try {
-      // Convert minutes to milliseconds for the backend
       const durationMs = config.durationMinutes > 0 ? config.durationMinutes * 60 * 1000 : null;
       const res = await fetch("/api/competition/start", {
         method: "POST",
@@ -114,23 +121,65 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     }
   };
 
-  const startOneHourRun = async () => {
+  const startQuickRun = async (durationMinutes: number) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/competition/one-hour-run", {
+      const res = await fetch("/api/competition/quick-run", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ durationMinutes }),
       });
       const data = await res.json();
       if (data.success) {
         setCompetition(data.competition);
       } else {
-        setError(data.error || "Failed to start 1-hour run");
+        setError(data.error || "Failed to start run");
       }
     } catch (err) {
-      setError("Failed to start 1-hour run");
+      setError("Failed to start run");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resetBot = async (botId: string) => {
+    setResetingBot(botId);
+    try {
+      const res = await fetch(`/api/bots/${botId}/reset`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchCompetitionState();
+      } else {
+        setError(data.error || "Failed to reset bot");
+      }
+    } catch (err) {
+      setError("Failed to reset bot");
+    } finally {
+      setResetingBot(null);
+    }
+  };
+
+  const resetAllBots = async () => {
+    setLoading(true);
+    try {
+      await fetch("/api/bots/reset-all", { method: "POST" });
+      await fetchCompetitionState();
+    } catch (err) {
+      setError("Failed to reset all bots");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleBot = async (botId: string) => {
+    try {
+      await fetch(`/api/bots/${botId}/toggle`, { method: "POST" });
+      await fetchCompetitionState();
+    } catch (err) {
+      setError("Failed to toggle bot");
     }
   };
 
@@ -138,8 +187,6 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     try {
       const res = await fetch("/api/competition/export");
       const data = await res.json();
-
-      // Create downloadable JSON
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -164,6 +211,8 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       grid_trading: "#6366f1",
       binance_signal: "#f97316",
       last_seconds_scalp: "#ef4444",
+      window_delta: "#22c55e",
+      monte_carlo: "#a855f7",
       random: "#6b7280",
     };
     return colors[strategy] || "#6b7280";
@@ -180,14 +229,19 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes % 60}m`;
-    }
-    if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    }
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
+  };
+
+  const getPerformanceIndicator = (pnl: number, trades: number): { emoji: string; label: string } => {
+    if (trades < 3) return { emoji: "⏳", label: "Too few trades" };
+    if (pnl > 3) return { emoji: "⭐⭐⭐", label: "Excellent" };
+    if (pnl > 1) return { emoji: "⭐⭐", label: "Good" };
+    if (pnl > 0) return { emoji: "⭐", label: "Positive" };
+    if (pnl > -1) return { emoji: "⚠️", label: "Small loss" };
+    if (pnl > -3) return { emoji: "❌", label: "Loss" };
+    return { emoji: "❌❌", label: "Big loss" };
   };
 
   const winner = competition?.winner
@@ -214,12 +268,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
               fontSize: "0.75rem",
               color: "#22c55e"
             }}>
-              <span className="live-indicator" style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: "#22c55e"
-              }} />
+              <span className="live-indicator" style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} />
               LIVE
             </div>
           )}
@@ -229,30 +278,34 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
         <div style={{ display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap" }}>
           {!competition?.active ? (
             <>
+              {/* Quick Run Buttons */}
               <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Min Trades</label>
-                <input
-                  type="number"
-                  value={config.minTrades}
-                  onChange={(e) => setConfig(c => ({ ...c, minTrades: parseInt(e.target.value) || 50 }))}
-                  className="input"
-                  style={{ width: 100, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
-                  min={10}
-                  max={500}
-                />
+                <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Quick Run</label>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  {QUICK_RUN_PRESETS.map(preset => (
+                    <button
+                      key={preset.duration}
+                      onClick={() => startQuickRun(preset.duration)}
+                      disabled={loading}
+                      style={{
+                        padding: "0.5rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: preset.color,
+                        color: "white",
+                        fontWeight: 600,
+                        fontSize: "0.875rem",
+                        cursor: loading ? "not-allowed" : "pointer",
+                        opacity: loading ? 0.5 : 1,
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Start Balance ($)</label>
-                <input
-                  type="number"
-                  value={config.startBalance}
-                  onChange={(e) => setConfig(c => ({ ...c, startBalance: parseFloat(e.target.value) || 10 }))}
-                  className="input"
-                  style={{ width: 100, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
-                  min={1}
-                  max={100}
-                />
-              </div>
+
+              {/* Custom Config */}
               <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Duration (min)</label>
                 <input
@@ -260,10 +313,21 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                   value={config.durationMinutes}
                   onChange={(e) => setConfig(c => ({ ...c, durationMinutes: parseInt(e.target.value) || 30 }))}
                   className="input"
-                  style={{ width: 100, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
+                  style={{ width: 80, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
                   min={1}
                   max={1440}
-                  placeholder="0 = unlimited"
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Start $</label>
+                <input
+                  type="number"
+                  value={config.startBalance}
+                  onChange={(e) => setConfig(c => ({ ...c, startBalance: parseFloat(e.target.value) || 10 }))}
+                  className="input"
+                  style={{ width: 70, padding: "0.375rem 0.5rem", fontSize: "0.875rem" }}
+                  min={1}
+                  max={100}
                 />
               </div>
               <button
@@ -273,16 +337,25 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                 style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem" }}
               >
                 <Play className="w-4 h-4" />
-                Start Competition
+                Start
               </button>
               <button
-                onClick={startOneHourRun}
+                onClick={resetAllBots}
                 disabled={loading}
-                className="trade-btn up"
-                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #8b5cf6, #6366f1)" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.5rem 1rem",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                }}
               >
-                <Timer className="w-4 h-4" />
-                1-Hour Run
+                <RefreshCw className="w-4 h-4" />
+                Reset All
               </button>
             </>
           ) : (
@@ -294,7 +367,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                 style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem" }}
               >
                 <Square className="w-4 h-4" />
-                End Competition
+                Stop
               </button>
               <button
                 onClick={exportData}
@@ -302,25 +375,11 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                 style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #06b6d4, #0ea5e9)" }}
               >
                 <Download className="w-4 h-4" />
-                Export Data
+                Export
               </button>
             </>
           )}
         </div>
-
-        {/* Export button when competition ended */}
-        {!competition?.active && (competition?.leaderboard?.length ?? 0) > 0 && (
-          <div style={{ marginTop: "1rem" }}>
-            <button
-              onClick={exportData}
-              className="trade-btn up"
-              style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "linear-gradient(135deg, #06b6d4, #0ea5e9)" }}
-            >
-              <Download className="w-4 h-4" />
-              Export All Data
-            </button>
-          </div>
-        )}
 
         {error && (
           <div style={{
@@ -352,45 +411,17 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
           <p style={{ margin: "0.25rem 0 0", color: "var(--text-muted)", fontSize: "0.875rem" }}>
             {winner.strategy} strategy with {winner.trades} trades
           </p>
-          <div style={{
-            display: "flex",
-            justifyContent: "center",
-            gap: "2rem",
-            marginTop: "1rem"
-          }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: "2rem", marginTop: "1rem" }}>
             <div>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>P&L</span>
-              <p style={{
-                margin: 0,
-                fontFamily: "ui-monospace, monospace",
-                fontSize: "1.25rem",
-                fontWeight: 600,
-                color: winner.pnl >= 0 ? "#22c55e" : "#ef4444"
-              }}>
+              <p style={{ margin: 0, fontFamily: "ui-monospace, monospace", fontSize: "1.25rem", fontWeight: 600, color: winner.pnl >= 0 ? "#22c55e" : "#ef4444" }}>
                 {winner.pnl >= 0 ? "+" : ""}{formatCurrency(winner.pnl)}
               </p>
             </div>
             <div>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>ROI</span>
-              <p style={{
-                margin: 0,
-                fontFamily: "ui-monospace, monospace",
-                fontSize: "1.25rem",
-                fontWeight: 600,
-                color: winner.roi >= 0 ? "#22c55e" : "#ef4444"
-              }}>
+              <p style={{ margin: 0, fontFamily: "ui-monospace, monospace", fontSize: "1.25rem", fontWeight: 600, color: winner.roi >= 0 ? "#22c55e" : "#ef4444" }}>
                 {winner.roi >= 0 ? "+" : ""}{winner.roi.toFixed(1)}%
-              </p>
-            </div>
-            <div>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Win Rate</span>
-              <p style={{
-                margin: 0,
-                fontFamily: "ui-monospace, monospace",
-                fontSize: "1.25rem",
-                fontWeight: 600
-              }}>
-                {formatPercentage(winner.winRate)}
               </p>
             </div>
           </div>
@@ -433,22 +464,9 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Target className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
-            <span style={{ color: "var(--text-muted)" }}>Min Trades:</span>
-            <span style={{ fontFamily: "ui-monospace, monospace" }}>{competition.minTrades}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span style={{ color: "var(--text-muted)" }}>Start Balance:</span>
             <span style={{ fontFamily: "ui-monospace, monospace" }}>${competition.startBalance}</span>
           </div>
-          {competition.completedAt && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ color: "var(--text-muted)" }}>Duration:</span>
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {formatDuration(competition.completedAt - competition.startTime)}
-              </span>
-            </div>
-          )}
         </div>
       )}
 
@@ -464,42 +482,35 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                   <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Bot</th>
                   <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Strategy</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Trades</th>
-                  <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Win Rate</th>
+                  <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Win%</th>
                   <th style={{ textAlign: "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Equity</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>P&L</th>
-                  <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>ROI</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Balance</th>
+                  <th style={{ textAlign: "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {competition.leaderboard.map((entry) => {
                   const isWinner = entry.botId === competition.winner;
-                  const isQualified = entry.trades >= competition.minTrades;
-                  
-                  // Compute equity curve for this bot
                   const matchingBot = bots.find(b => b.id === entry.botId);
                   const closedPositions = (matchingBot?.portfolio?.closedPositions || []) as any[];
-                  
-                  // Start equity with either competition startBalance or bot's initial config balance
                   const startBalanceForCurve = competition.startBalance || 10;
                   const equityCurvePlot = [startBalanceForCurve];
                   let currentBalance = startBalanceForCurve;
-                  
                   closedPositions.forEach((p: any) => {
                     currentBalance += (p.pnl || 0);
                     equityCurvePlot.push(currentBalance);
                   });
-                  
-                  if (equityCurvePlot.length === 1) {
-                    equityCurvePlot.push(startBalanceForCurve); // need 2 points for a line
-                  }
-                  
+                  if (equityCurvePlot.length === 1) equityCurvePlot.push(startBalanceForCurve);
+
+                  const perf = getPerformanceIndicator(entry.pnl, entry.trades);
+
                   return (
                     <tr
                       key={entry.botId}
                       style={{
                         borderBottom: "1px solid var(--border)",
-                        background: isWinner ? "rgba(251, 191, 36, 0.05)" : "transparent",
+                        background: isWinner ? "rgba(251, 191, 36, 0.05)" : entry.pnl < -2 ? "rgba(239, 68, 68, 0.05)" : "transparent",
                       }}
                     >
                       <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -509,6 +520,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                           {entry.botName}
                           {isWinner && <Trophy className="w-3 h-3" style={{ color: "#fbbf24" }} />}
+                          <span style={{ fontSize: "0.7rem" }}>{perf.emoji}</span>
                         </div>
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -523,14 +535,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                         </span>
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
-                        <span style={{ color: isQualified ? "var(--text-primary)" : "var(--text-muted)" }}>
-                          {entry.trades}
-                        </span>
-                        {!isQualified && (
-                          <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginLeft: "0.25rem" }}>
-                            (min {competition.minTrades})
-                          </span>
-                        )}
+                        {entry.trades}
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
                         {formatPercentage(entry.winRate)}
@@ -553,17 +558,26 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                       }}>
                         {entry.pnl >= 0 ? "+" : ""}{formatCurrency(entry.pnl)}
                       </td>
-                      <td style={{
-                        padding: "0.75rem 0.5rem",
-                        textAlign: "right",
-                        fontFamily: "ui-monospace, monospace",
-                        color: entry.roi >= 0 ? "#22c55e" : "#ef4444",
-                        fontWeight: 600
-                      }}>
-                        {entry.roi >= 0 ? "+" : ""}{entry.roi.toFixed(1)}%
-                      </td>
                       <td style={{ padding: "0.75rem 0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
                         {formatCurrency(entry.balance)}
+                      </td>
+                      <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
+                        <div style={{ display: "flex", justifyContent: "center", gap: "0.25rem" }}>
+                          <button
+                            onClick={() => resetBot(entry.botId)}
+                            disabled={resetingBot === entry.botId || competition.active}
+                            title="Reset bot balance"
+                            style={{
+                              padding: "0.25rem",
+                              background: "transparent",
+                              border: "none",
+                              cursor: competition.active ? "not-allowed" : "pointer",
+                              opacity: competition.active ? 0.3 : 1,
+                            }}
+                          >
+                            <RotateCcw className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -580,32 +594,51 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
           <Trophy className="w-12 h-12" style={{ margin: "0 auto 1rem", color: "var(--text-muted)", opacity: 0.5 }} />
           <h3 style={{ margin: "0 0 0.5rem", color: "var(--text-secondary)" }}>No Competition Yet</h3>
           <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.875rem" }}>
-            Start a competition to run all strategies in parallel with equal conditions.
-            <br />
-            The best strategy will be determined by P&L after reaching the minimum trade count.
+            Use Quick Run buttons for fast testing or configure custom settings.
           </p>
         </div>
       )}
 
-      {/* Help Text */}
-      <div style={{
-        padding: "1rem",
-        background: "rgba(59, 130, 246, 0.1)",
-        borderRadius: 8,
-        fontSize: "0.875rem",
-        color: "var(--text-secondary)"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-          <Zap className="w-4 h-4" style={{ color: "#3b82f6" }} />
-          <span style={{ fontWeight: 600 }}>How Competition Works</span>
+      {/* Performance Summary */}
+      {competition && !competition.active && competition.leaderboard.length > 0 && (
+        <div style={{
+          padding: "1rem",
+          background: "rgba(59, 130, 246, 0.1)",
+          borderRadius: 8,
+          fontSize: "0.875rem",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <Zap className="w-4 h-4" style={{ color: "#3b82f6" }} />
+            <span style={{ fontWeight: 600 }}>Performance Summary</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "1rem" }}>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Winning Bots:</span>
+              <span style={{ marginLeft: "0.5rem", color: "#22c55e", fontWeight: 600 }}>
+                {competition.leaderboard.filter(e => e.pnl > 0).length}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Losing Bots:</span>
+              <span style={{ marginLeft: "0.5rem", color: "#ef4444", fontWeight: 600 }}>
+                {competition.leaderboard.filter(e => e.pnl < 0).length}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Best Win Rate:</span>
+              <span style={{ marginLeft: "0.5rem", fontWeight: 600 }}>
+                {formatPercentage(Math.max(...competition.leaderboard.map(e => e.winRate)))}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Total Trades:</span>
+              <span style={{ marginLeft: "0.5rem", fontWeight: 600 }}>
+                {competition.leaderboard.reduce((sum, e) => sum + e.trades, 0)}
+              </span>
+            </div>
+          </div>
         </div>
-        <ul style={{ margin: 0, paddingLeft: "1.5rem" }}>
-          <li>All bots start with equal balance (default: $10)</li>
-          <li>Bots must reach minimum trades (default: 50) to qualify</li>
-          <li>Ranked by P&L, tie-breaker by win rate</li>
-          <li>Winner announced when competition ends</li>
-        </ul>
-      </div>
+      )}
     </div>
   );
 }

@@ -357,6 +357,30 @@ async function handleApiRoute(
     return Response.json({ success: true })
   }
 
+  // POST /api/bots/:id/reset - Reset single bot
+  const resetBotMatch = path.match(/^\/api\/bots\/([^/]+)\/reset$/)
+  if (resetBotMatch && method === 'POST') {
+    const botId = resetBotMatch[1]
+    const bot = botManager.getBot(botId)
+    if (!bot) {
+      return Response.json({ error: 'Bot not found' }, { status: 404 })
+    }
+    // Reset portfolio
+    marketEngine.initBotPortfolio(botId)
+    const portfolio = marketEngine.getBotPortfolio(botId)
+    portfolio.balance = 10
+    portfolio.initialBalance = 10
+    // Reset stats via bot config update
+    botManager.updateBotConfig(botId, {
+      stats: {
+        trades: 0, wins: 0, losses: 0, pnl: 0, winRate: 0,
+        avgWin: 0, avgLoss: 0, profitFactor: 0,
+        maxConsecutiveWins: 0, maxConsecutiveLosses: 0
+      }
+    })
+    return Response.json({ success: true, bot: botManager.getBot(botId) })
+  }
+
   // POST /api/bots/run-all
   if (path === '/api/bots/run-all' && method === 'POST') {
     const body = (await parseBody(req)) as {
@@ -389,7 +413,75 @@ async function handleApiRoute(
     return Response.json({ success: true, competition })
   }
 
-  // POST /api/competition/one-hour-run - Start 1-hour run with auto-save
+  // POST /api/competition/quick-run - Start a quick run with specified duration
+  if (path === '/api/competition/quick-run' && method === 'POST') {
+    const body = await parseBody(req) as { durationMinutes?: number } | null
+    const durationMinutes = body?.durationMinutes || 60
+    const durationMs = durationMinutes * 60 * 1000
+
+    // Reset everything first
+    botManager.resetAllBots()
+    riskManager.resetAll()
+    marketEngine.reset()
+
+    // Wait for market to be ready (max 10 seconds)
+    let retries = 0
+    while (!marketEngine.getCurrentMarket() && retries < 50) {
+      await new Promise(r => setTimeout(r, 200))
+      retries++
+    }
+
+    if (!marketEngine.getCurrentMarket()) {
+      return Response.json({
+        success: false,
+        error: 'Failed to get market data. Please try again.'
+      })
+    }
+
+    // Start competition
+    const competition = botManager.startCompetition({
+      minTrades: 0,
+      startBalance: 10,
+      duration: durationMs,
+    })
+
+    // Schedule auto-stop after duration
+    setTimeout(async () => {
+      console.log(`[Server] ${durationMinutes}min run complete, stopping...`)
+      botManager.stopCompetition()
+
+      // Save data to file
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `/tmp/polymarket-${durationMinutes}m-run-${timestamp}.json`
+
+      const data = {
+        timestamp: new Date().toISOString(),
+        duration: durationMinutes,
+        competition: botManager.getCompetitionState(),
+        bots: botManager.getBots().map(b => ({
+          id: b.id,
+          name: b.name,
+          strategy: b.strategy,
+          balance: b.portfolio?.balance,
+          pnl: b.portfolio?.totalPnL,
+          trades: b.portfolio?.totalTrades,
+          winRate: b.portfolio?.winRate,
+          stats: b.stats,
+        })),
+      }
+
+      try {
+        await Bun.write(filename, JSON.stringify(data, null, 2))
+        console.log(`[Server] Data saved to ${filename}`)
+      } catch (e) {
+        console.error('[Server] Failed to save data:', e)
+      }
+    }, durationMs)
+
+    return Response.json({ success: true, competition })
+  }
+
+  // POST /api/competition/one-hour-run - Start 1-hour run with auto-save (legacy)
   if (path === '/api/competition/one-hour-run' && method === 'POST') {
     // Reset everything first
     botManager.resetAllBots()

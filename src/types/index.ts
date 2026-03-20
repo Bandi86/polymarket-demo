@@ -133,12 +133,23 @@ export interface PriceProvider {
 
 // === Bot Types ===
 export type StrategyType =
-  | "momentum_chaser"
-  | "mean_reversion_sniper"
-  | "sum_to_one_arb"
-  | "whale_follower"
-  | "ta_signal_engine"
-  | "market_maker";
+  | "window_delta"
+  | "last_seconds_scalp"
+  | "binance_signal"
+  | "monte_carlo"
+  | "fair_value"
+  | "momentum"
+  | "mean_reversion"
+  | "trend"
+  | "smart_trend"
+  | "contrarian"
+  | "volatility"
+  | "anomaly"
+  | "momentum_burst"
+  | "grid_trading"
+  | "market_making"
+  | "arbitrage"
+  | "random";
 
 export interface BotConfig {
   id: string;
@@ -198,12 +209,16 @@ export interface StrategyContext {
   };
   btcPrice?: number;
   btcPriceChange?: number;
+  // BTC window open price - the BTC price when the 5-min market window opened
+  btcWindowOpen?: number;
+  // Recent BTC price history (last 20 ticks)
+  btcPriceHistory?: number[];
 }
 
 export interface Strategy {
   name: string;
   description: string;
-  category: "momentum" | "mean_reversion" | "arbitrage" | "social" | "technical" | "market_making";
+  category: "momentum" | "mean_reversion" | "arbitrage" | "social" | "technical" | "market_making" | "trend" | "other";
   execute: (context: StrategyContext) => { action: Outcome | null; confidence: number; reason?: string };
 }
 
