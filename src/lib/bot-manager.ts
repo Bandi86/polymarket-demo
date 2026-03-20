@@ -986,18 +986,19 @@ export class BotManager {
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
       // === PRIMARY BOTS - These are the winners based on research ===
-      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 1.5, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 1, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
+      // maxBet is now a PERCENTAGE of bankroll (0.25 = 25% max)
+      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 0.20, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
 
       // === SECONDARY BOTS - Complementary strategies ===
-      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 2, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-random", name: "Random (baseline)", strategy: "random", interval: 10000, betSize: 0.25, maxBet: 1, useKelly: false, kellyFraction: 0.5 },
+      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
+      { id: "bot-random", name: "Random (baseline)", strategy: "random", interval: 10000, betSize: 0.25, maxBet: 0.15, useKelly: false, kellyFraction: 0.5 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -1010,8 +1011,8 @@ export class BotManager {
         interval: cfg.interval ?? this.config.defaultInterval,
         betSize: cfg.betSize ?? 0.5,
         useKelly: cfg.useKelly ?? false,
-        kellyFraction: 0.25,
-        maxBet: 3,
+        kellyFraction: cfg.kellyFraction ?? 0.25,
+        maxBet: cfg.maxBet ?? 0.25, // Percentage of bankroll (default 25%)
         stopLoss: 0.1,
         takeProfit: 0.2,
         maxPositions: 999, // No practical limit - let strategies trade freely
@@ -1473,14 +1474,25 @@ export class BotManager {
       // Calculate bet size
       const kellyBet = portfolio.balance * halfKelly;
 
-      // Cap at max bet and 25% of bankroll for safety
-      betSize = Math.min(kellyBet, bot.maxBet || betSize, portfolio.balance * 0.25);
+      // maxBet is now a PERCENTAGE of bankroll (e.g., 0.25 = 25% max)
+      const maxBetPercent = bot.maxBet || 0.25; // Default 25% of bankroll
+      const maxBetAmount = portfolio.balance * maxBetPercent;
+
+      // Cap at maxBet percentage of bankroll
+      betSize = Math.min(kellyBet, maxBetAmount);
       betSize = Math.max(1, betSize); // Minimum $1 bet
 
       // Log Kelly calculation for transparency
       if (kellyBet > 0) {
-        console.log(`[BotManager] Kelly: ${bot.name} | WinProb: ${(winProbability * 100).toFixed(1)}% | Odds: ${netOdds.toFixed(2)} | Fraction: ${(halfKelly * 100).toFixed(1)}% | Bet: $${betSize.toFixed(2)}`);
+        console.log(`[BotManager] Kelly: ${bot.name} | WinProb: ${(winProbability * 100).toFixed(1)}% | Odds: ${netOdds.toFixed(2)} | Fraction: ${(halfKelly * 100).toFixed(1)}% | Balance: $${portfolio.balance.toFixed(2)} | MaxBet: $${maxBetAmount.toFixed(2)} | Bet: $${betSize.toFixed(2)}`);
       }
+    } else {
+      // No Kelly - use percentage-based bet sizing
+      const portfolio = marketEngine.getBotPortfolio(id);
+      const maxBetPercent = bot.maxBet || 0.25;
+      const maxBetAmount = portfolio.balance * maxBetPercent;
+      betSize = Math.min(bot.betSize, maxBetAmount);
+      betSize = Math.max(1, betSize);
     }
 
     // Adjust bet size based on confidence

@@ -161,7 +161,7 @@ export interface BotConfig {
   betSize: number;
   useKelly: boolean;
   kellyFraction: number;
-  maxBet: number;
+  maxBet: number; // Percentage of bankroll (0.25 = 25% max bet)
   stopLoss: number;
   takeProfit: number;
   maxPositions: number;
