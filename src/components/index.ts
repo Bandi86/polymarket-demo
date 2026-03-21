@@ -1,9 +1,6 @@
 // Feature Components
-export { PriceChart } from "./price-chart";
-export { StatsGrid } from "./stats-grid";
 export { MarketCard } from "./MarketCard";
 export { QuickActions } from "./quick-actions";
-export { MarketHistory } from "./market-history";
 
 // UI Components
 export { Card, CardHeader, CardTitle, CardContent } from "./ui/card";

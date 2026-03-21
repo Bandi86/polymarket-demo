@@ -55,14 +55,30 @@ export function MarketCard({
     : 0;
   const isUp = priceChange >= 0;
 
+  // Determine market trend
+  const getTrend = () => {
+    if (yesPrice >= 0.65) return { label: "Strong Uptrend", color: "text-green-400", bg: "bg-green-500/20" };
+    if (yesPrice <= 0.35) return { label: "Strong Downtrend", color: "text-red-400", bg: "bg-red-500/20" };
+    if (yesPrice > 0.55) return { label: "Slight Uptrend", color: "text-green-400", bg: "bg-green-500/10" };
+    if (yesPrice < 0.45) return { label: "Slight Downtrend", color: "text-red-400", bg: "bg-red-500/10" };
+    return { label: "Consolidating", color: "text-muted-foreground", bg: "bg-white/5" };
+  };
+  const trend = getTrend();
+
   return (
-    <div className="glass-card rounded-xl overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden relative">
+      {/* Internal Glow Effect */}
+      <div 
+        className="absolute top-0 right-0 w-64 h-64 rounded-full blur-[80px] opacity-10 pointer-events-none"
+        style={{ background: `radial-gradient(circle, ${yesPrice > 0.5 ? 'var(--green)' : 'var(--red)'} 0%, transparent 70%)` }}
+      />
+
       {/* Header with countdown */}
-      <div className="flex items-center justify-between p-4 border-b border-white/5">
+      <div className="flex items-center justify-between p-4 border-b border-white/5 relative z-10">
         <div className="flex items-center gap-2">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ backgroundColor: `${coinColor}20` }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center p-1"
+            style={{ backgroundColor: `${coinColor}20`, border: `1px solid ${coinColor}40` }}
           >
             <span className="font-bold text-sm" style={{ color: coinColor }}>
               {selectedAsset}
@@ -72,17 +88,22 @@ export function MarketCard({
             <h2 className="font-semibold text-sm">
               {selectedAsset} Up or Down
             </h2>
-            <p className="text-xs text-muted-foreground">
-              {selectedTimeframe === "5" ? "5 minute" : selectedTimeframe === "15" ? "15 minute" : selectedTimeframe === "60" ? "1 hour" : selectedTimeframe === "240" ? "4 hour" : `${selectedTimeframe}m`} market
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-muted-foreground">
+                {selectedTimeframe === "5" ? "5 min" : selectedTimeframe === "15" ? "15 min" : selectedTimeframe === "60" ? "1h" : selectedTimeframe === "240" ? "4h" : `${selectedTimeframe}m`}
+              </span>
+              <span className={cn("text-[0.65rem] px-1.5 py-0.5 rounded font-medium", trend.bg, trend.color)}>
+                {trend.label}
+              </span>
+            </div>
           </div>
         </div>
         <div
           className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg font-mono text-sm font-bold transition-all",
-            isUrgent && "bg-red-500/20 text-red-400 animate-pulse",
-            isWarning && !isUrgent && "bg-amber-500/20 text-amber-400",
-            !isWarning && !isUrgent && "bg-white/5 text-muted-foreground"
+            "flex items-center gap-1.5 px-3 py-2 rounded-lg font-mono text-sm font-bold transition-all shadow-sm",
+            isUrgent && "bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse",
+            isWarning && !isUrgent && "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+            !isWarning && !isUrgent && "bg-white/5 text-muted-foreground border border-white/5"
           )}
         >
           <Clock className="w-4 h-4" />
@@ -91,40 +112,36 @@ export function MarketCard({
       </div>
 
       {/* Price Info Section */}
-      <div className="p-4 space-y-3">
-        {/* Price to Beat */}
+      <div className="p-4 space-y-2 relative z-10">
+        <div className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5 backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Current Price</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-bold text-[1.1rem]">
+              ${btcPrice ? formatPrice(btcPrice) : "---"}
+            </span>
+            {priceToBeat && btcPrice && (
+              <span className={cn(
+                "text-xs font-semibold px-2 py-0.5 rounded shadow-sm",
+                isUp ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"
+              )}>
+                {isUp ? "+" : ""}{priceChange.toFixed(3)}%
+              </span>
+            )}
+          </div>
+        </div>
+        
         {priceToBeat && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Price to Beat</span>
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/20 border border-white/5">
+            <div className="flex items-center gap-2 opacity-80">
+              <Activity className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-[0.7rem] text-muted-foreground">Target to Beat</span>
             </div>
-            <span className="font-mono font-semibold">
+            <span className="font-mono text-[0.85rem] text-muted-foreground font-medium">
               ${formatPrice(priceToBeat)}
             </span>
-          </div>
-        )}
-
-        {/* Current BTC Price */}
-        {btcPrice && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5">
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Current Price</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono font-semibold">
-                ${formatPrice(btcPrice)}
-              </span>
-              {priceToBeat && (
-                <span className={cn(
-                  "text-xs font-medium px-1.5 py-0.5 rounded",
-                  isUp ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                )}>
-                  {isUp ? "+" : ""}{priceChange.toFixed(3)}%
-                </span>
-              )}
-            </div>
           </div>
         )}
       </div>

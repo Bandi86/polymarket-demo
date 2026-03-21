@@ -1,40 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Trophy, Play, Square, Clock, Zap, Download, RotateCcw, RefreshCw } from "lucide-react";
 import { formatCurrency, formatPercentage } from "../lib/utils";
 import { MiniEquityCurve } from "./charts/MiniEquityCurve";
-import type { BotData } from "../hooks/useTradingData";
-
-interface CompetitionEntry {
-  botId: string;
-  botName: string;
-  strategy: string;
-  rank: number;
-  trades: number;
-  winRate: number;
-  profitFactor: number;
-  sharpeRatio: number;
-  pnl: number;
-  roi: number;
-  balance: number;
-}
-
-interface CompetitionState {
-  active: boolean;
-  startTime: number;
-  minTrades: number;
-  startBalance: number;
-  leaderboard: CompetitionEntry[];
-  winner: string | null;
-  completedAt: number | null;
-  config: {
-    minTrades: number;
-    duration: number | null;
-    startBalance: number;
-  };
-}
+import type { BotData, CompetitionState } from "../hooks/useTradingData";
 
 interface CompetitionTabProps {
   bots?: BotData[];
+  competition: CompetitionState | null;
+  onRefreshData: () => Promise<void>;
 }
 
 // Quick run presets
@@ -45,8 +18,7 @@ const QUICK_RUN_PRESETS = [
   { label: "2h", duration: 120, color: "#f59e0b" },
 ];
 
-export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
-  const [competition, setCompetition] = useState<CompetitionState | null>(null);
+export function CompetitionTab({ bots = [], competition, onRefreshData }: CompetitionTabProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetingBot, setResetingBot] = useState<string | null>(null);
@@ -57,23 +29,6 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     startBalance: 10,
     durationMinutes: 30,
   });
-
-  const fetchCompetitionState = useCallback(async () => {
-    try {
-      const res = await fetch("/api/competition/status");
-      const data = await res.json();
-      setCompetition(data);
-      setError(null);
-    } catch (err) {
-      console.error("Failed to fetch competition state:", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCompetitionState();
-    const interval = setInterval(fetchCompetitionState, 2000);
-    return () => clearInterval(interval);
-  }, [fetchCompetitionState]);
 
   const startCompetition = async () => {
     setLoading(true);
@@ -90,7 +45,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setCompetition(data.competition);
+        await onRefreshData();
       } else {
         setError(data.error || "Failed to start competition");
       }
@@ -110,7 +65,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setCompetition(data.competition);
+        await onRefreshData();
       } else {
         setError(data.error || "Failed to stop competition");
       }
@@ -132,7 +87,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setCompetition(data.competition);
+        await onRefreshData();
       } else {
         setError(data.error || "Failed to start run");
       }
@@ -151,7 +106,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       });
       const data = await res.json();
       if (data.success) {
-        await fetchCompetitionState();
+        await onRefreshData();
       } else {
         setError(data.error || "Failed to reset bot");
       }
@@ -166,7 +121,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
     setLoading(true);
     try {
       await fetch("/api/bots/reset-all", { method: "POST" });
-      await fetchCompetitionState();
+      await onRefreshData();
     } catch (err) {
       setError("Failed to reset all bots");
     } finally {
@@ -177,7 +132,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
   const toggleBot = async (botId: string) => {
     try {
       await fetch(`/api/bots/${botId}/toggle`, { method: "POST" });
-      await fetchCompetitionState();
+      await onRefreshData();
     } catch (err) {
       setError("Failed to toggle bot");
     }
@@ -473,6 +428,46 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
       {/* Leaderboard */}
       {competition && competition.leaderboard.length > 0 && (
         <div className="glass-card" style={{ padding: "1rem" }}>
+          {/* Leaderboard Summary Bar */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "1rem",
+            padding: "0.75rem",
+            background: "rgba(0,0,0,0.2)",
+            borderRadius: 8,
+            fontSize: "0.875rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+              <div>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Total P&L</span>
+                <div style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontWeight: 600,
+                  color: competition.leaderboard.reduce((sum, e) => sum + e.pnl, 0) >= 0 ? "#22c55e" : "#ef4444",
+                }}>
+                  {competition.leaderboard.reduce((sum, e) => sum + e.pnl, 0) >= 0 ? "+" : ""}
+                  {formatCurrency(competition.leaderboard.reduce((sum, e) => sum + e.pnl, 0))}
+                </div>
+              </div>
+              <div>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Total Trades</span>
+                <div style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>
+                  {competition.leaderboard.reduce((sum, e) => sum + e.trades, 0)}
+                </div>
+              </div>
+              <div>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Winners/Losers</span>
+                <div style={{ fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>
+                  <span style={{ color: "#22c55e" }}>{competition.leaderboard.filter(e => e.pnl > 0).length}</span>
+                  <span style={{ color: "var(--text-muted)" }}>/</span>
+                  <span style={{ color: "#ef4444" }}>{competition.leaderboard.filter(e => e.pnl < 0).length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <h3 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: 600 }}>Leaderboard</h3>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
@@ -480,12 +475,11 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Rank</th>
                   <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Bot</th>
-                  <th style={{ textAlign: "left", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Strategy</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Trades</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Win%</th>
                   <th style={{ textAlign: "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Equity</th>
                   <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>P&L</th>
-                  <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Balance</th>
+                  <th style={{ textAlign: "right", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>ROI</th>
                   <th style={{ textAlign: "center", padding: "0.5rem", color: "var(--text-muted)", fontWeight: 500 }}>Actions</th>
                 </tr>
               </thead>
@@ -504,6 +498,7 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                   if (equityCurvePlot.length === 1) equityCurvePlot.push(startBalanceForCurve);
 
                   const perf = getPerformanceIndicator(entry.pnl, entry.trades);
+                  const botEnabled = matchingBot?.enabled ?? false;
 
                   return (
                     <tr
@@ -518,18 +513,22 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem", fontWeight: 500 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <div style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: botEnabled ? "#22c55e" : "var(--text-muted)",
+                          }} />
                           {entry.botName}
                           {isWinner && <Trophy className="w-3 h-3" style={{ color: "#fbbf24" }} />}
                           <span style={{ fontSize: "0.7rem" }}>{perf.emoji}</span>
                         </div>
-                      </td>
-                      <td style={{ padding: "0.75rem 0.5rem" }}>
                         <span style={{
-                          padding: "0.125rem 0.5rem",
-                          borderRadius: 4,
-                          fontSize: "0.75rem",
+                          fontSize: "0.625rem",
+                          color: getStrategyColor(entry.strategy),
                           background: `${getStrategyColor(entry.strategy)}20`,
-                          color: getStrategyColor(entry.strategy)
+                          padding: "0.125rem 0.375rem",
+                          borderRadius: 4,
                         }}>
                           {entry.strategy}
                         </span>
@@ -558,11 +557,35 @@ export function CompetitionTab({ bots = [] }: CompetitionTabProps) {
                       }}>
                         {entry.pnl >= 0 ? "+" : ""}{formatCurrency(entry.pnl)}
                       </td>
-                      <td style={{ padding: "0.75rem 0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
-                        {formatCurrency(entry.balance)}
+                      <td style={{
+                        padding: "0.75rem 0.5rem",
+                        textAlign: "right",
+                        fontFamily: "ui-monospace, monospace",
+                        color: entry.roi >= 0 ? "#22c55e" : "#ef4444",
+                        fontWeight: 600
+                      }}>
+                        {entry.roi >= 0 ? "+" : ""}{entry.roi.toFixed(0)}%
                       </td>
                       <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
                         <div style={{ display: "flex", justifyContent: "center", gap: "0.25rem" }}>
+                          <button
+                            onClick={() => toggleBot(entry.botId)}
+                            disabled={!competition.active}
+                            title={botEnabled ? "Stop bot" : "Start bot"}
+                            style={{
+                              padding: "0.25rem",
+                              background: "transparent",
+                              border: "none",
+                              cursor: competition.active ? "pointer" : "not-allowed",
+                              opacity: competition.active ? 1 : 0.3,
+                            }}
+                          >
+                            {botEnabled ? (
+                              <Square className="w-4 h-4" style={{ color: "#ef4444" }} />
+                            ) : (
+                              <Play className="w-4 h-4" style={{ color: "#22c55e" }} />
+                            )}
+                          </button>
                           <button
                             onClick={() => resetBot(entry.botId)}
                             disabled={resetingBot === entry.botId || competition.active}

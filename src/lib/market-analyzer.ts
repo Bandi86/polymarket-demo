@@ -24,20 +24,31 @@ export interface MarketRecommendation {
 
 // Strategy performance by market phase (learned from historical data)
 const STRATEGY_PERFORMANCE_BY_PHASE: Record<MarketPhase, StrategyType[]> = {
-  trending_up: ["momentum_chaser", "ta_signal_engine", "whale_follower"],
-  trending_down: ["momentum_chaser", "ta_signal_engine"],
-  ranging: ["mean_reversion_sniper", "sum_to_one_arb", "market_maker"],
-  volatile: ["momentum_chaser", "ta_signal_engine"],
+  trending_up: ["momentum", "trend", "smart_trend"],
+  trending_down: ["momentum", "trend"],
+  ranging: ["mean_reversion", "arbitrage", "market_making"],
+  volatile: ["momentum", "volatility"],
 };
 
 // Strategy display names for UI
 const STRATEGY_NAMES: Record<StrategyType, string> = {
-  momentum_chaser: "Momentum Chaser",
-  mean_reversion_sniper: "Mean Reversion Sniper",
-  sum_to_one_arb: "Sum-to-One Arbitrage",
-  whale_follower: "Whale Follower",
-  ta_signal_engine: "TA Signal Engine",
-  market_maker: "Market Maker",
+  window_delta: "Window Delta",
+  last_seconds_scalp: "Last Seconds Scalp",
+  binance_signal: "Binance Signal",
+  monte_carlo: "Monte Carlo",
+  fair_value: "Fair Value",
+  momentum: "Momentum",
+  mean_reversion: "Mean Reversion",
+  trend: "Trend Following",
+  smart_trend: "Smart Trend",
+  contrarian: "Contrarian",
+  volatility: "Volatility",
+  anomaly: "Anomaly",
+  momentum_burst: "Momentum Burst",
+  grid_trading: "Grid Trading",
+  market_making: "Market Making",
+  arbitrage: "Arbitrage",
+  random: "Random",
 };
 
 export class MarketAnalyzer {
@@ -176,8 +187,8 @@ export class MarketAnalyzer {
     const phaseStrategies = STRATEGY_PERFORMANCE_BY_PHASE[recommendation.phase] || [];
 
     const allStrategies: StrategyType[] = [
-      "momentum_chaser", "mean_reversion_sniper", "sum_to_one_arb",
-      "whale_follower", "ta_signal_engine", "market_maker",
+      "momentum", "mean_reversion", "arbitrage",
+      "trend", "volatility", "market_making",
     ];
 
     return allStrategies.map(strategy => {

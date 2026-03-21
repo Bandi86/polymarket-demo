@@ -37,14 +37,31 @@ export interface CoordinatorConfig {
 const DEFAULT_CONFIG: CoordinatorConfig = {
   maxOutcomeExposure: 0.4, // 40% max exposure to one outcome
   conflictMode: "strict",
-  maxBotsSameOutcome: 3,
+  maxBotsSameOutcome: 2, // Reduced from 3 to prevent overexposure
   compatibleStrategies: {
-    momentum_chaser: ["whale_follower", "ta_signal_engine"],
-    mean_reversion_sniper: ["market_maker"],
-    sum_to_one_arb: [], // Always takes both sides
-    whale_follower: ["momentum_chaser", "ta_signal_engine"],
-    ta_signal_engine: ["momentum_chaser", "whale_follower"],
-    market_maker: ["mean_reversion_sniper"],
+    // Momentum strategies are compatible with each other
+    window_delta: ["momentum", "momentum_burst", "binance_signal"],
+    binance_signal: ["window_delta", "momentum", "last_seconds_scalp"],
+    momentum: ["window_delta", "binance_signal", "momentum_burst"],
+    momentum_burst: ["momentum", "window_delta"],
+    // Timing-based strategies
+    last_seconds_scalp: ["binance_signal"], // Sniper is special — only compatible with oracle lag
+    // Probabilistic / arbitrage strategies are compatible
+    monte_carlo: ["fair_value", "arbitrage"],
+    fair_value: ["monte_carlo", "arbitrage", "anomaly"],
+    arbitrage: ["monte_carlo", "fair_value"],
+    anomaly: ["fair_value"],
+    // Trend strategies
+    trend: ["smart_trend"],
+    smart_trend: ["trend"],
+    // Counter-trend
+    mean_reversion: ["contrarian"],
+    contrarian: ["mean_reversion"],
+    // Standalone strategies
+    volatility: ["momentum"],
+    grid_trading: [],
+    market_making: [],
+    random: [],
   },
 };
 

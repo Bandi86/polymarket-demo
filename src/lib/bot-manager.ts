@@ -74,9 +74,9 @@ const strategies: Record<StrategyType, Strategy> = {
         return { action: null, confidence: 0, reason: "Ablak eleje - várakozás" };
       }
 
-      // ERŐS jel: delta > 0.12% (növelve a megbízhatóságért)
-      if (deltaPct > 0.12) {
-        const conf = Math.min(0.92, 0.70 + (deltaPct - 0.12) * 3);
+      // ERŐS jel: delta > 0.15% (emelve 0.12%-ról a megbízhatóságért)
+      if (deltaPct > 0.15) {
+        const conf = Math.min(0.92, 0.72 + (deltaPct - 0.15) * 2.5);
         debugLog('WindowDelta', '✅ ERŐS UP jel', { action: 'YES', confidence: conf.toFixed(2) });
         return {
           action: "YES",
@@ -84,8 +84,8 @@ const strategies: Record<StrategyType, Strategy> = {
           reason: `Erős UP delta: +${deltaPct.toFixed(3)}% az ablakon belül`
         };
       }
-      if (deltaPct < -0.12) {
-        const conf = Math.min(0.92, 0.70 + (-deltaPct - 0.12) * 3);
+      if (deltaPct < -0.15) {
+        const conf = Math.min(0.92, 0.72 + (-deltaPct - 0.15) * 2.5);
         debugLog('WindowDelta', '✅ ERŐS DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
         return {
           action: "NO",
@@ -94,9 +94,9 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      // KÖZEPES jel: delta > 0.07% (növelve a megbízhatóságért)
-      if (deltaPct > 0.07) {
-        const conf = 0.55 + (deltaPct - 0.07) * 4;
+      // KÖZEPES jel: delta > 0.09% (emelve 0.07%-ról — kevesebb, jobb trade)
+      if (deltaPct > 0.09) {
+        const conf = 0.56 + (deltaPct - 0.09) * 3;
         debugLog('WindowDelta', '⚠️ KÖZEPES UP jel', { action: 'YES', confidence: conf.toFixed(2) });
         return {
           action: "YES",
@@ -104,8 +104,8 @@ const strategies: Record<StrategyType, Strategy> = {
           reason: `UP delta: +${deltaPct.toFixed(3)}%`
         };
       }
-      if (deltaPct < -0.07) {
-        const conf = 0.55 + (-deltaPct - 0.07) * 4;
+      if (deltaPct < -0.09) {
+        const conf = 0.56 + (-deltaPct - 0.09) * 3;
         debugLog('WindowDelta', '⚠️ KÖZEPES DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
         return {
           action: "NO",
@@ -177,13 +177,17 @@ const strategies: Record<StrategyType, Strategy> = {
       // Konfidencia számítás
       let confidence = binanceSignal.confidence;
 
-      // Bónusz ha a window delta megerősíti
+      // A delta-nak MEGERŐSÍTENIE kell a jelet — ellentmondásnál elutasít
       if (signalAlignedWithDelta) {
         confidence = Math.min(0.95, confidence + 0.10);
         debugLog('OracleLag', '✅ Delta megerősít', { deltaPct: deltaPct.toFixed(4) + '%' });
+      } else if (Math.abs(deltaPct) > 0.03) {
+        // Delta aktívan ellentmond a jelnek → elutasít
+        debugLog('OracleLag', '❌ Delta ellentmond', { deltaPct: deltaPct.toFixed(4) + '%' });
+        return { action: null, confidence: 0, reason: `Delta ellentmond: jel=${binanceSignal.type} de delta=${deltaPct.toFixed(3)}%` };
       } else {
-        confidence = confidence * 0.7;
-        debugLog('OracleLag', '⚠️ Delta nem erősít', { deltaPct: deltaPct.toFixed(4) + '%' });
+        confidence = confidence * 0.6;
+        debugLog('OracleLag', '⚠️ Delta nem erősít (semleges)', { deltaPct: deltaPct.toFixed(4) + '%' });
       }
 
       // Magasabb konfidencia ha erősebb az elmozdulás
@@ -216,8 +220,8 @@ const strategies: Record<StrategyType, Strategy> = {
     execute: (ctx) => {
       const { timeRemaining, btcPrice, btcWindowOpen, marketPrice, binanceSignal } = ctx;
 
-      // CSAK az utolsó 30 másodpercben aktív
-      if (timeRemaining > 30000 || timeRemaining < 4000) {
+      // CSAK az utolsó 20 másodpercben aktív (szűkítve 30-ról → pontosabb)
+      if (timeRemaining > 20000 || timeRemaining < 3000) {
         return { action: null, confidence: 0, reason: "Nem a T-10 sniper ablakban" };
       }
 
@@ -230,18 +234,18 @@ const strategies: Record<StrategyType, Strategy> = {
       const windowOpen = btcWindowOpen || btcPrice;
       const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
-      // Minimális delta szükséges (növelve a megbízhatóságért)
-      const minDelta = 0.06;
+      // Minimális delta szükséges (emelve 0.06 → 0.08 a megbízhatóságért)
+      const minDelta = 0.08;
       if (Math.abs(deltaPct) < minDelta) {
         return { action: null, confidence: 0, reason: `Delta ${deltaPct.toFixed(4)}% - túl kicsi` };
       }
 
       const action = deltaPct > 0 ? "YES" : "NO";
 
-      // KRITIKUS: Ellenőrizd az árat - SOHA ne vegyél 72¢ felett!
-      // A 2% fee miatt 72¢ felett már -EV a trade (csökkentve 75-ről)
+      // KRITIKUS: Ellenőrizd az árat - SOHA ne vegyél 68¢ felett!
+      // A 2% fee miatt 68¢ felett már -EV a trade (csökkentve 72-ről)
       const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
-      const MAX_BUY_PRICE = 0.72;
+      const MAX_BUY_PRICE = 0.68;
 
       if (targetPrice > MAX_BUY_PRICE) {
         return { action: null, confidence: 0, reason: `Ár túl magas: ${(targetPrice * 100).toFixed(0)}¢ > ${(MAX_BUY_PRICE * 100).toFixed(0)}¢ max (fee miatt -EV)` };
@@ -367,21 +371,21 @@ const strategies: Record<StrategyType, Strategy> = {
       const marketYes = marketPrice.yesPrice;
       const edge = fairUpProb - marketYes;
 
-      const minEdge = 0.07;
+      const minEdge = 0.10; // Emelve 0.07-ről — csak erősebb edge-nél kereskedj
 
-      if (edge > minEdge) {
+      if (edge > minEdge && marketYes < 0.65) {
         return {
           action: "YES",
-          confidence: Math.min(0.85, 0.5 + edge * 3),
+          confidence: Math.min(0.82, 0.5 + edge * 2.5),
           reason: `Fair value: számított=${(fairUpProb * 100).toFixed(1)}% vs piac=${(marketYes * 100).toFixed(1)}¢`,
         };
       }
 
-      if (-edge > minEdge) {
+      if (-edge > minEdge && marketPrice.noPrice < 0.65) {
         const fairDownProb = 1 - fairUpProb;
         return {
           action: "NO",
-          confidence: Math.min(0.85, 0.5 + (-edge) * 3),
+          confidence: Math.min(0.82, 0.5 + (-edge) * 2.5),
           reason: `Fair value: számított DOWN=${(fairDownProb * 100).toFixed(1)}% vs piac=${(marketPrice.noPrice * 100).toFixed(1)}¢`,
         };
       }
@@ -738,60 +742,24 @@ const strategies: Record<StrategyType, Strategy> = {
   },
 
   grid_trading: {
-    name: "Grid Trading",
-    description: "Grid szinteken kereskedik",
+    name: "Grid Trading (paused)",
+    description: "Grid szinteken kereskedik — nem optimális 5-perces piacokon",
     category: "other",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining, priceHistory } = ctx;
-
-      if (timeRemaining < 60000 || priceHistory.length < 10) {
-        return { action: null, confidence: 0, reason: "Nincs elegendő idő/adat" };
-      }
-
-      const yesPrice = marketPrice.yesPrice;
-      const range = 0.04;
-      const center = 0.50;
-
-      if (yesPrice < center - range) {
-        return {
-          action: "YES",
-          confidence: 0.62,
-          reason: `Grid: YES alul ${(yesPrice * 100).toFixed(1)}¢`,
-        };
-      }
-      if (yesPrice > center + range) {
-        return {
-          action: "NO",
-          confidence: 0.62,
-          reason: `Grid: YES felül ${(yesPrice * 100).toFixed(1)}¢`,
-        };
-      }
-
-      return { action: null, confidence: 0, reason: "Nincs grid jelzés" };
+    execute: () => {
+      // Grid trading szüneteltetve — 5-perces piacokon nincs elegendő
+      // ár mozgást ahhoz, hogy a grid szintek profitábilisak legyenek
+      return { action: null, confidence: 0, reason: "Grid trading szüneteltetve (5m piacon nem optimális)" };
     },
   },
 
   market_making: {
-    name: "Market Making",
-    description: "Likviditás biztosítás spread-ből",
+    name: "Market Making (paused)",
+    description: "Likviditás biztosítás spread-ből — nem profitábilis 5-perces piacokon",
     category: "arbitrage",
-    execute: (ctx) => {
-      const { marketPrice, timeRemaining } = ctx;
-
-      if (timeRemaining < 60000) {
-        return { action: null, confidence: 0, reason: "Túl közel" };
-      }
-
-      const yesPrice = marketPrice.yesPrice;
-
-      if (yesPrice > 0.57) {
-        return { action: "NO", confidence: 0.52, reason: "Market making: YES magas" };
-      }
-      if (yesPrice < 0.43) {
-        return { action: "YES", confidence: 0.52, reason: "Market making: YES alacsony" };
-      }
-
-      return { action: null, confidence: 0, reason: "Nincs market making edge" };
+    execute: () => {
+      // Market making stratégia szüneteltetve — 5-perces piacokon
+      // nem termel elegendő spread-et a fee-k fedezéséhez
+      return { action: null, confidence: 0, reason: "Market making szüneteltetve (5m piacon nem profitábilis)" };
     },
   },
 
@@ -986,19 +954,20 @@ export class BotManager {
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
       // === PRIMARY BOTS - These are the winners based on research ===
-      // maxBet is now a PERCENTAGE of bankroll (0.25 = 25% max)
-      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 0.20, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 0.25, useKelly: true, kellyFraction: 0.5 },
+      // maxBet is a PERCENTAGE of bankroll (e.g., 0.20 = 20% max)
+      // kellyFraction reduced to ~0.35 (quarter-Kelly approach for stability)
+      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 300, betSize: 1.0, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 0.12, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
       // === SECONDARY BOTS - Complementary strategies ===
-      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 0.20, useKelly: true, kellyFraction: 0.5 },
-      { id: "bot-random", name: "Random (baseline)", strategy: "random", interval: 10000, betSize: 0.25, maxBet: 0.15, useKelly: false, kellyFraction: 0.5 },
+      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
+      // grid_trading, market_making, random removed from defaults — not profitable on 5m
     ];
 
     for (const cfg of defaultConfigs) {
@@ -1759,6 +1728,25 @@ export class BotManager {
       this.updateLeaderboard();
     }
     return { ...this.competition };
+  }
+
+  clearCompetition(): CompetitionState {
+    // Reset competition to initial state
+    this.competition = {
+      active: false,
+      startTime: 0,
+      minTrades: 50,
+      startBalance: 10,
+      leaderboard: [],
+      winner: null,
+      completedAt: null,
+      config: {
+        minTrades: 50,
+        duration: null,
+        startBalance: 10,
+      },
+    };
+    return this.getCompetitionState();
   }
 
   private updateLeaderboard(): void {

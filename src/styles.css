@@ -1052,3 +1052,101 @@ html, body, #root {
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
+
+/* --- Additional Utilities --- */
+
+/* Text colors mapped to CSS vars */
+.text-text-muted { color: var(--text-muted); }
+.text-text-secondary { color: var(--text-secondary); }
+.text-text-primary { color: var(--text); }
+.text-foreground { color: var(--text); }
+.text-muted-foreground { color: var(--text-muted); }
+
+/* Background utilities */
+.bg-glass-bg { background: var(--glass-bg); }
+.border-border { border-color: var(--border); }
+
+/* Max width */
+.max-w-\[1600px\] { max-width: 1600px; }
+
+/* Flex wrap */
+.flex-wrap { flex-wrap: wrap; }
+
+/* Responsive grid */
+@media (min-width: 1024px) {
+  .lg\:grid-cols-\[320px_1fr_360px\] {
+    grid-template-columns: 320px 1fr 360px;
+  }
+}
+
+/* Responsive show/hide */
+.hidden { display: none; }
+@media (min-width: 640px) {
+  .sm\:block { display: block; }
+}
+@media (min-width: 768px) {
+  .md\:flex { display: flex; }
+  .md\:p-4 { padding: 1rem; }
+  .md\:gap-6 { gap: 1.5rem; }
+}
+
+/* Width/height pixel */
+.w-px { width: 1px; }
+
+/* Grid start */
+.items-start { align-items: flex-start; }
+
+/* Space-y */
+.space-y-3 > * + * { margin-top: 0.75rem; }
+
+/* --- Ambient Glow Effects --- */
+.ambient-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.15;
+  animation: breathe 8s infinite alternate ease-in-out;
+}
+
+@keyframes breathe {
+  0% { transform: scale(1) translate(0, 0); opacity: 0.1; }
+  100% { transform: scale(1.2) translate(5%, 5%); opacity: 0.2; }
+}
+
+/* --- List Animations --- */
+.animate-slide-in {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* --- Orderbook Depth Bars --- */
+.ob-row {
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.ob-depth-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: -1;
+  opacity: 0.15;
+  transition: width 0.3s ease-out;
+}
+
+.ob-depth-bar.ask {
+  background-color: var(--red);
+}
+
+.ob-depth-bar.bid {
+  background-color: var(--green);
+}
+

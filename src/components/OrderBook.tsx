@@ -49,7 +49,7 @@ export function OrderBook({ yesPrice, noPrice, coinColor }: OrderBookProps) {
   }, [yesPrice, noPrice]);
 
   const maxTotal = Math.max(
-    asks[asks.length - 1]?.total || 0,
+    asks[0]?.total || 0,
     bids[bids.length - 1]?.total || 0
   );
 
@@ -93,33 +93,19 @@ export function OrderBook({ yesPrice, noPrice, coinColor }: OrderBookProps) {
         {asks.map((level, i) => (
           <div
             key={`ask-${i}`}
+            className="ob-row"
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr 1fr",
               fontSize: "0.7rem",
               fontFamily: "ui-monospace, monospace",
               padding: "0.2rem 0.25rem",
-              position: "relative",
             }}
           >
-            <div style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: `${(level.total / maxTotal) * 100}%`,
-              background: "rgba(239, 68, 68, 0.08)",
-              borderRadius: 2,
-            }} />
-            <span style={{ color: "#ef4444", position: "relative" }}>
-              {(level.price * 100).toFixed(1)}¢
-            </span>
-            <span style={{ textAlign: "right", position: "relative" }}>
-              ${level.size.toFixed(0)}
-            </span>
-            <span style={{ textAlign: "right", color: "var(--text-muted)", position: "relative" }}>
-              ${level.total.toFixed(0)}
-            </span>
+            <div className="ob-depth-bar ask" style={{ width: `${(level.total / maxTotal) * 100}%` }} />
+            <span style={{ color: "#ef4444" }}>{(level.price * 100).toFixed(1)}¢</span>
+            <span style={{ textAlign: "right" }}>${level.size.toFixed(0)}</span>
+            <span style={{ textAlign: "right", color: "var(--text-muted)" }}>${level.total.toFixed(0)}</span>
           </div>
         ))}
       </div>
@@ -131,7 +117,8 @@ export function OrderBook({ yesPrice, noPrice, coinColor }: OrderBookProps) {
         justifyContent: "center",
         padding: "0.375rem",
         margin: "0.25rem 0",
-        background: "rgba(0,0,0,0.2)",
+        background: "var(--glass-bg)",
+        border: "1px solid var(--border)",
         borderRadius: 4,
         fontSize: "0.75rem",
         fontFamily: "ui-monospace, monospace",
@@ -147,33 +134,19 @@ export function OrderBook({ yesPrice, noPrice, coinColor }: OrderBookProps) {
         {bids.map((level, i) => (
           <div
             key={`bid-${i}`}
+            className="ob-row"
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr 1fr",
               fontSize: "0.7rem",
               fontFamily: "ui-monospace, monospace",
               padding: "0.2rem 0.25rem",
-              position: "relative",
             }}
           >
-            <div style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: `${(level.total / maxTotal) * 100}%`,
-              background: "rgba(34, 197, 94, 0.08)",
-              borderRadius: 2,
-            }} />
-            <span style={{ color: "#22c55e", position: "relative" }}>
-              {(level.price * 100).toFixed(1)}¢
-            </span>
-            <span style={{ textAlign: "right", position: "relative" }}>
-              ${level.size.toFixed(0)}
-            </span>
-            <span style={{ textAlign: "right", color: "var(--text-muted)", position: "relative" }}>
-              ${level.total.toFixed(0)}
-            </span>
+            <div className="ob-depth-bar bid" style={{ width: `${(level.total / maxTotal) * 100}%` }} />
+            <span style={{ color: "#22c55e" }}>{(level.price * 100).toFixed(1)}¢</span>
+            <span style={{ textAlign: "right" }}>${level.size.toFixed(0)}</span>
+            <span style={{ textAlign: "right", color: "var(--text-muted)" }}>${level.total.toFixed(0)}</span>
           </div>
         ))}
       </div>

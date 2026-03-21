@@ -56,9 +56,9 @@ const DEFAULT_SETTINGS: RiskSettings = {
   maxOpenPositions: 999,        // No practical limit - let strategies trade freely
   maxDrawdownPercent: 20,       // Stop at 20% drawdown
 
-  minConfidence: 0.5,           // Min 50% confidence
-  cooldownAfterLoss: 30,        // Wait 30s after loss
-  maxTradesPerHour: 60,         // Max 60 trades/hour
+  minConfidence: 0.55,          // Min 55% confidence (raised from 50%)
+  cooldownAfterLoss: 15,        // Wait 15s after loss (reduced from 30s for 5m markets)
+  maxTradesPerHour: 40,         // Max 40 trades/hour (reduced from 60 for quality)
 
   portfolioMaxLoss: 10,         // Stop if total loss > $10
   portfolioMaxDrawdown: 25,     // Stop at 25% total drawdown

@@ -1,11 +1,8 @@
 import { useState } from "react";
-import { Bot, Play, Square, Settings, ChevronDown, ChevronUp, Clock, TrendingUp, TrendingDown, AlertCircle, CheckCircle, XCircle, Timer, Flame, Snowflake, BarChart2, DollarSign, Activity } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
-import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
-import { ProgressRing } from "@/components/ui/ProgressRing";
 import { MiniEquityCurve } from "./charts/MiniEquityCurve";
-import type { BotData, MarketData } from "@/hooks/useTradingData";
+import type { BotData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {
   bot: BotData;
@@ -21,7 +18,6 @@ interface BotStatusCardProps {
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
   timeRemaining?: number;
-  marketData?: MarketData | null;
 }
 
 function formatDuration(ms: number): string {
@@ -31,14 +27,15 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 }
 
-export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onOpenConfig, timeRemaining, marketData }: BotStatusCardProps) {
-  const [showDebug, setShowDebug] = useState(false);
+export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
+  const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
   const strategyColor = getStrategyColor(bot.strategy);
   const strategyName = getStrategyName(bot.strategy);
 
   const botPositions = positions.filter(p => p.botId === bot.id);
+  const positionsValue = botPositions.reduce((sum, p) => sum + p.stake, 0);
   const unrealizedPnl = botPositions.reduce((sum, pos) => {
     if (pos.outcome === "YES") {
       return sum + (pos.amount * yesPrice - pos.stake);
@@ -46,45 +43,44 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
     return sum + (pos.amount * (1 - yesPrice) - pos.stake);
   }, 0);
 
-  const initialBalance = 10;
-  const pnlPercent = initialBalance > 0
-    ? ((bot.portfolio.balance - initialBalance) / initialBalance) * 100
-    : 0;
-
   // Calculate running time
   const runningTime = bot.enabled && bot.runTime ? Date.now() - bot.runTime : 0;
 
-  // Extract recent trades and equity curve from closed positions
+  // Extract trades data
   const closedPositions = (bot.portfolio.closedPositions || []) as any[];
-  
-  // Recent 5 trades (assuming chronological order)
-  const recentTrades = closedPositions.slice(-5).map((p: any) => p.pnl || 0);
-  
-  // Compute equity curve starting from initialBalance
+
+  // Recent trades dots
+  const recentTrades = closedPositions.slice(-8).map((p: any) => p.pnl || 0);
+
+  // Calculate initial balance and growth
+  const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
+  const initialBalance = bot.portfolio.balance - totalClosedPnL;
+  const balanceGrowth = bot.portfolio.balance - initialBalance;
+  const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
+
+  // Equity curve
   const equityCurvePlot = [initialBalance];
   let currentBalance = initialBalance;
   closedPositions.forEach((p: any) => {
     currentBalance += (p.pnl || 0);
     equityCurvePlot.push(currentBalance);
   });
-  
-  // Always aim for at least 2 points to draw the line
   if (equityCurvePlot.length === 1) {
     equityCurvePlot.push(initialBalance);
   }
 
-  // Determine bot health status
+  // Health status
   const getHealthStatus = () => {
-    if (!bot.enabled) return { status: "stopped", color: "text-muted-foreground", icon: XCircle };
-    if (bot.stats.trades === 0 && runningTime > 60000) return { status: "idle", color: "text-warning", icon: AlertCircle };
-    if (bot.stats.pnl < 0) return { status: "losing", color: "text-danger", icon: TrendingDown };
-    return { status: "active", color: "text-success", icon: CheckCircle };
+    if (!bot.enabled) return { status: "stopped", color: "#6b7280", icon: XCircle, label: "Stopped" };
+    if (bot.stats.trades === 0 && runningTime > 60000) return { status: "idle", color: "#f59e0b", icon: AlertCircle, label: "Idle" };
+    if (bot.stats.pnl < 0) return { status: "losing", color: "#ef4444", icon: TrendingDown, label: "Losing" };
+    return { status: "winning", color: "#22c55e", icon: TrendingUp, label: "Winning" };
   };
 
   const health = getHealthStatus();
   const HealthIcon = health.icon;
 
-  // Calculate current streak from closed positions
+  // Current streak
   const getCurrentStreak = () => {
     if (closedPositions.length === 0) return { type: "none", count: 0 };
     let streak = 0;
@@ -108,6 +104,9 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   const currentStreak = getCurrentStreak();
 
+  // Win rate calculation
+  const winRate = bot.stats.trades > 0 ? (bot.stats.wins / bot.stats.trades) * 100 : 0;
+
   const handleToggle = async () => {
     if (isToggling) return;
     setIsToggling(true);
@@ -120,467 +119,562 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   return (
     <div
-      className={cn(
-        "glass-card p-4 rounded-xl flex flex-col gap-3 transition-all duration-300",
-        bot.enabled ? "border-success/30" : "border-border"
-      )}
-      style={{ borderLeftColor: strategyColor, borderLeftWidth: "3px" }}
+      className="glass-card rounded-xl transition-all duration-300"
+      style={{
+        borderLeftColor: strategyColor,
+        borderLeftWidth: "4px",
+        border: `1px solid ${bot.enabled ? 'rgba(34, 197, 94, 0.3)' : 'var(--border)'}`,
+        padding: "1.5rem",
+      }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "w-2 h-2 rounded-full",
-              bot.enabled ? "bg-success animate-pulse" : "bg-muted-foreground"
+      {/* Header with Running Time */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {/* Bot Icon with Status */}
+          <div style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            background: bot.enabled ? `${strategyColor}20` : "var(--glass-bg)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: `2px solid ${bot.enabled ? strategyColor : "var(--border)"}`,
+            position: "relative",
+          }}>
+            <Bot style={{ width: 22, height: 22, color: bot.enabled ? strategyColor : "var(--text-muted)" }} />
+            {/* Running indicator dot */}
+            {bot.enabled && (
+              <div style={{
+                position: "absolute",
+                top: -2,
+                right: -2,
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "#22c55e",
+                border: "2px solid var(--bg)",
+                animation: "pulse 2s infinite",
+              }} />
             )}
-          />
-          <Bot className={cn("w-4 h-4", bot.enabled ? "text-success" : "text-muted-foreground")} />
-          <span className="font-semibold text-sm">{bot.name}</span>
-          <HealthIcon className={cn("w-3 h-3", health.color)} />
-        </div>
-        <div className="flex items-center gap-1">
-          <span
-            className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded font-medium",
-              bot.enabled ? "bg-success/20 text-success" : "bg-muted/20 text-muted-foreground"
-            )}
-          >
-            {strategyName}
-          </span>
-          <button
-            onClick={() => onOpenConfig(bot)}
-            className="p-1 bg-transparent border-none cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
-            title="Configure bot"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Timer & Market Info */}
-      <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
-        <div className="flex items-center gap-1">
-          <Clock className="w-3 h-3 text-muted-foreground" />
-          <span className={cn(
-            "font-mono",
-            bot.enabled ? "text-foreground" : "text-muted-foreground"
-          )}>
-            {bot.enabled ? formatDuration(runningTime) : "Stopped"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Market Time Remaining */}
-          {timeRemaining !== undefined && timeRemaining > 0 && (
-            <span className={cn(
-              "px-1.5 py-0.5 rounded font-mono text-[10px] flex items-center gap-1",
-              timeRemaining < 60000
-                ? "bg-red-500/20 text-red-400 animate-pulse"
-                : timeRemaining < 180000
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : "bg-blue-500/20 text-blue-400"
-            )}>
-              <Timer className="w-3 h-3" />
-              {formatDuration(timeRemaining)}
-            </span>
-          )}
-          <span className="px-1.5 py-0.5 bg-success/20 rounded text-success font-mono text-[10px]">
-            YES {yesPrice.toFixed(3)}
-          </span>
-          <span className="px-1.5 py-0.5 bg-danger/20 rounded text-danger font-mono text-[10px]">
-            NO {noPrice.toFixed(3)}
-          </span>
-        </div>
-      </div>
-
-      {/* Stats Grid with ProgressRing and Equity Curve */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Left Col: Balance, PnL, Trades */}
-        <div className="flex flex-col gap-2">
-          <div>
-            <div className="text-[10px] text-muted-foreground mb-0.5">Balance</div>
-            <div className="font-mono font-semibold">
-              <AnimatedCounter
-                value={bot.portfolio.balance}
-                format="currency"
-                decimals={2}
-              />
-            </div>
           </div>
           <div>
-            <div className="text-[10px] text-muted-foreground mb-0.5">P&L</div>
-            <div
-              className={cn(
-                "font-mono font-semibold",
-                bot.stats.pnl >= 0 ? "text-success" : "text-danger"
-              )}
-            >
-              <AnimatedCounter
-                value={bot.stats.pnl}
-                format="currency"
-                decimals={2}
-                previousValue={bot.stats.pnl - 0.5}
-              />
-              <span className="text-[10px] ml-1">
-                ({pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(1)}%)
+            <div style={{ fontWeight: 700, fontSize: "1.125rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {bot.name}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem" }}>
+              {/* Strategy Badge */}
+              <span style={{
+                padding: "0.15rem 0.5rem",
+                borderRadius: 4,
+                background: `${strategyColor}15`,
+                color: strategyColor,
+                fontWeight: 500,
+                fontSize: "0.7rem",
+              }}>
+                {strategyName}
+              </span>
+              {/* Health Badge */}
+              <span style={{
+                padding: "0.15rem 0.5rem",
+                borderRadius: 4,
+                background: `${health.color}20`,
+                color: health.color,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.2rem",
+                fontWeight: 600,
+                fontSize: "0.7rem",
+              }}>
+                <HealthIcon style={{ width: 10, height: 10 }} />
+                {health.label}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-[10px] text-muted-foreground">Recent:</span>
-            <div className="flex items-center gap-0.5" title="Last 5 trades">
-              {recentTrades.map((pnl: number, i: number) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: pnl > 0 ? "var(--success)" : pnl < 0 ? "var(--danger)" : "var(--muted-foreground)"
-                  }}
-                />
-              ))}
-              {recentTrades.length === 0 && (
-                <span className="text-[10px] text-muted-foreground">-</span>
-              )}
-            </div>
-          </div>
         </div>
 
-        {/* Right Col: WinRate Ring, Equity Curve */}
-        <div className="flex flex-col items-end justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="text-right">
-              <div className="text-[10px] text-muted-foreground">Win Rate</div>
-              <div className="font-mono text-sm leading-tight">
-                {bot.stats.winRate > 0 ? `${(bot.stats.winRate * 100).toFixed(0)}%` : "-"}
-              </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                {bot.stats.trades} trades
-              </div>
-            </div>
-            <ProgressRing
-              value={bot.stats.winRate * 100}
-              size={36}
-              strokeWidth={3}
-            />
+        {/* Running Time - More Prominent */}
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: "0.25rem",
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+            padding: "0.375rem 0.625rem",
+            borderRadius: 8,
+            background: bot.enabled ? "rgba(34, 197, 94, 0.15)" : "rgba(107, 114, 128, 0.15)",
+          }}>
+            <Clock style={{ width: 14, height: 14, color: bot.enabled ? "#22c55e" : "#6b7280" }} />
+            <span style={{
+              fontFamily: "ui-monospace, monospace",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              color: bot.enabled ? "#22c55e" : "#6b7280",
+            }}>
+              {bot.enabled ? formatDuration(runningTime) : "STOPPED"}
+            </span>
           </div>
-          
-          <div className="mt-auto w-full flex justify-end">
-            <MiniEquityCurve
-              data={equityCurvePlot}
-              color={strategyColor}
-              size={32}
-            />
+          {/* Market Timer */}
+          {timeRemaining !== undefined && timeRemaining > 0 && bot.enabled && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              padding: "0.25rem 0.5rem",
+              borderRadius: 6,
+              background: timeRemaining < 60000 ? "rgba(239, 68, 68, 0.2)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.2)" : "rgba(59, 130, 246, 0.2)",
+            }}>
+              <Timer style={{ width: 12, height: 12, color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#3b82f6" }} />
+              <span style={{
+                fontFamily: "ui-monospace, monospace",
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#3b82f6",
+              }}>
+                {formatDuration(timeRemaining)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Portfolio Growth Card */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "1rem",
+        background: balanceGrowth >= 0 ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05))" : "linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05))",
+        borderRadius: 12,
+        marginBottom: "1rem",
+        border: `1px solid ${balanceGrowth >= 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+      }}>
+        <div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+            Current Balance
+          </div>
+          <div style={{
+            fontWeight: 700,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "1.5rem",
+            color: "var(--text-primary)",
+          }}>
+            ${bot.portfolio.balance.toFixed(2)}
+          </div>
+          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+            Started: ${initialBalance.toFixed(2)}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "0.25rem",
+            color: balanceGrowth >= 0 ? "#22c55e" : "#ef4444",
+          }}>
+            {balanceGrowth >= 0 ? (
+              <ArrowUpRight style={{ width: 20, height: 20 }} />
+            ) : (
+              <ArrowDownRight style={{ width: 20, height: 20 }} />
+            )}
+            <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>
+              {balanceGrowth >= 0 ? "+" : ""}{balanceGrowth.toFixed(2)}
+            </span>
+          </div>
+          <div style={{
+            fontSize: "0.875rem",
+            fontWeight: 600,
+            color: balanceGrowth >= 0 ? "#22c55e" : "#ef4444",
+          }}>
+            ({growthPercent >= 0 ? "+" : ""}{growthPercent.toFixed(1)}%)
           </div>
         </div>
       </div>
 
-      {/* Positions & Unrealized PnL */}
+      {/* Stats Grid */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: "0.5rem",
+        marginBottom: "1rem",
+      }}>
+        {/* Win Rate */}
+        <div style={{
+          padding: "0.625rem",
+          background: "rgba(0,0,0,0.2)",
+          borderRadius: 8,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Win Rate</div>
+          <div style={{
+            fontWeight: 700,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.875rem",
+            color: winRate >= 50 ? "#22c55e" : winRate > 0 ? "#f59e0b" : "var(--text-muted)",
+          }}>
+            {winRate.toFixed(0)}%
+          </div>
+        </div>
+
+        {/* Trades */}
+        <div style={{
+          padding: "0.625rem",
+          background: "rgba(0,0,0,0.2)",
+          borderRadius: 8,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Trades</div>
+          <div style={{ fontWeight: 700, fontFamily: "ui-monospace, monospace", fontSize: "0.875rem" }}>
+            {bot.stats.trades}
+          </div>
+          <div style={{ fontSize: "0.625rem", fontWeight: 500 }}>
+            <span style={{ color: "#22c55e" }}>{bot.stats.wins}W</span>
+            <span style={{ color: "var(--text-muted)" }}>/</span>
+            <span style={{ color: "#ef4444" }}>{bot.stats.losses}L</span>
+          </div>
+        </div>
+
+        {/* Streak */}
+        <div style={{
+          padding: "0.625rem",
+          background: "rgba(0,0,0,0.2)",
+          borderRadius: 8,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Streak</div>
+          <div style={{
+            fontWeight: 700,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.875rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.2rem",
+            color: currentStreak.type === "win" ? "#f59e0b" : currentStreak.type === "loss" ? "#3b82f6" : "var(--text-muted)",
+          }}>
+            {currentStreak.type === "win" && <Flame style={{ width: 14, height: 14 }} />}
+            {currentStreak.type === "loss" && <Snowflake style={{ width: 14, height: 14 }} />}
+            {currentStreak.count > 0 ? currentStreak.count : "-"}
+          </div>
+        </div>
+
+        {/* Avg Trade */}
+        <div style={{
+          padding: "0.625rem",
+          background: "rgba(0,0,0,0.2)",
+          borderRadius: 8,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Avg Trade</div>
+          <div style={{
+            fontWeight: 700,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.875rem",
+            color: bot.stats.trades > 0 ? (bot.stats.pnl / bot.stats.trades >= 0 ? "#22c55e" : "#ef4444") : "var(--text-muted)",
+          }}>
+            {bot.stats.trades > 0 ? `$${(bot.stats.pnl / bot.stats.trades).toFixed(2)}` : "-"}
+          </div>
+        </div>
+      </div>
+
+      {/* Prices */}
+      <div style={{
+        display: "flex",
+        gap: "0.5rem",
+        marginBottom: "1rem",
+      }}>
+        <div style={{
+          flex: 1,
+          padding: "0.5rem 0.75rem",
+          borderRadius: 8,
+          background: "rgba(34, 197, 94, 0.1)",
+          border: "1px solid rgba(34, 197, 94, 0.2)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}>
+          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.75rem" }}>YES</span>
+          <span style={{ color: "#22c55e", fontFamily: "ui-monospace, monospace", fontWeight: 700, fontSize: "0.875rem" }}>
+            {(yesPrice * 100).toFixed(1)}¢
+          </span>
+        </div>
+        <div style={{
+          flex: 1,
+          padding: "0.5rem 0.75rem",
+          borderRadius: 8,
+          background: "rgba(239, 68, 68, 0.1)",
+          border: "1px solid rgba(239, 68, 68, 0.2)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}>
+          <span style={{ color: "#ef4444", fontWeight: 600, fontSize: "0.75rem" }}>NO</span>
+          <span style={{ color: "#ef4444", fontFamily: "ui-monospace, monospace", fontWeight: 700, fontSize: "0.875rem" }}>
+            {(noPrice * 100).toFixed(1)}¢
+          </span>
+        </div>
+      </div>
+
+      {/* Open Positions */}
       {botPositions.length > 0 && (
-        <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
-          <div className="flex items-center gap-1">
-            <TrendingUp className="w-3 h-3 text-primary" />
-            <span>{botPositions.length} position{botPositions.length > 1 ? "s" : ""}</span>
-          </div>
-          <div
-            className={cn(
-              "font-mono",
-              unrealizedPnl >= 0 ? "text-success" : "text-danger"
-            )}
-          >
-            <AnimatedCounter
-              value={unrealizedPnl}
-              format="currency"
-              decimals={2}
-            />{" "}
-            <span className="text-muted-foreground">unrealized</span>
-          </div>
-        </div>
-      )}
-
-      {/* Win/Loss Breakdown & Streaks */}
-      {bot.stats.trades > 0 && (
-        <div className="grid grid-cols-3 gap-2 p-2 bg-black/20 rounded-md text-xs">
-          {/* Wins */}
-          <div className="flex flex-col items-center">
-            <div className="text-[10px] text-muted-foreground mb-0.5">Wins</div>
-            <div className="font-mono font-semibold text-success">{bot.stats.wins}</div>
-            {bot.stats.avgWin > 0 && (
-              <div className="text-[10px] text-success/70">+${bot.stats.avgWin.toFixed(2)} avg</div>
-            )}
-          </div>
-          {/* Losses */}
-          <div className="flex flex-col items-center">
-            <div className="text-[10px] text-muted-foreground mb-0.5">Losses</div>
-            <div className="font-mono font-semibold text-danger">{bot.stats.losses}</div>
-            {bot.stats.avgLoss > 0 && (
-              <div className="text-[10px] text-danger/70">-${bot.stats.avgLoss.toFixed(2)} avg</div>
-            )}
-          </div>
-          {/* Streak */}
-          <div className="flex flex-col items-center">
-            <div className="text-[10px] text-muted-foreground mb-0.5">Streak</div>
-            <div className="flex items-center gap-0.5">
-              {currentStreak.type === "win" ? (
-                <>
-                  <Flame className="w-3 h-3 text-orange-400" />
-                  <span className="font-mono font-semibold text-orange-400">{currentStreak.count}</span>
-                </>
-              ) : currentStreak.type === "loss" ? (
-                <>
-                  <Snowflake className="w-3 h-3 text-blue-400" />
-                  <span className="font-mono font-semibold text-blue-400">{currentStreak.count}</span>
-                </>
-              ) : (
-                <span className="text-muted-foreground">-</span>
-              )}
-            </div>
-            {bot.stats.maxConsecutiveWins > 1 && (
-              <div className="text-[10px] text-muted-foreground">Best: {bot.stats.maxConsecutiveWins}</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Profit Factor */}
-      {bot.stats.trades >= 3 && (
-        <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
-          <div className="flex items-center gap-1">
-            <BarChart2 className="w-3 h-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Profit Factor</span>
-          </div>
-          <div className={cn(
-            "font-mono font-semibold",
-            bot.stats.profitFactor >= 1.5 ? "text-success" :
-            bot.stats.profitFactor >= 1 ? "text-warning" : "text-danger"
-          )}>
-            {bot.stats.profitFactor >= 999 ? "∞" : bot.stats.profitFactor.toFixed(2)}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Trades Detail - NEW SECTION */}
-      {closedPositions.length > 0 && (
-        <div className="p-2 bg-black/20 rounded-md">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Activity className="w-3 h-3" />
-              <span>Recent Trades</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground">
-              {closedPositions.length} total
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0.75rem",
+          background: "rgba(59, 130, 246, 0.1)",
+          borderRadius: 10,
+          border: "1px solid rgba(59, 130, 246, 0.2)",
+          marginBottom: "1rem",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Target style={{ width: 16, height: 16, color: "#3b82f6" }} />
+            <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>
+              {botPositions.length} Position{botPositions.length > 1 ? "s" : ""}
+            </span>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              ${positionsValue.toFixed(2)} at risk
             </span>
           </div>
-          <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-            {closedPositions.slice(-10).reverse().map((trade: any, i: number) => {
-              const isWin = (trade.pnl || 0) > 0;
-              const outcome = trade.outcome || "YES";
-              const entryPrice = trade.entryPrice || trade.avgEntry || trade.stake / trade.amount || 0;
-              const stake = trade.stake || 0;
-
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex items-center justify-between p-1.5 rounded text-[10px]",
-                    isWin ? "bg-success/10" : "bg-danger/10"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    {/* Outcome Badge */}
-                    <span className={cn(
-                      "px-1 py-0.5 rounded font-mono font-semibold",
-                      outcome === "YES" ? "bg-success/20 text-success" : "bg-danger/20 text-danger"
-                    )}>
-                      {outcome}
-                    </span>
-                    {/* Entry Price */}
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">@</span>
-                      <span className="font-mono">{(entryPrice * 100).toFixed(1)}¢</span>
-                    </div>
-                    {/* Stake */}
-                    <div className="flex items-center gap-0.5">
-                      <DollarSign className="w-2 h-2 text-muted-foreground" />
-                      <span className="font-mono">{stake.toFixed(2)}</span>
-                    </div>
-                  </div>
-                  {/* PnL */}
-                  <div className={cn(
-                    "font-mono font-semibold",
-                    isWin ? "text-success" : "text-danger"
-                  )}>
-                    {isWin ? "+" : ""}{(trade.pnl || 0).toFixed(2)}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{
+            fontSize: "0.875rem",
+            fontFamily: "ui-monospace, monospace",
+            fontWeight: 700,
+            color: unrealizedPnl >= 0 ? "#22c55e" : "#ef4444",
+          }}>
+            {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)} unrealized
           </div>
         </div>
       )}
 
-      {/* Trade Performance Summary - NEW SECTION */}
-      {bot.stats.trades >= 3 && (
-        <div className="grid grid-cols-4 gap-1 p-2 bg-black/20 rounded-md text-[10px]">
-          <div className="flex flex-col items-center">
-            <div className="text-muted-foreground">Avg Entry</div>
-            <div className="font-mono">
-              {closedPositions.length > 0
-                ? `${(closedPositions.reduce((s: number, p: any) => s + (p.entryPrice || p.avgEntry || p.stake / p.amount || 0), 0) / closedPositions.length * 100).toFixed(1)}¢`
-                : "-"}
-            </div>
-          </div>
-          <div className="flex flex-col items-center">
-            <div className="text-muted-foreground">Best Win</div>
-            <div className="font-mono text-success">
-              {closedPositions.length > 0
-                ? `+${Math.max(...closedPositions.map((p: any) => p.pnl || 0)).toFixed(2)}`
-                : "-"}
-            </div>
-          </div>
-          <div className="flex flex-col items-center">
-            <div className="text-muted-foreground">Worst Loss</div>
-            <div className="font-mono text-danger">
-              {closedPositions.length > 0
-                ? `${Math.min(...closedPositions.map((p: any) => p.pnl || 0)).toFixed(2)}`
-                : "-"}
-            </div>
-          </div>
-          <div className="flex flex-col items-center">
-            <div className="text-muted-foreground">Avg Trade</div>
-            <div className={cn(
-              "font-mono",
-              bot.stats.pnl >= 0 ? "text-success" : "text-danger"
-            )}>
-              {bot.stats.trades > 0
-                ? `${(bot.stats.pnl / bot.stats.trades).toFixed(2)}`
-                : "-"}
-            </div>
+      {/* Equity Curve & Recent Trades */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: "1rem",
+        padding: "0.75rem",
+        background: "rgba(0,0,0,0.2)",
+        borderRadius: 10,
+      }}>
+        <div>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.375rem" }}>Last 8 trades</div>
+          <div style={{ display: "flex", gap: "0.375rem" }}>
+            {recentTrades.length > 0 ? recentTrades.map((pnl: number, i: number) => (
+              <div
+                key={i}
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: pnl > 0 ? "#22c55e" : pnl < 0 ? "#ef4444" : "var(--text-muted)",
+                  boxShadow: pnl > 0 ? "0 0 6px rgba(34, 197, 94, 0.5)" : pnl < 0 ? "0 0 6px rgba(239, 68, 68, 0.5)" : "none",
+                }}
+                title={pnl > 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`}
+              />
+            )) : (
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>No trades yet</span>
+            )}
           </div>
         </div>
-      )}
-
-      {/* Max Drawdown & Sharpe Ratio */}
-      {(bot.portfolio.maxDrawdown !== undefined || bot.portfolio.sharpeRatio !== undefined) && (
-        <div className="grid grid-cols-2 gap-2">
-          {bot.portfolio.maxDrawdown !== undefined && (
-            <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
-              <span className="text-muted-foreground">Max DD</span>
-              <span className={cn(
-                "font-mono font-semibold",
-                bot.portfolio.maxDrawdown <= -0.1 ? "text-danger" :
-                bot.portfolio.maxDrawdown <= -0.05 ? "text-warning" : "text-foreground"
-              )}>
-                {(bot.portfolio.maxDrawdown * 100).toFixed(1)}%
-              </span>
-            </div>
-          )}
-          {bot.portfolio.sharpeRatio !== undefined && bot.stats.trades >= 10 && (
-            <div className="flex items-center justify-between p-2 bg-black/20 rounded-md text-xs">
-              <span className="text-muted-foreground">Sharpe</span>
-              <span className={cn(
-                "font-mono font-semibold",
-                bot.portfolio.sharpeRatio >= 1 ? "text-success" :
-                bot.portfolio.sharpeRatio >= 0 ? "text-warning" : "text-danger"
-              )}>
-                {bot.portfolio.sharpeRatio.toFixed(2)}
-              </span>
-            </div>
-          )}
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Equity curve</div>
+          <MiniEquityCurve
+            data={equityCurvePlot}
+            color={strategyColor}
+            size={32}
+          />
         </div>
-      )}
+      </div>
 
       {/* Control Buttons */}
-      <div className="flex gap-2">
+      <div style={{ display: "flex", gap: "0.5rem" }}>
         <button
           onClick={handleToggle}
           disabled={isToggling}
-          className={cn(
-            "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border-none text-sm font-semibold transition-all duration-200",
-            bot.enabled
-              ? "bg-gradient-to-br from-danger to-red-600 text-white"
-              : "bg-gradient-to-br from-success to-green-600 text-white",
-            isToggling && "opacity-70 cursor-not-allowed"
-          )}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            padding: "0.75rem",
+            borderRadius: 10,
+            border: "none",
+            background: bot.enabled
+              ? "linear-gradient(135deg, #ef4444, #dc2626)"
+              : "linear-gradient(135deg, #22c55e, #16a34a)",
+            color: "white",
+            fontWeight: 700,
+            fontSize: "0.875rem",
+            cursor: isToggling ? "not-allowed" : "pointer",
+            opacity: isToggling ? 0.7 : 1,
+            boxShadow: bot.enabled
+              ? "0 4px 12px rgba(239, 68, 68, 0.3)"
+              : "0 4px 12px rgba(34, 197, 94, 0.3)",
+          }}
         >
-          {isToggling ? (
-            <span>...</span>
-          ) : bot.enabled ? (
+          {bot.enabled ? (
             <>
-              <Square className="w-3 h-3" fill="currentColor" />
-              Stop
+              <Square style={{ width: 16, height: 16 }} />
+              STOP BOT
             </>
           ) : (
             <>
-              <Play className="w-3 h-3" fill="currentColor" />
-              Start
+              <Play style={{ width: 16, height: 16 }} />
+              START BOT
             </>
           )}
         </button>
         <button
-          onClick={() => setShowDebug(!showDebug)}
-          className={cn(
-            "px-3 py-2 rounded-lg border border-border text-sm cursor-pointer flex items-center gap-1 transition-colors",
-            showDebug ? "bg-surface-elevated text-foreground" : "bg-transparent text-muted-foreground"
-          )}
+          onClick={() => onOpenConfig(bot)}
+          style={{
+            padding: "0.75rem",
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: "var(--glass-bg)",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+          }}
+          title="Configure"
         >
-          Debug
-          {showDebug ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <Settings style={{ width: 18, height: 18 }} />
+        </button>
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          style={{
+            padding: "0.75rem 1rem",
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: showDetails ? "var(--glass-bg)" : "transparent",
+            color: "var(--text-muted)",
+            fontSize: "0.875rem",
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          {showDetails ? "Less" : "More"}
         </button>
       </div>
 
-      {/* Debug Panel */}
-      {showDebug && (
-        <div className="p-3 bg-black/30 rounded-lg text-xs flex flex-col gap-2 animate-slide-up">
-          <div className="font-semibold text-muted-foreground">Debug Info</div>
-
-          {/* Bot State */}
-          <div className="grid grid-cols-2 gap-1">
-            <div className="text-muted-foreground">Status:</div>
-            <div className={bot.enabled ? "text-success" : "text-danger"}>
-              {bot.enabled ? "Running" : "Stopped"}
+      {/* Details Panel */}
+      {showDetails && (
+        <div style={{
+          marginTop: "1rem",
+          padding: "1rem",
+          background: "rgba(0,0,0,0.3)",
+          borderRadius: 10,
+          border: "1px solid var(--border)",
+        }}>
+          {/* Bot Config */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, 1fr)",
+            gap: "0.5rem",
+            fontSize: "0.75rem",
+            marginBottom: "0.75rem",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--text-muted)" }}>Interval:</span>
+              <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 500 }}>{bot.interval}s</span>
             </div>
-
-            <div className="text-muted-foreground">Interval:</div>
-            <div className="font-mono">{bot.interval}s</div>
-
-            <div className="text-muted-foreground">Bet Size:</div>
-            <div className="font-mono">${bot.betSize.toFixed(2)}</div>
-
-            <div className="text-muted-foreground">Session:</div>
-            <div className="font-mono">
-              {bot.enabled ? formatDuration(runningTime) : "N/A"}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--text-muted)" }}>Bet Size:</span>
+              <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 500 }}>${bot.betSize.toFixed(2)}</span>
             </div>
-          </div>
-
-          {/* Trading Activity Status */}
-          <div className="mt-1 p-2 bg-black/20 rounded-md">
-            <div className="text-muted-foreground mb-1">Trading Activity</div>
-            {bot.stats.trades === 0 && runningTime > 30000 ? (
-              <div className="text-warning">
-                <AlertCircle className="w-3 h-3 inline mr-1" />
-                No trades yet - {bot.strategy} strategy may be waiting for favorable conditions
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--text-muted)" }}>Avg Win:</span>
+              <span style={{ fontFamily: "ui-monospace, monospace", color: "#22c55e", fontWeight: 500 }}>
+                {bot.stats.avgWin > 0 ? `+$${bot.stats.avgWin.toFixed(2)}` : "-"}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--text-muted)" }}>Avg Loss:</span>
+              <span style={{ fontFamily: "ui-monospace, monospace", color: "#ef4444", fontWeight: 500 }}>
+                {bot.stats.avgLoss > 0 ? `-$${bot.stats.avgLoss.toFixed(2)}` : "-"}
+              </span>
+            </div>
+            {bot.stats.trades >= 3 && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Profit Factor:</span>
+                <span style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontWeight: 500,
+                  color: bot.stats.profitFactor >= 1.5 ? "#22c55e" : bot.stats.profitFactor >= 1 ? "#f59e0b" : "#ef4444",
+                }}>
+                  {bot.stats.profitFactor >= 999 ? "∞" : bot.stats.profitFactor.toFixed(2)}
+                </span>
               </div>
-            ) : bot.stats.trades === 0 ? (
-              <div className="text-muted-foreground">Waiting for first trade opportunity...</div>
-            ) : (
-              <div className="text-success">
-                <CheckCircle className="w-3 h-3 inline mr-1" />
-                Active trading - {bot.stats.trades} trade{bot.stats.trades > 1 ? "s" : ""} executed
+            )}
+            {bot.portfolio.maxDrawdown !== undefined && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Max DD:</span>
+                <span style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontWeight: 500,
+                  color: bot.portfolio.maxDrawdown <= -0.1 ? "#ef4444" : bot.portfolio.maxDrawdown <= -0.05 ? "#f59e0b" : "var(--text-primary)",
+                }}>
+                  {(bot.portfolio.maxDrawdown * 100).toFixed(1)}%
+                </span>
               </div>
             )}
           </div>
 
-          {/* Strategy Tips */}
-          {bot.stats.trades === 0 && runningTime > 60000 && (
-            <div className="mt-1 p-2 bg-primary/10 rounded-md border border-primary/20">
-              <div className="text-primary font-medium mb-1">Suggestions</div>
-              <ul className="m-0 pl-4 text-muted-foreground list-disc">
-                <li>Try adjusting bet size or interval</li>
-                <li>Check if market conditions suit the strategy</li>
-                <li>Consider switching to a more active strategy</li>
-              </ul>
+          {/* Recent Trades List */}
+          {closedPositions.length > 0 && (
+            <div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem", fontWeight: 500 }}>
+                Recent Trades ({closedPositions.length} total)
+              </div>
+              <div style={{
+                maxHeight: 120,
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.25rem",
+              }}>
+                {closedPositions.slice(-6).reverse().map((trade: any, i: number) => {
+                  const isWin = (trade.pnl || 0) > 0;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "0.375rem 0.5rem",
+                        borderRadius: 6,
+                        background: isWin ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{
+                          padding: "0.125rem 0.375rem",
+                          borderRadius: 4,
+                          background: trade.outcome === "YES" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                          color: trade.outcome === "YES" ? "#22c55e" : "#ef4444",
+                          fontWeight: 600,
+                          fontSize: "0.625rem",
+                        }}>
+                          {trade.outcome}
+                        </span>
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.625rem" }}>
+                          @ {((trade.odds || 0) * 100).toFixed(1)}¢
+                        </span>
+                      </div>
+                      <span style={{ fontWeight: 600, color: isWin ? "#22c55e" : "#ef4444" }}>
+                        {isWin ? "+" : ""}${(trade.pnl || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

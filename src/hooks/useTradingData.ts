@@ -4,6 +4,33 @@ import type { Market, Portfolio, BotLog } from "../types";
 // Re-export types for consumers
 export type { Portfolio, Market, BotLog } from "../types";
 
+export interface CompetitionState {
+  active: boolean;
+  startTime: number;
+  minTrades: number;
+  startBalance: number;
+  leaderboard: Array<{
+    botId: string;
+    botName: string;
+    strategy: string;
+    rank: number;
+    trades: number;
+    winRate: number;
+    profitFactor: number;
+    sharpeRatio: number;
+    pnl: number;
+    roi: number;
+    balance: number;
+  }>;
+  winner: string | null;
+  completedAt: number | null;
+  config: {
+    minTrades: number;
+    duration: number | null;
+    startBalance: number;
+  };
+}
+
 export interface MarketData {
   market: Market | null;
   spotPrice: number;
@@ -86,6 +113,7 @@ export function useTradingData() {
   const [events, setEvents] = useState<TradeEvent[]>([]);
   const [marketHistory, setMarketHistory] = useState<MarketHistory[]>([]);
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
+  const [competition, setCompetition] = useState<CompetitionState | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [apiLatency, setApiLatency] = useState(0);
@@ -112,17 +140,19 @@ export function useTradingData() {
   const fetchData = useCallback(async () => {
     const startTime = Date.now();
     try {
-      const [marketRes, portfolioRes, botsRes, historyRes] = await Promise.all([
+      const [marketRes, portfolioRes, botsRes, historyRes, competitionRes] = await Promise.all([
         fetch("/api/market"),
         fetch("/api/portfolio"),
         fetch("/api/bots"),
         fetch("/api/market/history"),
+        fetch("/api/competition/status"),
       ]);
 
       const marketJson = await marketRes.json();
       const portfolioJson = await portfolioRes.json();
       const botsJson = await botsRes.json();
       const historyJson = await historyRes.json();
+      const competitionJson = await competitionRes.json();
 
       if (marketJson && marketJson.market) {
         const primaryMarket = marketJson.market;
@@ -151,6 +181,7 @@ export function useTradingData() {
       setPortfolio(portfolioJson);
       setBots(botsJson);
       setMarketHistory(historyJson);
+      setCompetition(competitionJson);
 
       // Update PnL history
       if (portfolioJson?.totalPnL !== undefined) {
@@ -255,6 +286,16 @@ export function useTradingData() {
               startedAt: message.data.startedAt || pm?.startedAt || 0,
             };
           });
+
+          // Update competition state if included (from connected message)
+          if (message.data.competition) {
+            setCompetition(message.data.competition);
+          }
+        }
+
+        // Handle competition state updates
+        if (message.type === "competition" && message.data) {
+          setCompetition(message.data);
         }
 
         // Handle bot log events
@@ -302,6 +343,7 @@ export function useTradingData() {
     events,
     marketHistory,
     botLogs,
+    competition,
     loading,
     lastUpdate,
     apiLatency,

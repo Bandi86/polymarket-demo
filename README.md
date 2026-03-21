@@ -1,22 +1,29 @@
-# BTC Trading Simulator v2.0
+# Polymarket Trading Demo
 
-A clean, real-time Bitcoin prediction market simulator with live price data from Binance.
+A real-time Bitcoin/crypto prediction market simulator with automated trading bots. Uses live price data from Binance and creates simulated 5-minute markets for UP/DOWN predictions.
 
-## What's New in v2.0
+## Features
 
-**Complete rebuild from scratch** with lessons learned from v1:
+### Real-Time Trading
+- Live BTC/ETH/SOL/XRP prices from Binance
+- 5-minute prediction markets (UP/DOWN)
+- Manual trading with customizable amounts
+- Real-time order book visualization
+- Position tracking with P&L
 
-- **Real BTC prices** from Binance API (no fake prices)
-- **Clean architecture** with proper separation of concerns
-- **Simulated 5-minute markets** that settle based on actual price movements
-- **Isolated bot portfolios** - each bot has its own balance tracking
-- **Real-time charts** with live price history
-- **Modern Theme System** - Dark/light mode with CSS variables
-- **Animation System** - Framer Motion powered UI
-- **Portfolio Analytics** - P&L charts and performance metrics
-- **Order Book** - Real-time order book visualization
-- **Market Browser** - Filterable market discovery
-- **PWA Support** - Installable app with offline support
+### Automated Trading Bots
+- 12+ built-in strategies
+- Isolated portfolios per bot
+- Kelly Criterion bet sizing
+- Competition mode for strategy comparison
+- Session history and performance tracking
+
+### Modern UI
+- Dark/Light theme support
+- Real-time SSE updates
+- Glassmorphism design
+- Animated components with Framer Motion
+- Responsive layout
 
 ## Quick Start
 
@@ -27,133 +34,126 @@ bun run dev
 
 Open http://localhost:3000
 
-## Features
+## Screenshots
 
-### Real-Time Price Data
-- Live BTC/USD prices from Binance
-- Price history chart with auto-updates
-- Market direction indicator (UP/DOWN)
+The dashboard features:
+- **Top Dashboard**: Asset/timeframe selectors, quick run buttons, global stats
+- **Monitor Tab**: Bot cards with running time, portfolio growth, recent trades
+- **Competition Tab**: Leaderboard, strategy performance, export data
+- **Manual Trade Tab**: Chart, order book, trading panel
 
-### 5-Minute Markets
-- Markets start every 5 minutes
-- Settlement based on real price movement
-- YES = price goes UP, NO = price goes DOWN
-
-### Trading
-- Manual trading with customizable bet amounts
-- 2% fee on all trades
-- Position tracking with P&L
-- **One-click close all positions**
-- **Position size calculator with risk %**
-- **Take Profit / Stop Loss orders**
-
-### Modern UI
-- **Dark/Light/System theme** support
-- **Glassmorphism effects** with backdrop-filter
-- **Animated components** powered by Framer Motion
-- **Real-time price tickers** with rolling animations
-- **Loading skeletons** for all data sections
-
-### Charts & Visualization
-- **Custom Recharts integration** with YES/NO history
-- **Order book** with bid/ask spread visualization
-- **Depth chart** showing market depth
-- **Volume profile** display
-- **Real-time candlestick** updates
-- **Animated chart** entry effects
-
-### Market Browser
-- Filter by asset (BTC, ETH, SOL, XRP)
-- Filter by timeframe (5m, 15m, 1h, 4h, 1d)
-- Filter by volume/liquidity
-- Search markets by keyword
-- Favorite/bookmark markets
-
-### Portfolio Analytics
-- **P&L chart** with multiple timeframes
-- **Win/loss distribution** chart
-- **Performance metrics:**
-  - Sharpe ratio
-  - Sortino ratio
-  - Calmar ratio
-  - Max drawdown with recovery time
-- **Trade history** with export to CSV
-- **Market sentiment** indicator (YES vs NO ratio)
-
-### Bot Strategies
-Each bot has an isolated portfolio (starts with $100):
+## Bot Strategies
 
 | Strategy | Description |
 |----------|-------------|
-| Random | Flips a coin |
-| Momentum | Follows price direction |
-| Mean Reversion | Bets against extreme moves |
-| Trend | Uses price history trend |
+| Random | Randomly buys YES or NO |
+| Momentum | Follows price momentum direction |
+| Mean Reversion | Bets against extreme prices |
+| Trend | Follows established trends |
+| Smart Trend | Enhanced trend with confirmations |
+| Fair Value | Bets when price deviates from 0.5 |
+| Window Delta | Compares BTC price change over time |
+| Binance Signal | Uses Binance price movements |
+| Last Seconds Scalp | Quick scalps in final seconds |
 
 ## Architecture
 
 ```
 src/
-├── components/
-│   ├── App.tsx          # React frontend
-│   ├── market-browser.tsx      # Market discovery
-│   ├── order-book.tsx          # Order book visualization
-│   ├── portfolio-analytics.tsx # P&L and metrics
-│   ├── trade-feed.tsx          # Recent trades
-│   ├── countdown-timer.tsx     # Market countdown
-│   ├── connection-status.tsx   # Connection indicator
-│   └── ui/               # Reusable UI components
-├── lib/
-│   ├── price-service.ts # Binance price fetching
-│   ├── market-engine.ts # Market logic
-│   ├── bot-manager.ts   # Bot strategies
-│   └── theme-context.tsx # Theme provider
+├── components/           # React UI components
+│   ├── App.tsx          # Main app
+│   ├── TopDashboard.tsx # Header with controls
+│   ├── BotStatusCard.tsx # Bot monitoring
+│   ├── LiveMonitorTab.tsx # Bot dashboard
+│   ├── CompetitionTab.tsx # Competition view
+│   └── SessionSummaryModal.tsx # Results modal
+├── lib/                  # Core logic
+│   ├── bot-manager.ts   # Bot strategies & competition
+│   ├── market-engine.ts # Market lifecycle
+│   ├── risk-manager.ts  # Risk management
+│   ├── database.ts      # SQLite persistence
+│   └── providers/       # External data
 ├── hooks/
-│   ├── useTradingData.ts
-│   └── usePWA.ts        # PWA hooks
-├── types.ts             # TypeScript types
-├── server.ts            # Bun server + API routes
-├── index.tsx            # React entry point
-├── index.html           # HTML template
-└── styles/
-    └── globals.css      # Styling with CSS variables
+│   └── useTradingData.ts # State management
+├── types/
+│   └── index.ts         # TypeScript types
+└── server.ts            # Bun server + API
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/market | Current market state |
-| GET | /api/market/history | Market history |
-| POST | /api/trade | Place a trade |
-| GET | /api/portfolio | User portfolio |
-| GET | /api/bots | List all bots |
-| POST | /api/bots/:id/toggle | Start/stop a bot |
-| POST | /api/bots/:id/config | Update bot config |
-| POST | /api/reset | Reset everything |
-| GET | /api/sse | Server-sent events for real-time updates |
+| GET | `/api/market` | Current market state |
+| GET | `/api/portfolio` | User portfolio |
+| GET | `/api/bots` | List all bots |
+| POST | `/api/bots/:id/toggle` | Start/stop bot |
+| POST | `/api/bots/run-all` | Start all bots |
+| POST | `/api/bots/stop-all` | Stop all bots |
+| POST | `/api/trade` | Place manual trade |
+| POST | `/api/reset` | Full system reset |
+| GET | `/api/sse` | Real-time updates |
+| GET | `/api/competition/status` | Competition state |
+| POST | `/api/competition/start` | Start competition |
+| POST | `/api/competition/stop` | Stop competition |
+| POST | `/api/competition/clear` | Clear competition |
 
 ## Tech Stack
 
 - **Runtime**: Bun
 - **Frontend**: React 19
-- **Styling**: Tailwind CSS v4 with CSS variables
+- **Styling**: Tailwind CSS v4
 - **Animations**: Framer Motion
 - **Charts**: Recharts
+- **Icons**: Lucide React
+- **Database**: SQLite
+- **Real-time**: Server-Sent Events (SSE)
 - **Price Data**: Binance API
-- **No database** - in-memory state
-- **PWA**: Service Worker, Web Manifest, offline support
 
-## v1 Archive
+## Testing
 
-The original implementation is preserved in `v1-archive/` for reference.
+```bash
+bun run test        # Run tests in watch mode
+bun run test:run    # Run tests once
+```
 
-### Key Issues Fixed in v2.0:
-1. ❌ v1 had duplicate function definitions (syntax errors)
-2. ❌ v1 used fake prices from `calculateYesPrice()`
-3. ❌ v1 had broken API endpoints
-4. ❌ v1 mixed everything in one 800+ line file
-5. ❌ v1 bot portfolios weren't properly isolated
+## Project Structure Details
+
+### Key Files
+
+- `src/lib/bot-manager.ts` - All bot logic, strategies, competition state
+- `src/lib/market-engine.ts` - Market creation, position settlement
+- `src/hooks/useTradingData.ts` - Frontend state, SSE handling
+- `src/types/index.ts` - All TypeScript interfaces
+
+### Data Persistence
+
+SQLite database at `data/polymarket.db`:
+- `bot_sessions` - Historical session performance
+- `positions` - All trading positions
+- `trades` - Trade execution history
+
+## Development
+
+```bash
+# Development with hot reload
+bun run dev
+
+# Build for production
+bun run build
+
+# Run tests
+bun run test:run
+```
+
+## Configuration
+
+Bot configuration options:
+- `betSize` - Base bet amount in USD
+- `interval` - Trading interval in seconds
+- `maxBet` - Maximum bet as percentage of bankroll
+- `useKelly` - Enable Kelly Criterion sizing
+- `kellyFraction` - Kelly fraction (0.1-1.0)
 
 ## License
 

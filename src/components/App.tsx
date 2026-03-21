@@ -1,42 +1,17 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useTradingData } from "../hooks/useTradingData";
 import { useSoundNotifications } from "../hooks/useSoundNotifications";
-import { Header } from "./Header";
 import { MarketCard } from "./MarketCard";
 import { ChartPanel } from "./ChartPanel";
 import { TradingPanel } from "./TradingPanel";
 import { PositionsPanel } from "./PositionsPanel";
 import { ActivityLog } from "./ActivityLog";
-import { BotDashboardPage } from "./BotDashboardPage";
+import { BotTabsContent } from "./BotDashboardPage";
+import { TopDashboard, type TabId } from "./TopDashboard";
 import { QuickActions } from "./quick-actions";
 import { OrderBook } from "./OrderBook";
-import { BotSummaryStrip } from "./BotSummaryStrip";
-import { SoundToggle } from "./ui/SoundToggle";
+import { SessionSummaryModal } from "./SessionSummaryModal";
 import { useToastActions } from "./ui/toast";
-
-function useRoute(): [string, (route: string) => void] {
-  const [route, setRoute] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'trading';
-    const hash = window.location.hash.slice(1);
-    return hash === 'bots' ? 'bots' : 'trading';
-  });
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      setRoute(hash === 'bots' ? 'bots' : 'trading');
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
-  const navigate = useCallback((newRoute: string) => {
-    window.location.hash = newRoute === 'trading' ? '' : newRoute;
-    setRoute(newRoute);
-  }, []);
-
-  return [route, navigate];
-}
 
 const ASSETS = [
   { id: "BTC", name: "Bitcoin", color: "#f7931a" },
@@ -45,17 +20,15 @@ const ASSETS = [
   { id: "XRP", name: "Ripple", color: "#346aa9" },
 ];
 
-const TIMEFRAMES = [
-  { id: "5", label: "5m", description: "5 minute markets" },
-  { id: "15", label: "15m", description: "15 minute markets" },
-  { id: "60", label: "1h", description: "1 hour markets" },
-  { id: "240", label: "4h", description: "4 hour markets" },
-];
-
 export function App() {
   const [selectedAsset, setSelectedAsset] = useState("BTC");
   const [selectedTimeframe, setSelectedTimeframe] = useState("5");
-  const [route, navigate] = useRoute();
+  const [activeTab, setActiveTab] = useState<TabId>('trade');
+  const [openPositionsCount, setOpenPositionsCount] = useState(0);
+  const [openPositionsValue, setOpenPositionsValue] = useState(0);
+  const [showSessionSummary, setShowSessionSummary] = useState(false);
+  const prevCompetitionActive = useRef(true);
+  const lastProcessedLogId = useRef<string>("");
 
   const {
     marketData,
@@ -63,6 +36,7 @@ export function App() {
     bots,
     events,
     botLogs,
+    competition,
     loading,
     apiLatency,
     isBotRunning,
@@ -70,13 +44,66 @@ export function App() {
     noPrice,
     yesPriceDirection,
     noPriceDirection,
-    pnlHistory,
     fetchData,
     addTradeEvent,
   } = useTradingData();
 
   const { enabled: soundEnabled, playTrade, toggleEnabled: toggleSound } = useSoundNotifications();
   const toast = useToastActions();
+
+  // Handle new bot trade notifications
+  useEffect(() => {
+    if (botLogs.length === 0) return;
+
+    const latestLog = botLogs[0];
+    if (latestLog.id === lastProcessedLogId.current) return;
+
+    lastProcessedLogId.current = latestLog.id;
+
+    // Only notify on TRADE type
+    if (latestLog.type === "TRADE") {
+      const details = latestLog.details || {};
+      const outcome = details.outcome as string || "YES";
+      const amount = details.amount as number || details.stake as number || 0;
+      const price = details.price as number || details.avgPrice as number || 0;
+
+      const isYes = outcome === "YES";
+      playTrade();
+
+      toast.success(
+        `🤖 ${latestLog.botName}`,
+        `${isYes ? "📈" : "📉"} ${isYes ? "Bought UP" : "Bought DOWN"} $${amount.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`
+      );
+    }
+  }, [botLogs, playTrade, toast]);
+
+  // Fetch positions count
+  useEffect(() => {
+    const fetchPositions = async () => {
+      try {
+        const res = await fetch("/api/positions");
+        const data = await res.json();
+        const openPositions = data.open || [];
+        setOpenPositionsCount(openPositions.length);
+        setOpenPositionsValue(openPositions.reduce((sum: number, p: { amount: number; odds?: number; stake?: number }) => sum + (p.amount || p.stake || 0), 0));
+      } catch (err) {
+        console.error("Failed to fetch positions:", err);
+      }
+    };
+
+    fetchPositions();
+    const interval = setInterval(fetchPositions, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Show session summary when competition ends
+  useEffect(() => {
+    if (prevCompetitionActive.current && !competition?.active && competition?.completedAt) {
+      // Competition just ended
+      setShowSessionSummary(true);
+    }
+    prevCompetitionActive.current = competition?.active ?? false;
+  }, [competition?.active, competition?.completedAt]);
 
   // Sync timeframe and asset to backend
   useEffect(() => {
@@ -105,6 +132,13 @@ export function App() {
       syncSettings();
     }
   }, [selectedTimeframe, selectedAsset, fetchData]);
+
+  // Auto-switch to monitor tab when bots are running and we are not on a bot tab
+  useEffect(() => {
+    if (isBotRunning && activeTab === 'trade') {
+      setActiveTab('monitor');
+    }
+  }, [isBotRunning]);
 
   const activeAsset = ASSETS.find(a => a.id === selectedAsset);
   const coinColor = activeAsset?.color || "#f7931a";
@@ -165,6 +199,7 @@ export function App() {
   const handleReset = useCallback(async () => {
     await fetch("/api/reset", { method: "POST" });
     await fetch("/api/bots/reset-all", { method: "POST" });
+    await fetch("/api/competition/clear", { method: "POST" });
     await fetchData();
   }, [fetchData]);
 
@@ -179,192 +214,130 @@ export function App() {
     );
   }
 
-  if (route === 'bots') {
-    return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
-        <Header
-          isBotRunning={isBotRunning}
-          apiLatency={apiLatency}
-          coinColor={coinColor}
-          onRefresh={fetchData}
-          showBackButton
-          onBack={() => navigate('trading')}
-          activeBots={bots.filter(b => b.enabled).length}
-          totalBots={bots.length}
-        />
-        <main style={{ padding: "1rem", maxWidth: 1400, margin: "0 auto" }}>
-          <BotDashboardPage />
-        </main>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
-      <Header
-        isBotRunning={isBotRunning}
+    <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
+      <TopDashboard
+        marketData={marketData}
+        portfolio={portfolio}
+        yesPrice={yesPrice}
+        noPrice={noPrice}
         apiLatency={apiLatency}
         coinColor={coinColor}
-        onRefresh={fetchData}
-        onOpenDashboard={() => navigate('bots')}
-        activeBots={bots.filter(b => b.enabled).length}
-        totalBots={bots.length}
+        isBotRunning={isBotRunning}
+        soundEnabled={soundEnabled}
+        onToggleSound={toggleSound}
+        bots={bots}
+        onRunAll={handleToggleBot}
+        onStopAll={handleToggleBot}
+        competition={competition}
+        openPositionsCount={openPositionsCount}
+        openPositionsValue={openPositionsValue}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        selectedAsset={selectedAsset}
+        onAssetChange={setSelectedAsset}
+        selectedTimeframe={selectedTimeframe}
+        onTimeframeChange={setSelectedTimeframe}
       />
 
-      <main className="p-4 max-w-[1600px] mx-auto">
-        {/* Asset & Timeframe Selector Bar */}
-        <div className="flex flex-wrap items-center gap-4 mb-4 p-3 md:p-4 bg-glass-bg rounded-xl border border-border">
-          {/* Asset Selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-text-muted">Asset:</span>
-            <div className="flex gap-1">
-              {ASSETS.map((asset) => (
-                <button
-                  key={asset.id}
-                  onClick={() => setSelectedAsset(asset.id)}
-                  style={{
-                    padding: "0.375rem 0.75rem",
-                    borderRadius: 6,
-                    border: "none",
-                    background: selectedAsset === asset.id ? `${asset.color}20` : "transparent",
-                    color: selectedAsset === asset.id ? asset.color : "var(--text-muted)",
-                    fontWeight: selectedAsset === asset.id ? 600 : 400,
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  {asset.id}
-                </button>
-              ))}
+      <div style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "1.5rem", position: "relative", flex: 1 }}>
+
+        {/* Ambient Glow Background */}
+        <div
+          className="ambient-glow hidden md:block"
+          style={{
+            top: "0%",
+            left: "10%",
+            width: "600px",
+            height: "600px",
+            background: `radial-gradient(circle, ${coinColor} 0%, transparent 70%)`
+          }}
+        />
+
+        {activeTab === 'trade' ? (
+          /* Main Content Grid (Manual Trading) */
+          <div className="grid gap-4 grid-cols-1 lg:grid-cols-[320px_1fr_360px] items-start animate-slide-in">
+            {/* LEFT COLUMN - Market Card */}
+            <div className="flex flex-col gap-4">
+              <MarketCard
+                marketData={marketData}
+                yesPrice={yesPrice}
+                noPrice={noPrice}
+                yesPriceDirection={yesPriceDirection}
+                noPriceDirection={noPriceDirection}
+                coinColor={coinColor}
+                selectedAsset={selectedAsset}
+                selectedTimeframe={selectedTimeframe}
+                btcPrice={marketData?.spotPrice}
+                priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
+              />
+
+              {/* Quick Actions */}
+              <QuickActions
+                isBotRunning={isBotRunning}
+                onToggleBot={handleToggleBot}
+                onReset={handleReset}
+                coinColor={coinColor}
+              />
+
+              {/* Order Book */}
+              <OrderBook
+                yesPrice={yesPrice}
+                noPrice={noPrice}
+                coinColor={coinColor}
+              />
+            </div>
+
+            {/* CENTER COLUMN - Chart */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <ChartPanel
+                marketData={marketData}
+                selectedCoin={selectedAsset}
+                selectedTimeframe={selectedTimeframe}
+                coinColor={coinColor}
+                tvSymbol={`BINANCE:${selectedAsset}USDT`}
+                yesPrice={yesPrice}
+                noPrice={noPrice}
+              />
+
+              {/* Activity Log - under the chart */}
+              <ActivityLog events={events} botLogs={botLogs} coinColor={coinColor} />
+            </div>
+
+            {/* RIGHT COLUMN - Trading & Positions */}
+            <div className="flex flex-col gap-4">
+              <TradingPanel
+                portfolio={portfolio}
+                yesPrice={yesPrice}
+                noPrice={noPrice}
+                coinColor={coinColor}
+                onTrade={handleTrade}
+              />
+
+              <PositionsPanel
+                positions={(portfolio?.openPositions || []) as Array<{ id: string; outcome: "YES" | "NO"; amount: number; odds: number; unrealizedPnl?: number }>}
+                coinColor={coinColor}
+                onClosePosition={handleClosePosition}
+              />
             </div>
           </div>
-
-          <div className="hidden sm:block w-px h-6 bg-border" />
-
-          {/* Timeframe Selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-text-muted">Market:</span>
-            <div className="flex gap-1">
-              {TIMEFRAMES.map((tf) => (
-                <button
-                  key={tf.id}
-                  onClick={() => setSelectedTimeframe(tf.id)}
-                  style={{
-                    padding: "0.375rem 0.75rem",
-                    borderRadius: 6,
-                    border: "1px solid",
-                    borderColor: selectedTimeframe === tf.id ? "var(--primary)" : "var(--border)",
-                    background: selectedTimeframe === tf.id ? "var(--primary)" : "transparent",
-                    color: selectedTimeframe === tf.id ? "white" : "var(--text-muted)",
-                    fontWeight: selectedTimeframe === tf.id ? 600 : 400,
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  {tf.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1" />
-
-          {/* Quick Stats */}
-          <div className="flex items-center gap-4 md:gap-6 text-sm">
-            <div>
-              <span className="text-text-muted">Balance: </span>
-              <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--green)" }}>
-                ${(portfolio?.balance || 0).toFixed(2)}
-              </span>
-            </div>
-            <div>
-              <span className="text-text-muted">P&L: </span>
-              <span style={{ fontFamily: "monospace", fontWeight: 600, color: (portfolio?.totalPnL || 0) >= 0 ? "var(--green)" : "var(--red)" }}>
-                {(portfolio?.totalPnL || 0) >= 0 ? "+" : ""}${(portfolio?.totalPnL || 0).toFixed(2)}
-              </span>
-            </div>
-            <SoundToggle enabled={soundEnabled} onToggle={toggleSound} />
-          </div>
-        </div>
-
-        {/* Main Content Grid */}
-        <div className="grid gap-4 grid-cols-1 lg:grid-cols-[320px_1fr_360px] items-start">
-          {/* LEFT COLUMN - Market Card */}
-          <div className="flex flex-col gap-4">
-            <MarketCard
-              marketData={marketData}
-              yesPrice={yesPrice}
-              noPrice={noPrice}
-              yesPriceDirection={yesPriceDirection}
-              noPriceDirection={noPriceDirection}
-              coinColor={coinColor}
-              selectedAsset={selectedAsset}
-              selectedTimeframe={selectedTimeframe}
-              btcPrice={marketData?.spotPrice}
-              priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
-            />
-
-            {/* Quick Actions */}
-            <QuickActions
-              isBotRunning={isBotRunning}
-              onToggleBot={handleToggleBot}
-              onReset={handleReset}
-              coinColor={coinColor}
-            />
-
-            {/* Order Book */}
-            <OrderBook
-              yesPrice={yesPrice}
-              noPrice={noPrice}
-              coinColor={coinColor}
-            />
-          </div>
-
-          {/* CENTER COLUMN - Chart */}
-          <ChartPanel
-            marketData={marketData}
-            marketHistory={[]}
-            selectedCoin={selectedAsset}
-            selectedTimeframe={selectedTimeframe}
-            coinColor={coinColor}
-            tvSymbol={`BINANCE:${selectedAsset}USDT`}
-            yesPrice={yesPrice}
-            noPrice={noPrice}
-          />
-
-          {/* RIGHT COLUMN - Trading & Positions */}
-          <div className="flex flex-col gap-4">
-            <TradingPanel
-              portfolio={portfolio}
-              yesPrice={yesPrice}
-              noPrice={noPrice}
-              coinColor={coinColor}
-              onTrade={handleTrade}
-            />
-
-            <PositionsPanel
-              positions={(portfolio?.openPositions || []) as Array<{ id: string; outcome: "YES" | "NO"; amount: number; odds: number; unrealizedPnl?: number }>}
-              coinColor={coinColor}
-              onClosePosition={handleClosePosition}
-            />
-
-            <ActivityLog events={events} coinColor={coinColor} />
-          </div>
-        </div>
-
-        {/* Bot Summary Strip */}
-        {bots.length > 0 && (
-          <div style={{ marginTop: "1rem" }}>
-            <BotSummaryStrip
-              bots={bots}
-              isBotRunning={isBotRunning}
-              onOpenDashboard={() => navigate('bots')}
-            />
+        ) : (
+          /* Bot Management Tabs (Monitor, Backtest, etc) */
+          <div className="animate-slide-in">
+            <BotTabsContent activeTab={activeTab} />
           </div>
         )}
-      </main>
+      </div>
+
+      {/* Session Summary Modal */}
+      {showSessionSummary && (
+        <SessionSummaryModal
+          competition={competition}
+          bots={bots}
+          onClose={() => setShowSessionSummary(false)}
+          onReset={handleReset}
+        />
+      )}
     </div>
   );
 }

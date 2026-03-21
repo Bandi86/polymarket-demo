@@ -95,7 +95,8 @@ export function TradingPanel({ portfolio, yesPrice, noPrice, coinColor, onTrade 
             Balance: <span style={{ fontFamily: "monospace", color: "var(--text)" }}>{formatCurrency(portfolio?.balance || 0)}</span>
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+        
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
           <span style={{ fontSize: "1.25rem", color: "var(--text-muted)" }}>$</span>
           <input
             type="number"
@@ -104,36 +105,75 @@ export function TradingPanel({ portfolio, yesPrice, noPrice, coinColor, onTrade 
             min={0.01}
             step={0.1}
             className="input"
-            style={{ flex: 1 }}
+            style={{ flex: 1, fontSize: "1.125rem", fontWeight: 600 }}
           />
         </div>
-        <div className="quick-amounts">
-          {[1, 5, 10, 25, 50, 100].map((amt) => (
+        
+        {/* Percentage Preset Buttons */}
+        <div className="grid grid-cols-4 gap-2">
+          {[25, 50, 75, 100].map((pct) => (
             <button
-              key={amt}
-              onClick={() => setTradeAmount(amt)}
-              className={`quick-btn ${tradeAmount === amt ? "active" : ""}`}
+              key={pct}
+              onClick={() => {
+                const maxAmount = portfolio?.balance || 0;
+                setTradeAmount(Math.max(1, Math.floor(maxAmount * (pct / 100))));
+              }}
+              className="quick-btn py-2 hover:bg-white/10"
+              style={{ padding: "0.375rem" }}
             >
-              +${amt}
+              {pct === 100 ? "MAX" : `${pct}%`}
             </button>
           ))}
         </div>
+
+        {/* Quick Amount Presets */}
+        <div style={{ marginTop: "0.5rem" }}>
+          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Quick amounts:</div>
+          <div style={{ display: "flex", gap: "0.25rem" }}>
+            {[1, 5, 10, 25].map((amt) => (
+              <button
+                key={amt}
+                onClick={() => setTradeAmount(amt)}
+                style={{
+                  flex: 1,
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: 4,
+                  fontSize: "0.75rem",
+                  fontWeight: tradeAmount === amt ? 700 : 500,
+                  background: tradeAmount === amt ? `${coinColor}20` : "transparent",
+                  color: tradeAmount === amt ? coinColor : "var(--text-muted)",
+                  border: tradeAmount === amt ? `1px solid ${coinColor}` : "1px solid var(--border)",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                ${amt}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Trade Summary */}
+      {/* Trade Summary & ROI */}
       <div style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0.75rem 0",
-        borderTop: "1px solid var(--border)",
-        borderBottom: "1px solid var(--border)",
+        padding: "0.75rem",
+        background: "var(--glass-bg)",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
         marginBottom: "1rem"
       }}>
-        <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>Potential Return</span>
-        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem" }}>
-          {formatCurrency(tradeDirection === "YES" ? yesPayout : noPayout)}
-        </span>
+        <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>Est. Return</span>
+        <div className="flex flex-col items-end">
+          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", color: tradeDirection === "YES" ? "var(--green)" : "var(--red)" }}>
+            {formatCurrency(tradeDirection === "YES" ? yesPayout : noPayout)}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            +{(((tradeDirection === "YES" ? yesPayout : noPayout) / tradeAmount - 1) * 100).toFixed(1)}% ROI
+          </span>
+        </div>
       </div>
 
       {/* Trade Button */}

@@ -108,7 +108,9 @@ serve({
               timeRemaining: marketEngine.getTimeRemaining(),
               timestamp: Date.now(),
               // Include primary market for frontend initialization fallback
-              market: market, 
+              market: market,
+              // Include competition state
+              competition: botManager.getCompetitionState(),
             },
           }
           
@@ -410,6 +412,16 @@ async function handleApiRoute(
   // POST /api/competition/stop
   if (path === '/api/competition/stop' && method === 'POST') {
     const competition = botManager.stopCompetition()
+    // Broadcast competition state change
+    broadcastUpdate({ type: 'competition', data: competition })
+    return Response.json({ success: true, competition })
+  }
+
+  // POST /api/competition/clear
+  if (path === '/api/competition/clear' && method === 'POST') {
+    const competition = botManager.clearCompetition()
+    // Broadcast competition state change
+    broadcastUpdate({ type: 'competition', data: competition })
     return Response.json({ success: true, competition })
   }
 
@@ -955,6 +967,7 @@ async function handleApiRoute(
       mode: marketEngine.getMode(),
       timeframe: marketEngine.getTimeframe(),
       risk: riskManager.getSettings(),
+      defaultStartBalance: 10,
     })
   }
 
@@ -964,6 +977,7 @@ async function handleApiRoute(
       mode?: 'real' | 'simulated'
       timeframe?: string
       risk?: Record<string, unknown>
+      defaultStartBalance?: number
     }
 
     if (body.mode) {
@@ -982,8 +996,44 @@ async function handleApiRoute(
         mode: marketEngine.getMode(),
         timeframe: marketEngine.getTimeframe(),
         risk: riskManager.getSettings(),
+        defaultStartBalance: 10,
       },
     })
+  }
+
+  // POST /api/balance/set-all - Set balance for all bots
+  if (path === '/api/balance/set-all' && method === 'POST') {
+    const body = (await parseBody(req)) as { balance: number }
+    const balance = body.balance || 10
+
+    const bots = botManager.getBots()
+    for (const bot of bots) {
+      const portfolio = marketEngine.getBotPortfolio(bot.id)
+      if (portfolio) {
+        portfolio.balance = balance
+        portfolio.initialBalance = balance
+      }
+    }
+
+    return Response.json({ success: true, balance, botsUpdated: bots.length })
+  }
+
+  // POST /api/balance/set/:id - Set balance for a specific bot
+  const setBalanceMatch = path.match(/^\/api\/balance\/set\/([^/]+)$/)
+  if (setBalanceMatch && method === 'POST') {
+    const botId = setBalanceMatch[1]
+    const body = (await parseBody(req)) as { balance: number }
+    const balance = body.balance || 10
+
+    const portfolio = marketEngine.getBotPortfolio(botId)
+    if (!portfolio) {
+      return Response.json({ error: 'Bot not found' }, { status: 404 })
+    }
+
+    portfolio.balance = balance
+    portfolio.initialBalance = balance
+
+    return Response.json({ success: true, botId, balance })
   }
 
   // GET /api/trading-mode - Get trading mode

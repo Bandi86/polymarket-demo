@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './components/App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ThemeProvider } from './lib/theme-context';
-import { ToastProvider } from './components/ui/toast';
+import { Toaster } from './components/ui/toast';
 import './styles.css';
 import './styles/generated.css';
 
@@ -13,9 +13,8 @@ if (root) {
     <StrictMode>
       <ErrorBoundary>
         <ThemeProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
+          <App />
+          <Toaster />
         </ThemeProvider>
       </ErrorBoundary>
     </StrictMode>

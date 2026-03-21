@@ -1,6 +1,7 @@
 // Settings Panel - API key configuration and trading settings
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
+import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, DollarSign, RefreshCw } from "lucide-react";
+import { toast } from "./ui/toast";
 
 interface PolymarketKeys {
   apiKey: string;
@@ -14,6 +15,7 @@ interface SettingsState {
   maxBalance: number;
   requireConfirmation: boolean;
   paperTradingHours: number;
+  defaultStartBalance: number;
 }
 
 export function SettingsPanel() {
@@ -27,10 +29,12 @@ export function SettingsPanel() {
     maxBalance: 100,
     requireConfirmation: true,
     paperTradingHours: 24,
+    defaultStartBalance: 10,
   });
   const [showSecrets, setShowSecrets] = useState(false);
   const [saving, setSaving] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"unknown" | "connected" | "error">("unknown");
+  const [settingBalance, setSettingBalance] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -79,6 +83,27 @@ export function SettingsPanel() {
       ...prev,
       polymarket: { ...prev.polymarket, [key]: value },
     }));
+  };
+
+  const setAllBotsBalance = async (balance: number) => {
+    setSettingBalance(true);
+    try {
+      const res = await fetch("/api/balance/set-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ balance }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Balance Updated", `Set all bots to $${balance}`);
+      } else {
+        toast.error("Failed to update balance");
+      }
+    } catch (err) {
+      toast.error("Failed to update balance");
+    } finally {
+      setSettingBalance(false);
+    }
   };
 
   return (
@@ -201,6 +226,84 @@ export function SettingsPanel() {
               style={{ width: "100%", padding: "0.5rem" }}
               min={1}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Demo Balance Settings */}
+      <div className="glass-card" style={{ padding: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+          <DollarSign className="w-4 h-4" style={{ color: "var(--primary)" }} />
+          <span style={{ fontWeight: 600 }}>Demo Balance</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Default Starting Balance ($)
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                type="number"
+                value={settings.defaultStartBalance}
+                onChange={(e) => setSettings(prev => ({ ...prev, defaultStartBalance: parseFloat(e.target.value) || 10 }))}
+                className="input"
+                style={{ width: "100%", padding: "0.5rem" }}
+                min={1}
+                step={1}
+              />
+              <button
+                onClick={() => setAllBotsBalance(settings.defaultStartBalance)}
+                disabled={settingBalance}
+                className="trade-btn up"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  padding: "0.5rem 1rem",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {settingBalance ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                Set All
+              </button>
+            </div>
+          </div>
+
+          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            Click "Set All" to update all bots to this balance immediately.
+            Individual bot balances can be adjusted in the Monitor tab.
+          </div>
+
+          {/* Quick preset buttons */}
+          <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
+            {[10, 25, 50, 100, 250, 500].map(val => (
+              <button
+                key={val}
+                onClick={() => {
+                  setSettings(prev => ({ ...prev, defaultStartBalance: val }));
+                  setAllBotsBalance(val);
+                }}
+                disabled={settingBalance}
+                style={{
+                  padding: "0.375rem 0.75rem",
+                  borderRadius: 6,
+                  fontSize: "0.75rem",
+                  fontWeight: 500,
+                  background: settings.defaultStartBalance === val ? "var(--primary)" : "var(--glass-bg)",
+                  color: settings.defaultStartBalance === val ? "white" : "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                ${val}
+              </button>
+            ))}
           </div>
         </div>
       </div>
