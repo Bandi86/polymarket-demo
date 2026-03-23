@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle } from "lucide-react";
+import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { PriceTicker } from "./ui/PriceTicker";
 import { ThemeToggle } from "./ui/ThemeToggle";
@@ -8,7 +8,7 @@ import { toast } from "./ui/toast";
 import type { MarketData, BotData, CompetitionState } from "../hooks/useTradingData";
 import type { Portfolio } from "../types";
 
-export type TabId = 'trade' | 'monitor' | 'backtest' | 'leaderboard' | 'config';
+export type TabId = 'trade' | 'monitor' | 'backtest' | 'leaderboard' | 'config' | 'risk';
 
 interface TopDashboardProps {
   // Global
@@ -175,6 +175,7 @@ export function TopDashboard({
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: 'trade', label: 'Manual Trade', icon: BarChart2 },
     { id: 'monitor', label: 'Monitor', icon: Activity },
+    { id: 'risk', label: 'Risk', icon: Shield },
     { id: 'backtest', label: 'Backtest', icon: FlaskConical },
     { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
     { id: 'config', label: 'Config', icon: Settings },

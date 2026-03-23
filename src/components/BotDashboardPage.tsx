@@ -4,6 +4,7 @@ import { SessionHistoryTab } from "./SessionHistoryTab";
 import { StrategyLabTab } from "./StrategyLabTab";
 import { CompetitionTab } from "./CompetitionTab";
 import { RiskPanel } from "./RiskPanel";
+import { RiskDashboard } from "./RiskDashboard";
 import { AnalyticsTab } from "./AnalyticsTab";
 import { TradingModeToggle } from "./TradingModeToggle";
 import { SettingsPanel } from "./SettingsPanel";
@@ -92,6 +93,14 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
           <TradingModeToggle />
           <SettingsPanel />
         </div>
+      )}
+
+      {activeTab === 'risk' && (
+        <RiskDashboard
+          bots={bots}
+          totalBalance={bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)}
+          initialBalance={bots.length * 10}
+        />
       )}
     </div>
   );
