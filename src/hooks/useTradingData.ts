@@ -106,6 +106,13 @@ export interface Position {
   currentValue: number;
 }
 
+// Memory limits
+const MAX_BOT_LOGS = 30;
+const MAX_PNL_HISTORY = 50;
+const MAX_EVENTS = 30;
+const PNGL_HISTORY_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const MEMORY_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 export function useTradingData() {
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -133,8 +140,27 @@ export function useTradingData() {
   // PnL history for chart
   const [pnlHistory, setPnLHistory] = useState<{ time: number; pnl: number }[]>([]);
 
+  // Refs for cleanup
   const eventsRef = useRef<TradeEvent[]>([]);
   const logsRef = useRef<BotLog[]>([]);
+  const animationTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Cleanup function for animation timeouts
+  const clearAnimationTimeouts = useCallback(() => {
+    animationTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
+    animationTimeoutsRef.current = [];
+  }, []);
+
+  // Safe setTimeout that tracks for cleanup
+  const safeSetTimeout = useCallback((callback: () => void, delay: number) => {
+    const timeout = setTimeout(() => {
+      callback();
+      // Remove from tracking after execution
+      animationTimeoutsRef.current = animationTimeoutsRef.current.filter(t => t !== timeout);
+    }, delay);
+    animationTimeoutsRef.current.push(timeout);
+    return timeout;
+  }, []);
 
   // Fetch data from API
   const fetchData = useCallback(async () => {
@@ -183,11 +209,14 @@ export function useTradingData() {
       setMarketHistory(historyJson);
       setCompetition(competitionJson);
 
-      // Update PnL history
+      // Update PnL history with memory limit
       if (portfolioJson?.totalPnL !== undefined) {
         setPnLHistory(prev => {
-          const newEntry = { time: Date.now(), pnl: portfolioJson.totalPnL };
-          const newHistory = [...prev, newEntry].slice(-100);
+          const now = Date.now();
+          const newEntry = { time: now, pnl: portfolioJson.totalPnL };
+          // Keep only recent entries within time window and max count
+          const filtered = prev.filter(p => now - p.time < PNGL_HISTORY_MAX_AGE_MS);
+          const newHistory = [...filtered, newEntry].slice(-MAX_PNL_HISTORY);
           return newHistory;
         });
       }
@@ -208,8 +237,10 @@ export function useTradingData() {
       const res = await fetch("/api/bots/logs");
       if (res.ok) {
         const logs = await res.json();
-        logsRef.current = logs;
-        setBotLogs(logs);
+        // Limit to prevent memory growth
+        const limitedLogs = logs.slice(0, MAX_BOT_LOGS);
+        logsRef.current = limitedLogs;
+        setBotLogs(limitedLogs);
       }
     } catch (err) {
       console.error("Bot logs fetch error:", err);
@@ -250,18 +281,18 @@ export function useTradingData() {
           // Detect price direction for animation (keep this separate for micro-animations)
           if (newYesPrice > prevYesPrice.current) {
             setYesPriceDirection("up");
-            setTimeout(() => setYesPriceDirection(null), 400);
+            safeSetTimeout(() => setYesPriceDirection(null), 400);
           } else if (newYesPrice < prevYesPrice.current) {
             setYesPriceDirection("down");
-            setTimeout(() => setYesPriceDirection(null), 400);
+            safeSetTimeout(() => setYesPriceDirection(null), 400);
           }
 
           if (newNoPrice > prevNoPrice.current) {
             setNoPriceDirection("up");
-            setTimeout(() => setNoPriceDirection(null), 400);
+            safeSetTimeout(() => setNoPriceDirection(null), 400);
           } else if (newNoPrice < prevNoPrice.current) {
             setNoPriceDirection("down");
-            setTimeout(() => setNoPriceDirection(null), 400);
+            safeSetTimeout(() => setNoPriceDirection(null), 400);
           }
 
           prevYesPrice.current = newYesPrice;
@@ -301,7 +332,8 @@ export function useTradingData() {
         // Handle bot log events
         if (message.type === "bot_log" && message.data) {
           const newLog: BotLog = message.data;
-          logsRef.current = [newLog, ...logsRef.current.slice(0, 99)];
+          // Limit logs to prevent memory growth
+          logsRef.current = [newLog, ...logsRef.current.slice(0, MAX_BOT_LOGS - 1)];
           setBotLogs([...logsRef.current]);
         }
       } catch (err) {
@@ -322,12 +354,40 @@ export function useTradingData() {
     return () => {
       eventSource.close();
       clearInterval(pollInterval);
+      clearAnimationTimeouts();
     };
-  }, [fetchData, fetchBotLogs]);
+  }, [fetchData, fetchBotLogs, safeSetTimeout, clearAnimationTimeouts]);
+
+  // Memory cleanup interval - runs every 5 minutes
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      // Trim botLogs if somehow exceeded limit
+      setBotLogs(prev => prev.slice(0, MAX_BOT_LOGS));
+
+      // Trim events
+      setEvents(prev => prev.slice(0, MAX_EVENTS));
+
+      // Trim pnlHistory by age
+      const now = Date.now();
+      setPnLHistory(prev => prev.filter(p => now - p.time < PNGL_HISTORY_MAX_AGE_MS));
+
+      // Trim marketHistory to last 50 entries
+      setMarketHistory(prev => prev.slice(-50));
+    }, MEMORY_CLEANUP_INTERVAL_MS);
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      clearAnimationTimeouts();
+    };
+  }, [clearAnimationTimeouts]);
 
   // Add a trade event
   const addTradeEvent = useCallback((event: TradeEvent) => {
-    eventsRef.current = [event, ...eventsRef.current.slice(0, 49)];
+    eventsRef.current = [event, ...eventsRef.current.slice(0, MAX_EVENTS - 1)];
     setEvents([...eventsRef.current]);
   }, []);
 

@@ -1,6 +1,6 @@
 // Settings Panel - API key configuration and trading settings
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, DollarSign, RefreshCw } from "lucide-react";
+import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, DollarSign, RefreshCw, Shield } from "lucide-react";
 import { toast } from "./ui/toast";
 
 interface PolymarketKeys {
@@ -16,6 +16,18 @@ interface SettingsState {
   requireConfirmation: boolean;
   paperTradingHours: number;
   defaultStartBalance: number;
+  tradingMode: "demo" | "live";
+  riskSettings: {
+    maxPositionSizePercent: number;
+    kellyFraction: number;
+    maxDailyLossPercent: number;
+    maxDrawdownPercent: number;
+    maxOpenPositions: number;
+    autoReduceOnLoss: boolean;
+    autoIncreaseOnWin: boolean;
+    circuitBreakerEnabled: boolean;
+    consecutiveLossThreshold: number;
+  };
 }
 
 export function SettingsPanel() {
@@ -30,6 +42,18 @@ export function SettingsPanel() {
     requireConfirmation: true,
     paperTradingHours: 24,
     defaultStartBalance: 10,
+    tradingMode: "demo",
+    riskSettings: {
+      maxPositionSizePercent: 5,
+      kellyFraction: 0.25,
+      maxDailyLossPercent: 5,
+      maxDrawdownPercent: 20,
+      maxOpenPositions: 3,
+      autoReduceOnLoss: true,
+      autoIncreaseOnWin: true,
+      circuitBreakerEnabled: true,
+      consecutiveLossThreshold: 5,
+    },
   });
   const [showSecrets, setShowSecrets] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -38,9 +62,34 @@ export function SettingsPanel() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch("/api/settings");
-      const data = await res.json();
-      setSettings(prev => ({ ...prev, ...data }));
+      // Fetch general settings
+      const settingsRes = await fetch("/api/settings");
+      const settingsData = await settingsRes.json();
+      
+      // Fetch account info (trading mode)
+      const accountRes = await fetch("/api/account");
+      const accountData = await accountRes.json();
+      
+      // Fetch risk settings
+      const riskRes = await fetch("/api/risk/settings");
+      const riskData = await riskRes.json();
+      
+      setSettings(prev => ({
+        ...prev,
+        ...settingsData,
+        tradingMode: accountData.mode || "demo",
+        riskSettings: {
+          maxPositionSizePercent: riskData.maxPositionSize || riskData.maxDailyLoss || 5,
+          kellyFraction: 0.25,
+          maxDailyLossPercent: riskData.maxDailyLoss || 5,
+          maxDrawdownPercent: riskData.maxDrawdownPercent || 20,
+          maxOpenPositions: riskData.maxOpenPositions || 3,
+          autoReduceOnLoss: true,
+          autoIncreaseOnWin: true,
+          circuitBreakerEnabled: true,
+          consecutiveLossThreshold: riskData.consecutiveLossThreshold || 5,
+        },
+      }));
     } catch (err) {
       console.error("Failed to fetch settings:", err);
     }
@@ -53,13 +102,43 @@ export function SettingsPanel() {
   const saveSettings = async () => {
     setSaving(true);
     try {
+      // Save trading mode
+      await fetch("/api/trading-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: settings.tradingMode === "live" ? "real" : "simulated" }),
+      });
+      
+      // Save risk settings
+      await fetch("/api/risk/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          maxDailyLoss: settings.riskSettings.maxDailyLossPercent,
+          maxDrawdownPercent: settings.riskSettings.maxDrawdownPercent,
+          maxOpenPositions: settings.riskSettings.maxOpenPositions,
+          consecutiveLossThreshold: settings.riskSettings.consecutiveLossThreshold,
+          autoReduceOnLoss: settings.riskSettings.autoReduceOnLoss,
+          autoIncreaseOnWin: settings.riskSettings.autoIncreaseOnWin,
+          circuitBreakerEnabled: settings.riskSettings.circuitBreakerEnabled,
+        }),
+      });
+      
+      // Save general settings
       await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          defaultStartBalance: settings.defaultStartBalance,
+          polymarket: settings.polymarket,
+          walletAddress: settings.walletAddress,
+        }),
       });
+      
+      toast.success("Settings Saved", "Your trading and risk settings have been updated");
     } catch (err) {
       console.error("Failed to save settings:", err);
+      toast.error("Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -117,6 +196,248 @@ export function SettingsPanel() {
         <p style={{ margin: "0.5rem 0 0", fontSize: "0.875rem", color: "var(--text-muted)" }}>
           Configure your Polymarket API keys and trading preferences.
         </p>
+      </div>
+
+      {/* Trading Mode Selector */}
+      <div className="glass-card" style={{ padding: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+          <Wallet className="w-4 h-4" style={{ color: "var(--primary)" }} />
+          <span style={{ fontWeight: 600 }}>Trading Mode</span>
+          <span style={{
+            fontSize: "0.625rem",
+            padding: "0.125rem 0.5rem",
+            borderRadius: 999,
+            background: settings.tradingMode === "live" ? "rgba(239, 68, 68, 0.2)" : "rgba(34, 197, 94, 0.2)",
+            color: settings.tradingMode === "live" ? "#ef4444" : "#22c55e",
+            fontWeight: 600,
+            textTransform: "uppercase",
+          }}>
+            {settings.tradingMode}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            onClick={() => setSettings(prev => ({ ...prev, tradingMode: "demo" }))}
+            style={{
+              flex: 1,
+              padding: "0.75rem",
+              borderRadius: 8,
+              border: settings.tradingMode === "demo" ? "2px solid #22c55e" : "1px solid var(--border)",
+              background: settings.tradingMode === "demo" ? "rgba(34, 197, 94, 0.1)" : "transparent",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            <span style={{ fontWeight: 600, color: settings.tradingMode === "demo" ? "#22c55e" : "var(--text-primary)" }}>🧪 Demo</span>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Simulated trading</span>
+          </button>
+          <button
+            onClick={() => setSettings(prev => ({ ...prev, tradingMode: "live" }))}
+            style={{
+              flex: 1,
+              padding: "0.75rem",
+              borderRadius: 8,
+              border: settings.tradingMode === "live" ? "2px solid #ef4444" : "1px solid var(--border)",
+              background: settings.tradingMode === "live" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            <span style={{ fontWeight: 600, color: settings.tradingMode === "live" ? "#ef4444" : "var(--text-primary)" }}>⚡ Live</span>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Real money trading</span>
+          </button>
+        </div>
+
+        {settings.tradingMode === "live" && (
+          <div style={{
+            marginTop: "0.75rem",
+            padding: "0.75rem",
+            background: "rgba(239, 68, 68, 0.1)",
+            borderRadius: 8,
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#ef4444", fontWeight: 600, fontSize: "0.875rem" }}>
+              ⚠️ Warning: Real trading is enabled
+            </div>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Make sure your API keys have trading permissions. Start with small amounts.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Risk Management Settings */}
+      <div className="glass-card" style={{ padding: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Shield className="w-4 h-4" style={{ color: "var(--primary)" }} />
+            <span style={{ fontWeight: 600 }}>Risk Management</span>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+          {/* Max Position Size */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Max Position Size (%)
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.maxPositionSizePercent}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, maxPositionSizePercent: parseFloat(e.target.value) || 5 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={0.5}
+              max={50}
+              step={0.5}
+            />
+          </div>
+
+          {/* Kelly Fraction */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Kelly Fraction
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.kellyFraction}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, kellyFraction: parseFloat(e.target.value) || 0.25 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={0.05}
+              max={1}
+              step={0.05}
+            />
+          </div>
+
+          {/* Max Daily Loss */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Max Daily Loss (%)
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.maxDailyLossPercent}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, maxDailyLossPercent: parseFloat(e.target.value) || 5 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={1}
+              max={50}
+              step={1}
+            />
+          </div>
+
+          {/* Max Drawdown */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Max Drawdown (%)
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.maxDrawdownPercent}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, maxDrawdownPercent: parseFloat(e.target.value) || 20 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={5}
+              max={50}
+              step={1}
+            />
+          </div>
+
+          {/* Max Open Positions */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Max Open Positions
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.maxOpenPositions}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, maxOpenPositions: parseInt(e.target.value) || 3 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={1}
+              max={10}
+            />
+          </div>
+
+          {/* Consecutive Loss Threshold */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              Stop After X Losses
+            </label>
+            <input
+              type="number"
+              value={settings.riskSettings.consecutiveLossThreshold}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, consecutiveLossThreshold: parseInt(e.target.value) || 5 }
+              }))}
+              className="input"
+              style={{ width: "100%", padding: "0.5rem" }}
+              min={1}
+              max={20}
+            />
+          </div>
+        </div>
+
+        {/* Auto-adjustment toggles */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.75rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={settings.riskSettings.autoReduceOnLoss}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, autoReduceOnLoss: e.target.checked }
+              }))}
+            />
+            <span style={{ fontSize: "0.875rem" }}>Auto-reduce bet size after losses</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={settings.riskSettings.autoIncreaseOnWin}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, autoIncreaseOnWin: e.target.checked }
+              }))}
+            />
+            <span style={{ fontSize: "0.875rem" }}>Auto-increase bet size after wins</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={settings.riskSettings.circuitBreakerEnabled}
+              onChange={(e) => setSettings(prev => ({ 
+                ...prev, 
+                riskSettings: { ...prev.riskSettings, circuitBreakerEnabled: e.target.checked }
+              }))}
+            />
+            <span style={{ fontSize: "0.875rem" }}>Enable circuit breaker (stop after consecutive losses)</span>
+          </label>
+        </div>
       </div>
 
       {/* Polymarket API Keys */}

@@ -38,6 +38,8 @@ interface TopDashboardProps {
   onAssetChange: (asset: string) => void;
   selectedTimeframe: string;
   onTimeframeChange: (tf: string) => void;
+  // Trading mode
+  tradingMode?: "demo" | "live";
 }
 
 function formatTimeRemaining(ms: number): string {
@@ -101,7 +103,8 @@ export function TopDashboard({
   selectedAsset,
   onAssetChange,
   selectedTimeframe,
-  onTimeframeChange
+  onTimeframeChange,
+  tradingMode = "demo"
 }: TopDashboardProps) {
 
   const activeBots = bots.filter(b => b.enabled).length;
@@ -214,10 +217,24 @@ export function TopDashboard({
         {/* ROW 1: Logo & Global Controls */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
-          {/* Logo */}
+          {/* Logo + Mode Badge */}
           <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Zap style={{ color: coinColor }} className="w-5 h-5" />
             <span>Poly</span><span style={{ color: "var(--primary)" }}>Trade</span>
+            {tradingMode === "live" && (
+              <span style={{
+                fontSize: "0.625rem",
+                padding: "0.125rem 0.5rem",
+                borderRadius: 999,
+                background: "rgba(239, 68, 68, 0.2)",
+                color: "#ef4444",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}>
+                LIVE
+              </span>
+            )}
           </div>
 
           {/* Asset & Timeframe Selectors */}

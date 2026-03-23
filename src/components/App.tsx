@@ -27,6 +27,7 @@ export function App() {
   const [openPositionsCount, setOpenPositionsCount] = useState(0);
   const [openPositionsValue, setOpenPositionsValue] = useState(0);
   const [showSessionSummary, setShowSessionSummary] = useState(false);
+  const [tradingMode, setTradingMode] = useState<"demo" | "live">("demo");
   const prevCompetitionActive = useRef(true);
   const lastProcessedLogId = useRef<string>("");
 
@@ -48,7 +49,7 @@ export function App() {
     addTradeEvent,
   } = useTradingData();
 
-  const { enabled: soundEnabled, playTrade, toggleEnabled: toggleSound } = useSoundNotifications();
+  const { enabled: soundEnabled, playTrade, playNotification, toggleEnabled: toggleSound } = useSoundNotifications();
   const toast = useToastActions();
 
   // Handle new bot trade notifications
@@ -60,12 +61,12 @@ export function App() {
 
     lastProcessedLogId.current = latestLog.id;
 
-    // Only notify on TRADE type
+    // Notify on TRADE (position opened) and SETTLED (position closed/won/lost)
     if (latestLog.type === "TRADE") {
       const details = latestLog.details || {};
       const outcome = details.outcome as string || "YES";
       const amount = details.amount as number || details.stake as number || 0;
-      const price = details.price as number || details.avgPrice as number || 0;
+      const price = details.odds as number || details.price as number || details.avgPrice as number || 0;
 
       const isYes = outcome === "YES";
       playTrade();
@@ -74,8 +75,28 @@ export function App() {
         `🤖 ${latestLog.botName}`,
         `${isYes ? "📈" : "📉"} ${isYes ? "Bought UP" : "Bought DOWN"} $${amount.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`
       );
+    } else if (latestLog.type === "SETTLED") {
+      // Notification when a position is settled (won or lost)
+      const details = latestLog.details || {};
+      const won = details.won as boolean;
+      const pnl = details.pnl as number || 0;
+      const outcome = details.outcome as string || "YES";
+      
+      if (won) {
+        playNotification?.();
+        toast.success(
+          `🎉 ${latestLog.botName} WON!`,
+          `+$${pnl.toFixed(2)} | ${outcome} position settled`
+        );
+      } else {
+        playNotification?.();
+        toast.error(
+          `💔 ${latestLog.botName} LOST`,
+          `${pnl.toFixed(2)} | ${outcome} position settled`
+        );
+      }
     }
-  }, [botLogs, playTrade, toast]);
+  }, [botLogs, playTrade, playNotification, toast]);
 
   // Fetch positions count
   useEffect(() => {
@@ -104,6 +125,20 @@ export function App() {
     }
     prevCompetitionActive.current = competition?.active ?? false;
   }, [competition?.active, competition?.completedAt]);
+
+  // Fetch trading mode on mount
+  useEffect(() => {
+    const fetchTradingMode = async () => {
+      try {
+        const res = await fetch("/api/account");
+        const data = await res.json();
+        setTradingMode(data.mode || "demo");
+      } catch (err) {
+        console.error("Failed to fetch trading mode:", err);
+      }
+    };
+    fetchTradingMode();
+  }, []);
 
   // Sync timeframe and asset to backend
   useEffect(() => {
@@ -238,6 +273,7 @@ export function App() {
         onAssetChange={setSelectedAsset}
         selectedTimeframe={selectedTimeframe}
         onTimeframeChange={setSelectedTimeframe}
+        tradingMode={tradingMode}
       />
 
       <div style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "1.5rem", position: "relative", flex: 1 }}>

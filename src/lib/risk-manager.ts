@@ -18,6 +18,19 @@ export interface RiskSettings {
   // Portfolio limits (global)
   portfolioMaxLoss: number;    // Total portfolio stop loss ($)
   portfolioMaxDrawdown: number; // Total portfolio max drawdown (%)
+
+  // Kelly criterion settings
+  kellyEnabled: boolean;       // Use Kelly criterion for position sizing
+  kellyFraction: number;       // Fraction of Kelly to use (0-1, typically 0.25)
+  kellyMinConfidence: number;  // Minimum confidence to apply Kelly
+
+  // Circuit breaker
+  circuitBreakerEnabled: boolean;
+  consecutiveLossThreshold: number;
+
+  // Auto-adjustment
+  autoReduceOnLoss: boolean;
+  autoIncreaseOnWin: boolean;
 }
 
 export interface BotRiskState {
@@ -30,11 +43,15 @@ export interface BotRiskState {
   hourStartTime: number;
   paused: boolean;
   pauseReason: string | null;
+  consecutiveWins: number;
+  consecutiveLosses: number;
+  lastTradeResult: "win" | "loss" | null;
+  currentBetMultiplier: number;
 }
 
 export interface RiskWarning {
   botId: string;
-  type: "daily_loss" | "drawdown" | "rate_limit" | "position_size" | "portfolio_loss";
+  type: "daily_loss" | "drawdown" | "rate_limit" | "position_size" | "portfolio_loss" | "circuit_breaker";
   message: string;
   severity: "warning" | "critical";
   timestamp: number;
@@ -62,6 +79,19 @@ const DEFAULT_SETTINGS: RiskSettings = {
 
   portfolioMaxLoss: 10,         // Stop if total loss > $10
   portfolioMaxDrawdown: 25,     // Stop at 25% total drawdown
+
+  // Kelly criterion
+  kellyEnabled: true,           // Use Kelly for position sizing
+  kellyFraction: 0.25,          // Quarter Kelly for safety
+  kellyMinConfidence: 0.55,     // Apply Kelly only above this confidence
+
+  // Circuit breaker
+  circuitBreakerEnabled: true,
+  consecutiveLossThreshold: 5,  // Pause after 5 consecutive losses
+
+  // Auto-adjustment
+  autoReduceOnLoss: true,
+  autoIncreaseOnWin: true,
 };
 
 export class RiskManager {
@@ -107,8 +137,174 @@ export class RiskManager {
         hourStartTime: Date.now(),
         paused: false,
         pauseReason: null,
+        consecutiveWins: 0,
+        consecutiveLosses: 0,
+        lastTradeResult: null,
+        currentBetMultiplier: 1,
       });
     }
+  }
+
+  /**
+   * Calculate position size using Kelly Criterion
+   * f* = (bp - q) / b
+   * where:
+   *   f* = optimal bet fraction
+   *   b  = net odds (profit per $1 bet if you win)
+   *   p  = probability of winning (confidence)
+   *   q  = 1 - p (probability of losing)
+   *
+   * For prediction markets:
+   *   b = (1 - price) / price = potential profit ratio
+   *   if price = 0.6, b = 0.4/0.6 = 0.67 (bet $1 to win $0.67 profit)
+   */
+  calculateKellySize(
+    confidence: number,
+    price: number,
+    bankroll: number,
+    kellyFraction: number = this.settings.kellyFraction
+  ): number {
+    // Don't apply Kelly if confidence too low
+    if (confidence < this.settings.kellyMinConfidence) {
+      return 0;
+    }
+
+    // Calculate net odds
+    const b = price > 0 && price < 1 ? (1 - price) / price : 1;
+
+    // Kelly formula
+    const p = confidence;
+    const q = 1 - p;
+    let kelly = (b * p - q) / b;
+
+    // If negative, don't bet
+    if (kelly <= 0) {
+      return 0;
+    }
+
+    // Apply Kelly fraction for safety (typically 0.25 = quarter Kelly)
+    kelly = kelly * kellyFraction;
+
+    // Cap at 25% of bankroll for safety
+    kelly = Math.min(kelly, 0.25);
+
+    return bankroll * kelly;
+  }
+
+  /**
+   * Get suggested bet size combining Kelly and risk limits
+   */
+  getSuggestedBetSize(
+    botId: string,
+    confidence: number,
+    price: number,
+    bankroll: number
+  ): { size: number; method: string } {
+    this.initBot(botId);
+    const state = this.botStates.get(botId)!;
+
+    // Start with base calculation
+    let size = bankroll * 0.1; // Default 10% of bankroll
+    let method = "default_10pct";
+
+    if (this.settings.kellyEnabled && confidence >= this.settings.kellyMinConfidence) {
+      const kellySize = this.calculateKellySize(confidence, price, bankroll);
+      if (kellySize > 0) {
+        size = kellySize;
+        method = "kelly";
+      }
+    }
+
+    // Apply streak-based adjustments
+    if (this.settings.autoReduceOnLoss && state.consecutiveLosses > 0) {
+      const reductionFactor = Math.pow(0.5, Math.min(state.consecutiveLosses, 3));
+      size = size * reductionFactor;
+      method += "_reduced";
+    }
+
+    if (this.settings.autoIncreaseOnWin && state.consecutiveWins >= 3) {
+      const increaseFactor = Math.min(1 + (state.consecutiveWins - 2) * 0.25, 2);
+      size = size * increaseFactor;
+      method += "_increased";
+    }
+
+    // Apply max position size limit
+    size = Math.min(size, this.settings.maxPositionSize);
+
+    // Ensure minimum bet
+    size = Math.max(size, 0.1);
+
+    return { size, method };
+  }
+
+  // Record a trade result for auto-adjustment tracking
+  recordTradeResult(botId: string, won: boolean): void {
+    this.initBot(botId);
+    const state = this.botStates.get(botId)!;
+    
+    if (won) {
+      state.consecutiveWins++;
+      state.consecutiveLosses = 0;
+      state.lastTradeResult = "win";
+    } else {
+      state.consecutiveLosses++;
+      state.consecutiveWins = 0;
+      state.lastTradeResult = "loss";
+      state.lastLossTime = Date.now();
+    }
+    
+    state.dailyTrades++;
+    state.dailyPnL += won ? 1 : -1; // Simplified
+    
+    // Check circuit breaker
+    if (this.settings.consecutiveLossThreshold && 
+        state.consecutiveLosses >= this.settings.consecutiveLossThreshold &&
+        this.settings.circuitBreakerEnabled) {
+      state.paused = true;
+      state.pauseReason = `Circuit breaker: ${state.consecutiveLosses} consecutive losses`;
+      this.addWarning(botId, "circuit_breaker", state.pauseReason, "critical");
+    }
+  }
+
+  // Calculate adjusted bet size based on win/loss streaks
+  getAdjustedBetSize(botId: string, baseBet: number): number {
+    this.initBot(botId);
+    const state = this.botStates.get(botId)!;
+    const { autoReduceOnLoss, autoIncreaseOnWin } = this.settings;
+    
+    let multiplier = 1;
+    
+    // Auto-reduce after losses (e.g., halve bet after 2 consecutive losses)
+    if (autoReduceOnLoss && state.consecutiveLosses > 0) {
+      const reductionFactor = Math.pow(0.5, Math.min(state.consecutiveLosses, 3)); // Max 3x reduction
+      multiplier *= reductionFactor;
+    }
+    
+    // Auto-increase after wins (e.g., increase by 25% after 3 consecutive wins)
+    if (autoIncreaseOnWin && state.consecutiveWins >= 3) {
+      const increaseFactor = Math.min(1 + (state.consecutiveWins - 2) * 0.25, 2); // Max 2x
+      multiplier *= increaseFactor;
+    }
+    
+    const adjustedBet = baseBet * multiplier;
+    
+    // Ensure within limits
+    const maxBet = baseBet * 2; // Max 2x original
+    const minBet = baseBet * 0.25; // Min 25% of original
+    
+    return Math.max(minBet, Math.min(maxBet, adjustedBet));
+  }
+
+  // Get bot streak info
+  getBotStreakInfo(botId: string): { consecutiveWins: number; consecutiveLosses: number; isPaused: boolean; pauseReason: string | null } {
+    this.initBot(botId);
+    const state = this.botStates.get(botId)!;
+    return {
+      consecutiveWins: state.consecutiveWins,
+      consecutiveLosses: state.consecutiveLosses,
+      isPaused: state.paused,
+      pauseReason: state.pauseReason,
+    };
   }
 
   // Check if a new position can be opened
@@ -253,7 +449,6 @@ export class RiskManager {
     this.initBot(botId);
 
     const state = this.botStates.get(botId)!;
-    const portfolio = marketEngine.getBotPortfolio(botId);
 
     const botWarnings = this.warnings
       .filter(w => w.botId === botId)

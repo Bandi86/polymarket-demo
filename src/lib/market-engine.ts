@@ -36,6 +36,7 @@ export class MarketEngine {
   private lastMarketSwitch = 0;
   private settledMarketIds: Set<string> = new Set();
   private priceUpdateCallbacks: Array<(price: { yes: number; no: number; timestamp: number }) => void> = [];
+  private settlementCallbacks: Array<(data: { position: Position; won: boolean; pnl: number; marketResult: string }) => void> = [];
   /** BTC price at market start - used for realistic settlement */
   private marketStartBtcPrice: number | null = null;
 
@@ -61,6 +62,17 @@ export class MarketEngine {
       const index = this.priceUpdateCallbacks.indexOf(callback);
       if (index > -1) {
         this.priceUpdateCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /** Subscribe to position settlement events (when positions close) */
+  onSettlement(callback: (data: { position: Position; won: boolean; pnl: number; marketResult: string }) => void): () => void {
+    this.settlementCallbacks.push(callback);
+    return () => {
+      const index = this.settlementCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.settlementCallbacks.splice(index, 1);
       }
     };
   }
@@ -375,6 +387,20 @@ export class MarketEngine {
 
       // Enhanced settlement logging
       console.log(`[MarketEngine] SETTLEMENT: ${position.botId || 'manual'} | ${position.outcome} | ${won ? 'WON' : 'LOST'} | Entry: ${position.odds.toFixed(3)} | Exit: ${finalYesPrice.toFixed(3)} | PnL: $${position.pnl.toFixed(2)} | Market: ${market.result} (YES=${finalYesPrice.toFixed(3)})`);
+
+      // Notify settlement callbacks
+      for (const callback of this.settlementCallbacks) {
+        try {
+          callback({
+            position,
+            won,
+            pnl: position.pnl,
+            marketResult: market.result || "UNKNOWN"
+          });
+        } catch (e) {
+          console.error("[MarketEngine] Settlement callback error:", e);
+        }
+      }
 
       // Update portfolio
       const portfolio = position.botId

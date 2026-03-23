@@ -42,6 +42,33 @@ marketEngine.onPriceUpdate((price) => {
   })
 })
 
+// Subscribe to position settlement events and emit logs
+marketEngine.onSettlement((data) => {
+  const { position, won, pnl, marketResult } = data;
+  
+  // Get bot name if available
+  const bot = botManager.getBots().find(b => b.id === position.botId);
+  const botName = bot?.name || position.botId || 'manual';
+  
+  // Emit SETTLED log for notifications
+  botManager.addLog(
+    position.botId || 'manual',
+    'SETTLED',
+    `${won ? 'WON' : 'LOST'} ${position.outcome} position | PnL: $${pnl.toFixed(2)} | Market: ${marketResult}`,
+    {
+      outcome: position.outcome,
+      amount: position.amount,
+      stake: position.stake,
+      odds: position.odds,
+      pnl: pnl,
+      won: won,
+      marketResult: marketResult,
+      entryPrice: position.odds,
+      exitPrice: position.exitPrice,
+    }
+  );
+})
+
 // Store connected SSE clients
 const sseClients = new Set<ReadableStreamDefaultController>()
 
@@ -1052,6 +1079,71 @@ async function handleApiRoute(
     }
     marketEngine.setMode(body.mode)
     return Response.json({ success: true, mode: body.mode })
+  }
+
+  // GET /api/account - Get account info (balance, mode, risk settings)
+  if (path === '/api/account' && method === 'GET') {
+    const bots = botManager.getBots()
+    const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
+    
+    return Response.json({
+      mode: marketEngine.getMode() === 'real' ? 'live' : 'demo',
+      totalBalance,
+      botCount: bots.length,
+      riskSettings: riskManager.getSettings(),
+      connectionStatus: polymarketProvider.getConfig().apiKey ? 'configured' : 'not_configured',
+    })
+  }
+
+  // POST /api/account/sync - Sync live account balance from Polymarket
+  if (path === '/api/account/sync' && method === 'POST') {
+    try {
+      // In real mode, we would fetch the actual balance from Polymarket API
+      // For now, return the current balance
+      const bots = botManager.getBots()
+      const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
+      
+      return Response.json({
+        success: true,
+        balance: totalBalance,
+        mode: marketEngine.getMode(),
+        lastSync: Date.now(),
+      })
+    } catch (error) {
+      return Response.json({ success: false, error: 'Failed to sync balance' })
+    }
+  }
+
+  // POST /api/account/mode - Switch between demo and live mode
+  if (path === '/api/account/mode' && method === 'POST') {
+    const body = (await parseBody(req)) as { mode: 'demo' | 'live', balance?: number }
+    
+    if (!body?.mode) {
+      return Response.json({ success: false, error: 'Missing mode' }, { status: 400 })
+    }
+
+    const newMode = body.mode === 'live' ? 'real' : 'simulated'
+    
+    // Switch mode
+    marketEngine.setMode(newMode)
+    
+    // Set balance for demo mode
+    if (body.mode === 'demo' && body.balance) {
+      const bots = botManager.getBots()
+      for (const bot of bots) {
+        const portfolio = marketEngine.getBotPortfolio(bot.id)
+        if (portfolio) {
+          portfolio.balance = body.balance
+          portfolio.initialBalance = body.balance
+        }
+      }
+    }
+
+    return Response.json({
+      success: true,
+      mode: body.mode,
+      balance: body.balance || 0,
+    })
   }
 
   // POST /api/polymarket/test-connection - Test Polymarket API connection

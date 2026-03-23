@@ -255,7 +255,7 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
       }}>
         <div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-            Current Balance
+            Bot Balance
           </div>
           <div style={{
             fontWeight: 700,

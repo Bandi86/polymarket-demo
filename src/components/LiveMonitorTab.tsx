@@ -165,7 +165,7 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, noPrice, positions, up
               {formatCurrency(totalBalance)}
             </span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-              Started: {formatCurrency(totalInitialBalance)}
+              Initial: {formatCurrency(totalInitialBalance)}
             </span>
           </div>
 

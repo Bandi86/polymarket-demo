@@ -899,7 +899,8 @@ export class BotManager {
   }
 
   /** Add a log entry */
-  private addLog(botId: string, type: BotLog["type"], message: string, details?: Record<string, unknown>): void {
+  /** Add a log entry for a bot (public for external use like settlement events) */
+  addLog(botId: string, type: BotLog["type"], message: string, details?: Record<string, unknown>): void {
     const bot = this.bots.get(botId);
     if (!bot) return;
 
