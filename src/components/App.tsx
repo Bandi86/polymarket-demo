@@ -45,7 +45,9 @@ export function App() {
     noPrice,
     yesPriceDirection,
     noPriceDirection,
+    liveBalance,
     fetchData,
+    fetchLiveBalance,
     addTradeEvent,
   } = useTradingData();
 
@@ -274,6 +276,8 @@ export function App() {
         selectedTimeframe={selectedTimeframe}
         onTimeframeChange={setSelectedTimeframe}
         tradingMode={tradingMode}
+        liveBalance={liveBalance}
+        onRefreshLiveBalance={fetchLiveBalance}
       />
 
       <div style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "1.5rem", position: "relative", flex: 1 }}>

@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield } from "lucide-react";
+import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { PriceTicker } from "./ui/PriceTicker";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { SoundToggle } from "./ui/SoundToggle";
 import { toast } from "./ui/toast";
-import type { MarketData, BotData, CompetitionState } from "../hooks/useTradingData";
+import type { MarketData, BotData, CompetitionState, LiveBalance } from "../hooks/useTradingData";
 import type { Portfolio } from "../types";
 
 export type TabId = 'trade' | 'monitor' | 'backtest' | 'leaderboard' | 'config' | 'risk';
@@ -40,6 +40,9 @@ interface TopDashboardProps {
   onTimeframeChange: (tf: string) => void;
   // Trading mode
   tradingMode?: "demo" | "live";
+  // Live balance from Polymarket
+  liveBalance?: LiveBalance;
+  onRefreshLiveBalance?: () => Promise<void>;
 }
 
 function formatTimeRemaining(ms: number): string {
@@ -104,7 +107,9 @@ export function TopDashboard({
   onAssetChange,
   selectedTimeframe,
   onTimeframeChange,
-  tradingMode = "demo"
+  tradingMode = "demo",
+  liveBalance,
+  onRefreshLiveBalance,
 }: TopDashboardProps) {
 
   const activeBots = bots.filter(b => b.enabled).length;
@@ -453,6 +458,66 @@ export function TopDashboard({
                   ({bots.length} bots)
                 </span>
               </div>
+
+              {/* Live Polymarket Balance */}
+              {liveBalance && (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                    <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      Polymarket
+                    </span>
+                    {liveBalance.isLive ? (
+                      <span style={{
+                        fontSize: "0.5rem",
+                        padding: "0.125rem 0.375rem",
+                        background: "rgba(34, 197, 94, 0.2)",
+                        color: "#22c55e",
+                        borderRadius: 4,
+                        fontWeight: 600,
+                      }}>
+                        LIVE
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: "0.5rem",
+                        padding: "0.125rem 0.375rem",
+                        background: "rgba(245, 158, 11, 0.2)",
+                        color: "#f59e0b",
+                        borderRadius: 4,
+                        fontWeight: 600,
+                      }}>
+                        DEMO
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{
+                      fontSize: "1.25rem",
+                      fontWeight: 700,
+                      fontFamily: "ui-monospace, monospace",
+                      color: liveBalance.isLive ? "var(--text-primary)" : "var(--text-muted)",
+                    }}>
+                      ${liveBalance.balance.toFixed(2)}
+                    </span>
+                    {onRefreshLiveBalance && (
+                      <button
+                        onClick={onRefreshLiveBalance}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                        title="Refresh balance"
+                      >
+                        <RefreshCw className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* Overall P&L */}
               <div>
                 <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total P&L</span>

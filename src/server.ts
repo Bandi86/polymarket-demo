@@ -1085,33 +1085,69 @@ async function handleApiRoute(
   if (path === '/api/account' && method === 'GET') {
     const bots = botManager.getBots()
     const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
-    
+    const config = polymarketProvider.getConfig()
+
     return Response.json({
       mode: marketEngine.getMode() === 'real' ? 'live' : 'demo',
       totalBalance,
       botCount: bots.length,
       riskSettings: riskManager.getSettings(),
-      connectionStatus: polymarketProvider.getConfig().apiKey ? 'configured' : 'not_configured',
+      connectionStatus: config.hasCredentials ? 'configured' : 'not_configured',
+      hasApiKey: !!config.apiKey,
+    })
+  }
+
+  // GET /api/account/balance - Fetch live balance from Polymarket
+  if (path === '/api/account/balance' && method === 'GET') {
+    const result = await polymarketProvider.fetchAccountBalance()
+
+    if (!result.success) {
+      // Return demo balance as fallback
+      const bots = botManager.getBots()
+      const demoBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
+
+      return Response.json({
+        success: false,
+        error: result.error,
+        isLive: false,
+        balance: 0,
+        available: 0,
+        locked: 0,
+        demoBalance,
+        message: "Using demo balance - no live API connection",
+      })
+    }
+
+    return Response.json({
+      success: true,
+      isLive: true,
+      balance: result.balance,
+      available: result.available,
+      locked: result.locked,
+      lastSync: Date.now(),
     })
   }
 
   // POST /api/account/sync - Sync live account balance from Polymarket
   if (path === '/api/account/sync' && method === 'POST') {
-    try {
-      // In real mode, we would fetch the actual balance from Polymarket API
-      // For now, return the current balance
-      const bots = botManager.getBots()
-      const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
-      
+    const result = await polymarketProvider.fetchAccountBalance()
+
+    if (!result.success) {
       return Response.json({
-        success: true,
-        balance: totalBalance,
-        mode: marketEngine.getMode(),
-        lastSync: Date.now(),
+        success: false,
+        error: result.error || 'Failed to fetch live balance',
+        isLive: false,
       })
-    } catch (error) {
-      return Response.json({ success: false, error: 'Failed to sync balance' })
     }
+
+    return Response.json({
+      success: true,
+      isLive: true,
+      balance: result.balance,
+      available: result.available,
+      locked: result.locked,
+      lastSync: Date.now(),
+    })
   }
 
   // POST /api/account/mode - Switch between demo and live mode

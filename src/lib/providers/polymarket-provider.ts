@@ -1,5 +1,14 @@
 import type { Market } from "../../types";
 
+// Load credentials from environment (Bun automatically loads .env)
+const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
+const POLY_API_SECRET = process.env.POLYMARKET_API_SECRET || "";
+const POLY_API_PASSPHRASE = process.env.POLYMARKET_API_PASSPHRASE || "";
+const POLY_PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY || "";
+
+// Debug: Log if credentials are loaded (without revealing them)
+console.log(`[PolymarketProvider] API Key loaded: ${POLY_API_KEY ? `${POLY_API_KEY.slice(0, 8)}...` : 'NOT SET'}`);
+
 export interface PolymarketEvent {
   id: string;
   ticker: string;
@@ -39,6 +48,7 @@ export interface PolymarketMarket {
 }
 
 const GAMMA_API = "https://gamma-api.polymarket.com";
+const CLOB_API = "https://clob.polymarket.com";
 
 // Map timeframe to duration in seconds
 const TIMEFRAME_DURATIONS: Record<string, number> = {
@@ -391,6 +401,197 @@ export class PolymarketProvider {
   /** Get available timeframes */
   getAvailableTimeframes(): string[] {
     return Object.keys(TIMEFRAME_DURATIONS);
+  }
+
+  /** Get API configuration status */
+  getConfig(): { apiKey: string; hasCredentials: boolean } {
+    return {
+      apiKey: POLY_API_KEY ? `${POLY_API_KEY.slice(0, 8)}...` : "",
+      hasCredentials: !!(POLY_API_KEY && POLY_API_SECRET),
+    };
+  }
+
+  /**
+   * Fetch account balance from Polymarket.
+   *
+   * Note: Polymarket CLOB API requires EIP-712 signatures with the private key
+   * for authenticated endpoints. The API key/secret provided in .env are for
+   * read-only access. Full API access requires setting up L2 authentication.
+   *
+   * For now, we return a message indicating the balance needs to be checked
+   * manually on polymarket.com.
+   */
+  async fetchAccountBalance(): Promise<{
+    balance: number;
+    available: number;
+    locked: number;
+    success: boolean;
+    error?: string;
+  }> {
+    // Check if credentials are available
+    if (!POLY_API_KEY || !POLY_API_SECRET) {
+      return {
+        balance: 0,
+        available: 0,
+        locked: 0,
+        success: false,
+        error: "No API credentials configured. Set POLYMARKET_API_KEY and POLYMARKET_API_SECRET in .env",
+      };
+    }
+
+    try {
+      // Polymarket CLOB API requires L2 signatures for balance endpoint
+      // The API key/secret alone are not sufficient for authenticated requests
+      // We'll try a few endpoints to see if any work
+
+      // Try Gamma API for public user data (limited)
+      const publicEndpoints = [
+        `${GAMMA_API}/users/me`,
+        `${GAMMA_API}/user`,
+      ];
+
+      for (const endpoint of publicEndpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            headers: {
+              "Authorization": `Bearer ${POLY_API_KEY}`,
+            },
+            signal: AbortSignal.timeout(3000),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.balance !== undefined) {
+              const balance = parseFloat(data.balance);
+              return {
+                balance,
+                available: balance,
+                locked: 0,
+                success: true,
+              };
+            }
+          }
+        } catch {
+          // Continue to next endpoint
+        }
+      }
+
+      // If all endpoints fail, return credentials detected but API access limited
+      return {
+        balance: 0,
+        available: 0,
+        locked: 0,
+        success: false,
+        error: "API credentials detected. Polymarket balance API requires L2 signature authentication. Check your balance at polymarket.com",
+      };
+    } catch (error) {
+      console.error("[PolymarketProvider] Failed to fetch balance:", error);
+      return {
+        balance: 0,
+        available: 0,
+        locked: 0,
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  /**
+   * Import HMAC key for signing
+   */
+  private async importKey(secret: string): Promise<CryptoKey> {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    return await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+  }
+
+  /**
+   * Sign message with HMAC-SHA256
+   */
+  private async signHmac(key: CryptoKey, message: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const signature = await crypto.subtle.sign("HMAC", key, data);
+    // Convert to base64
+    return btoa(String.fromCharCode(...new Uint8Array(signature)));
+  }
+
+  /**
+   * Fetch positions from Polymarket
+   */
+  async fetchPositions(): Promise<{
+    positions: Array<{
+      market: string;
+      outcome: string;
+      shares: number;
+      avgPrice: number;
+      currentValue: number;
+    }>;
+    success: boolean;
+    error?: string;
+  }> {
+    if (!POLY_API_KEY || !POLY_API_SECRET) {
+      return {
+        positions: [],
+        success: false,
+        error: "No API credentials configured",
+      };
+    }
+
+    try {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const method = "GET";
+      const requestPath = "/positions";
+
+      const message = timestamp + method + requestPath;
+      const key = await this.importKey(POLY_API_SECRET);
+      const signature = await this.signHmac(key, message);
+
+      const response = await fetch(`${CLOB_API}${requestPath}`, {
+        method: method,
+        headers: {
+          "POLY-ADDRESS": POLY_API_KEY,
+          "POLY-SIGNATURE": signature,
+          "POLY-TIMESTAMP": timestamp,
+          "POLY-NONCE": timestamp,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        return {
+          positions: [],
+          success: false,
+          error: `API error: ${response.status}`,
+        };
+      }
+
+      const data = await response.json();
+
+      // Transform positions
+      const positions = (data || []).map((p: any) => ({
+        market: p.market || p.condition_id || "Unknown",
+        outcome: p.outcome || "Unknown",
+        shares: parseFloat(p.shares || p.size || 0),
+        avgPrice: parseFloat(p.avg_price || p.avgPrice || 0),
+        currentValue: parseFloat(p.current_value || p.value || 0),
+      }));
+
+      return { positions, success: true };
+    } catch (error) {
+      return {
+        positions: [],
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
   }
 }
 

@@ -106,6 +106,15 @@ export interface Position {
   currentValue: number;
 }
 
+export interface LiveBalance {
+  isLive: boolean;
+  balance: number;
+  available: number;
+  locked: number;
+  lastSync: number | null;
+  error: string | null;
+}
+
 // Memory limits
 const MAX_BOT_LOGS = 30;
 const MAX_PNL_HISTORY = 50;
@@ -139,6 +148,16 @@ export function useTradingData() {
 
   // PnL history for chart
   const [pnlHistory, setPnLHistory] = useState<{ time: number; pnl: number }[]>([]);
+
+  // Live balance from Polymarket API
+  const [liveBalance, setLiveBalance] = useState<LiveBalance>({
+    isLive: false,
+    balance: 0,
+    available: 0,
+    locked: 0,
+    lastSync: null,
+    error: null,
+  });
 
   // Refs for cleanup
   const eventsRef = useRef<TradeEvent[]>([]);
@@ -247,10 +266,35 @@ export function useTradingData() {
     }
   }, []);
 
+  // Fetch live balance from Polymarket API
+  const fetchLiveBalance = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account/balance");
+      const data = await res.json();
+
+      setLiveBalance({
+        isLive: data.isLive || false,
+        balance: data.balance || 0,
+        available: data.available || 0,
+        locked: data.locked || 0,
+        lastSync: data.lastSync || Date.now(),
+        error: data.error || null,
+      });
+    } catch (err) {
+      console.error("Live balance fetch error:", err);
+      setLiveBalance(prev => ({
+        ...prev,
+        error: "Failed to fetch live balance",
+        lastSync: Date.now(),
+      }));
+    }
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchData();
     fetchBotLogs();
+    fetchLiveBalance();
 
     // Fallback timeout - ensure we don't stay in loading state forever
     const timeout = setTimeout(() => {
@@ -258,7 +302,7 @@ export function useTradingData() {
     }, 5000);
 
     return () => clearTimeout(timeout);
-  }, [fetchData, fetchBotLogs]);
+  }, [fetchData, fetchBotLogs, fetchLiveBalance]);
 
   // SSE for real-time updates
   useEffect(() => {
@@ -414,7 +458,9 @@ export function useTradingData() {
     noPriceDirection,
     pnlHistory,
     timeRemaining,
+    liveBalance,
     fetchData,
+    fetchLiveBalance,
     addTradeEvent,
     updateBotState,
   };
