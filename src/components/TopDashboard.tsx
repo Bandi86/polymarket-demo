@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
-import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw } from "lucide-react";
+import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw, Wallet, Plus } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { PriceTicker } from "./ui/PriceTicker";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { SoundToggle } from "./ui/SoundToggle";
 import { toast } from "./ui/toast";
+import { WalletButton } from "./WalletButton";
+import { DepositModal } from "./DepositModal";
+import { TradingModeToggle } from "./TradingModeToggle";
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "../hooks/useTradingData";
 import type { Portfolio } from "../types";
 
@@ -40,6 +43,7 @@ interface TopDashboardProps {
   onTimeframeChange: (tf: string) => void;
   // Trading mode
   tradingMode?: "demo" | "live";
+  onModeChange?: (mode: "demo" | "live") => Promise<void>;
   // Live balance from Polymarket
   liveBalance?: LiveBalance;
   onRefreshLiveBalance?: () => Promise<void>;
@@ -108,9 +112,13 @@ export function TopDashboard({
   selectedTimeframe,
   onTimeframeChange,
   tradingMode = "demo",
+  onModeChange,
   liveBalance,
   onRefreshLiveBalance,
 }: TopDashboardProps) {
+
+  // Deposit modal state
+  const [showDepositModal, setShowDepositModal] = useState(false);
 
   const activeBots = bots.filter(b => b.enabled).length;
   const totalBotsBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
@@ -224,22 +232,20 @@ export function TopDashboard({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
           {/* Logo + Mode Badge */}
-          <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <Zap style={{ color: coinColor }} className="w-5 h-5" />
             <span>Poly</span><span style={{ color: "var(--primary)" }}>Trade</span>
-            {tradingMode === "live" && (
-              <span style={{
-                fontSize: "0.625rem",
-                padding: "0.125rem 0.5rem",
-                borderRadius: 999,
-                background: "rgba(239, 68, 68, 0.2)",
-                color: "#ef4444",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}>
-                LIVE
-              </span>
+
+            {/* Trading Mode Toggle */}
+            {onModeChange && (
+              <TradingModeToggle
+                currentMode={tradingMode}
+                onModeChange={onModeChange}
+                liveBalance={liveBalance?.balance || 0}
+                hasWallet={!!liveBalance?.hasCredentials}
+                hasApiKey={!!liveBalance?.hasPrivateKey}
+                isDisabled={isBotRunning}
+              />
             )}
           </div>
 
@@ -315,6 +321,31 @@ export function TopDashboard({
             <span style={{ color: "var(--text-muted)" }}>Latency:</span>
             <span style={{ fontFamily: "monospace", marginLeft: 4 }}>{apiLatency}ms</span>
           </div>
+
+          {/* Wallet Button */}
+          <WalletButton />
+
+          {/* Deposit Button */}
+          <button
+            onClick={() => setShowDepositModal(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.375rem",
+              padding: "0.5rem 0.75rem",
+              borderRadius: 8,
+              background: "var(--glass-bg)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontWeight: 500,
+              fontSize: "0.75rem",
+              cursor: "pointer",
+            }}
+          >
+            <Plus className="w-4 h-4" />
+            Deposit
+          </button>
+
           <SoundToggle enabled={soundEnabled} onToggle={onToggleSound} />
           <ThemeToggle />
         </div>
@@ -448,76 +479,109 @@ export function TopDashboard({
           {/* Bottom Half: Financials, Bot Stats & Controls */}
           <div style={{ padding: "0.75rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.02)" }}>
             <div style={{ display: "flex", gap: "2.5rem" }}>
-              {/* Overall Balance */}
+              {/* Demo Balance */}
               <div>
-                <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Balance</span>
+                <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Demo Balance
+                </span>
                 <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: "var(--text-primary)" }}>
-                  {formatCurrency(totalBotsBalance)}
+                  {formatCurrency(liveBalance?.demoBalance || totalBotsBalance)}
                 </span>
                 <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginLeft: "0.25rem" }}>
                   ({bots.length} bots)
                 </span>
               </div>
 
+              {/* Divider */}
+              <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.3 }} />
+
               {/* Live Polymarket Balance */}
-              {liveBalance && (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                    <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      Polymarket
-                    </span>
-                    {liveBalance.isLive ? (
-                      <span style={{
-                        fontSize: "0.5rem",
-                        padding: "0.125rem 0.375rem",
-                        background: "rgba(34, 197, 94, 0.2)",
-                        color: "#22c55e",
-                        borderRadius: 4,
-                        fontWeight: 600,
-                      }}>
-                        LIVE
-                      </span>
-                    ) : (
-                      <span style={{
-                        fontSize: "0.5rem",
-                        padding: "0.125rem 0.375rem",
-                        background: "rgba(245, 158, 11, 0.2)",
-                        color: "#f59e0b",
-                        borderRadius: 4,
-                        fontWeight: 600,
-                      }}>
-                        DEMO
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                  <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Polymarket Live
+                  </span>
+                  {/* Connection Status Badge */}
+                  {!liveBalance?.hasCredentials ? (
                     <span style={{
-                      fontSize: "1.25rem",
-                      fontWeight: 700,
-                      fontFamily: "ui-monospace, monospace",
-                      color: liveBalance.isLive ? "var(--text-primary)" : "var(--text-muted)",
+                      fontSize: "0.5rem",
+                      padding: "0.125rem 0.375rem",
+                      background: "rgba(239, 68, 68, 0.2)",
+                      color: "#ef4444",
+                      borderRadius: 4,
+                      fontWeight: 600,
                     }}>
-                      ${liveBalance.balance.toFixed(2)}
+                      NO KEY
                     </span>
-                    {onRefreshLiveBalance && (
-                      <button
-                        onClick={onRefreshLiveBalance}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                          padding: "0.25rem",
-                          display: "flex",
-                          alignItems: "center",
-                        }}
-                        title="Refresh balance"
-                      >
-                        <RefreshCw className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
-                      </button>
-                    )}
-                  </div>
+                  ) : !liveBalance?.hasPrivateKey ? (
+                    <span style={{
+                      fontSize: "0.5rem",
+                      padding: "0.125rem 0.375rem",
+                      background: "rgba(245, 158, 11, 0.2)",
+                      color: "#f59e0b",
+                      borderRadius: 4,
+                      fontWeight: 600,
+                    }}>
+                      PARTIAL
+                    </span>
+                  ) : liveBalance?.isLive ? (
+                    <span style={{
+                      fontSize: "0.5rem",
+                      padding: "0.125rem 0.375rem",
+                      background: "rgba(34, 197, 94, 0.2)",
+                      color: "#22c55e",
+                      borderRadius: 4,
+                      fontWeight: 600,
+                    }}>
+                      CONNECTED
+                    </span>
+                  ) : (
+                    <span style={{
+                      fontSize: "0.5rem",
+                      padding: "0.125rem 0.375rem",
+                      background: "rgba(239, 68, 68, 0.2)",
+                      color: "#ef4444",
+                      borderRadius: 4,
+                      fontWeight: 600,
+                    }}>
+                      ERROR
+                    </span>
+                  )}
+                  {onRefreshLiveBalance && (
+                    <button
+                      onClick={onRefreshLiveBalance}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "0.125rem",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                      title="Refresh balance"
+                    >
+                      <RefreshCw className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+                    </button>
+                  )}
                 </div>
-              )}
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+                  <span style={{
+                    fontSize: "1.25rem",
+                    fontWeight: 700,
+                    fontFamily: "ui-monospace, monospace",
+                    color: liveBalance?.isLive ? "var(--text-primary)" : "var(--text-muted)",
+                  }}>
+                    ${(liveBalance?.balance || 0).toFixed(2)}
+                  </span>
+                  {liveBalance?.error && (
+                    <span style={{ fontSize: "0.625rem", color: "#f59e0b", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {liveBalance.error}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.3 }} />
               {/* Overall P&L */}
               <div>
                 <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total P&L</span>
@@ -739,6 +803,14 @@ export function TopDashboard({
         })}
       </div>
       </div>
+
+      {/* Deposit Modal */}
+      <DepositModal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
+        polymarketBalance={liveBalance?.balance || 0}
+        onRefreshBalance={onRefreshLiveBalance || (async () => {})}
+      />
     </div>
   );
 }

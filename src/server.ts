@@ -1100,12 +1100,13 @@ async function handleApiRoute(
   // GET /api/account/balance - Fetch live balance from Polymarket
   if (path === '/api/account/balance' && method === 'GET') {
     const result = await polymarketProvider.fetchAccountBalance()
+    const config = polymarketProvider.getConfig()
+
+    // Get demo balance from bots
+    const bots = botManager.getBots()
+    const demoBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
 
     if (!result.success) {
-      // Return demo balance as fallback
-      const bots = botManager.getBots()
-      const demoBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
-
       return Response.json({
         success: false,
         error: result.error,
@@ -1114,16 +1115,20 @@ async function handleApiRoute(
         available: 0,
         locked: 0,
         demoBalance,
-        message: "Using demo balance - no live API connection",
+        hasCredentials: config.hasCredentials,
+        hasPrivateKey: config.hasPrivateKey,
       })
     }
 
     return Response.json({
       success: true,
-      isLive: true,
+      isLive: result.isLive,
       balance: result.balance,
       available: result.available,
       locked: result.locked,
+      demoBalance,
+      hasCredentials: config.hasCredentials,
+      hasPrivateKey: config.hasPrivateKey,
       lastSync: Date.now(),
     })
   }
@@ -1153,16 +1158,19 @@ async function handleApiRoute(
   // POST /api/account/mode - Switch between demo and live mode
   if (path === '/api/account/mode' && method === 'POST') {
     const body = (await parseBody(req)) as { mode: 'demo' | 'live', balance?: number }
-    
+
     if (!body?.mode) {
       return Response.json({ success: false, error: 'Missing mode' }, { status: 400 })
     }
 
     const newMode = body.mode === 'live' ? 'real' : 'simulated'
-    
-    // Switch mode
+
+    // Switch market engine mode
     marketEngine.setMode(newMode)
-    
+
+    // Switch bot manager trading mode
+    botManager.setTradingMode(body.mode)
+
     // Set balance for demo mode
     if (body.mode === 'demo' && body.balance) {
       const bots = botManager.getBots()
@@ -1226,6 +1234,116 @@ async function handleApiRoute(
     })
 
     return Response.json({ success: true, results })
+  }
+
+  // === LIVE TRADING API ENDPOINTS ===
+
+  // GET /api/orders/positions - Get live positions from Polymarket
+  if (path === '/api/orders/positions' && method === 'GET') {
+    const result = await polymarketProvider.fetchPositions()
+    return Response.json(result)
+  }
+
+  // GET /api/orders/trades - Get trade history from Polymarket
+  if (path === '/api/orders/trades' && method === 'GET') {
+    const result = await polymarketProvider.fetchTrades()
+    return Response.json(result)
+  }
+
+  // POST /api/orders/place - Place an order on Polymarket
+  if (path === '/api/orders/place' && method === 'POST') {
+    const body = (await parseBody(req)) as {
+      tokenId?: string
+      marketId?: string
+      outcome?: 'YES' | 'NO'
+      side?: 'BUY' | 'SELL'
+      price?: number
+      size?: number
+      amount?: number
+    }
+
+    // Validate required fields
+    if (!body?.marketId && !body?.tokenId) {
+      return Response.json({ success: false, error: 'Missing marketId or tokenId' }, { status: 400 })
+    }
+    if (!body?.side) {
+      return Response.json({ success: false, error: 'Missing side (BUY/SELL)' }, { status: 400 })
+    }
+    if (!body?.price && body?.side === 'BUY') {
+      return Response.json({ success: false, error: 'Missing price' }, { status: 400 })
+    }
+    if (!body?.size && !body?.amount) {
+      return Response.json({ success: false, error: 'Missing size or amount' }, { status: 400 })
+    }
+
+    try {
+      // Get token ID from market if not provided
+      let tokenId = body.tokenId
+      if (!tokenId && body.marketId) {
+        const market = marketEngine.getCurrentMarket()
+        if (market && market.id === body.marketId && market.tokens) {
+          // Find YES or NO token
+          const tokenOutcome = body.outcome || 'YES'
+          const token = market.tokens.find(t =>
+            t.outcome.toLowerCase() === tokenOutcome.toLowerCase() ||
+            t.outcome.toLowerCase().includes(tokenOutcome === 'YES' ? 'up' : 'down')
+          )
+          tokenId = token?.token_id
+        }
+      }
+
+      if (!tokenId) {
+        return Response.json({ success: false, error: 'Could not determine token ID' }, { status: 400 })
+      }
+
+      // Calculate size from amount if needed
+      let size = body.size || 0
+      let price = body.price || 0
+      if (!size && body.amount && price > 0) {
+        size = body.amount / price
+      }
+
+      const result = await polymarketProvider.placeOrder({
+        tokenId,
+        side: body.side,
+        price,
+        size,
+      })
+
+      if (result.success) {
+        // Broadcast order event
+        broadcastUpdate({
+          type: 'order_placed',
+          data: {
+            orderId: result.orderId,
+            tokenId,
+            side: body.side,
+            price,
+            size,
+          },
+        })
+      }
+
+      return Response.json(result)
+    } catch (error) {
+      console.error('[Server] Order placement error:', error)
+      return Response.json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  // POST /api/orders/cancel - Cancel an order
+  if (path === '/api/orders/cancel' && method === 'POST') {
+    const body = (await parseBody(req)) as { orderId?: string }
+
+    if (!body?.orderId) {
+      return Response.json({ success: false, error: 'Missing orderId' }, { status: 400 })
+    }
+
+    const result = await polymarketProvider.cancelOrder(body.orderId)
+    return Response.json(result)
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 })

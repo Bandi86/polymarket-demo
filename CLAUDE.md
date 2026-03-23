@@ -23,17 +23,24 @@ src/
 │   ├── BotStatusCard.tsx # Individual bot monitoring cards
 │   ├── LiveMonitorTab.tsx # Bot monitoring dashboard
 │   ├── CompetitionTab.tsx # Strategy competition view
-│   └── SessionSummaryModal.tsx # End-of-session results
+│   ├── SessionSummaryModal.tsx # End-of-session results
+│   ├── TradingModeToggle.tsx # Demo/Live mode switch
+│   ├── WalletButton.tsx # MetaMask wallet connection
+│   ├── DepositModal.tsx # USDC deposit modal
+│   ├── LivePositionsPanel.tsx # Live Polymarket positions
+│   └── TradeHistoryPanel.tsx # Trade history
 ├── lib/                  # Core business logic
-│   ├── bot-manager.ts   # Bot strategies, competition logic
+│   ├── bot-manager.ts   # Bot strategies, competition logic, trading mode
 │   ├── market-engine.ts # Market creation, settlement
 │   ├── market-analyzer.ts # Technical analysis
 │   ├── risk-manager.ts  # Risk management
 │   ├── strategy-coordinator.ts # Multi-bot coordination
 │   ├── database.ts      # SQLite persistence
 │   └── providers/       # External data providers
+│       └── polymarket-provider.ts # Polymarket CLOB API integration
 ├── hooks/
-│   └── useTradingData.ts # Main data fetching/SSE hook
+│   ├── useTradingData.ts # Main data fetching/SSE hook
+│   └── useWallet.ts      # MetaMask wallet connection hook
 ├── types/
 │   └── index.ts         # TypeScript interfaces
 └── server.ts            # Bun server + API routes
@@ -115,6 +122,13 @@ interface BotData {
 | POST | `/api/competition/start` | Start competition |
 | POST | `/api/competition/stop` | Stop competition |
 | POST | `/api/competition/clear` | Clear competition state |
+| GET | `/api/account` | Account info (mode, balance, connection status) |
+| GET | `/api/account/balance` | Live Polymarket balance |
+| POST | `/api/account/mode` | Switch between demo/live mode |
+| GET | `/api/orders/positions` | Live positions from Polymarket |
+| GET | `/api/orders/trades` | Trade history from Polymarket |
+| POST | `/api/orders/place` | Place order on Polymarket CLOB |
+| POST | `/api/orders/cancel` | Cancel order on Polymarket |
 
 ## SSE Message Types
 
@@ -135,6 +149,33 @@ interface BotData {
    - `completedAt` timestamp set
    - Session summary modal shows results
 5. User closes modal → system resets to fresh state
+
+## Trading Modes
+
+The application supports two trading modes:
+
+### Demo Mode (Default)
+- Bots trade with simulated balance
+- Positions tracked in local state
+- No real money involved
+- Safe for strategy testing
+
+### Live Mode
+- Bots trade with real USDC on Polymarket
+- Requires API key and private key configuration
+- Orders placed via Polymarket CLOB API
+- Real positions visible in Live Positions panel
+- **Warning**: Real money at risk
+
+**Switching Modes:**
+- Use TradingModeToggle component in header
+- Call `POST /api/account/mode` with `{ "mode": "demo" | "live" }`
+- Mode cannot be changed while bots are running
+
+**Key Implementation:**
+- `botManager.setTradingMode(mode)` - Sets the trading mode
+- `botManager.isLiveMode()` - Returns true if in live mode
+- In `executeBotStrategy()`, checks mode and calls either `marketEngine.placeTrade()` (demo) or `executeLiveTrade()` (live)
 
 ## Bot Strategies
 

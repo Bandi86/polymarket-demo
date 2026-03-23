@@ -1,63 +1,48 @@
-// Trading Mode Toggle - Switch between Simulation and Real trading
-import { useState, useEffect, useCallback } from "react";
-import { Zap, AlertTriangle, Shield, CheckCircle } from "lucide-react";
+// Trading Mode Toggle - Switch between Demo and Live trading
+import { useState } from "react";
+import { FlaskConical, Zap, AlertTriangle, Shield } from "lucide-react";
 
-interface TradingMode {
-  mode: "simulation" | "paper" | "real";
-  balance: number;
-  requiresConfirmation: boolean;
-  testModeHours: number;
+interface TradingModeToggleProps {
+  currentMode: "demo" | "live";
+  onModeChange: (mode: "demo" | "live") => Promise<void>;
+  liveBalance: number;
+  hasWallet: boolean;
+  hasApiKey: boolean;
+  isDisabled?: boolean;
 }
 
-export function TradingModeToggle() {
-  const [mode, setMode] = useState<TradingMode>({
-    mode: "simulation",
-    balance: 100,
-    requiresConfirmation: true,
-    testModeHours: 0,
-  });
+export function TradingModeToggle({
+  currentMode,
+  onModeChange,
+  liveBalance,
+  hasWallet,
+  hasApiKey,
+  isDisabled = false,
+}: TradingModeToggleProps) {
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [pendingMode, setPendingMode] = useState<"simulation" | "paper" | "real">("simulation");
 
-  const fetchMode = useCallback(async () => {
-    try {
-      const res = await fetch("/api/trading-mode");
-      const data = await res.json();
-      setMode(data);
-    } catch (err) {
-      console.error("Failed to fetch trading mode:", err);
-    }
-  }, []);
+  const canGoLive = hasWallet && hasApiKey;
 
-  useEffect(() => {
-    fetchMode();
-  }, [fetchMode]);
+  const requestModeChange = async (newMode: "demo" | "live") => {
+    if (newMode === currentMode) return;
+    if (isDisabled) return;
 
-  const requestModeChange = (newMode: "simulation" | "paper" | "real") => {
-    if (newMode === "real" && mode.mode !== "real") {
-      setPendingMode(newMode);
+    // Show warning when switching to live
+    if (newMode === "live" && currentMode !== "live") {
       setShowConfirm(true);
-    } else {
-      changeMode(newMode);
+      return;
     }
+
+    await changeMode(newMode);
   };
 
-  const changeMode = async (newMode: "simulation" | "paper" | "real") => {
+  const changeMode = async (newMode: "demo" | "live") => {
     setLoading(true);
     setShowConfirm(false);
 
     try {
-      const res = await fetch("/api/trading-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: newMode }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setMode(prev => ({ ...prev, mode: newMode }));
-      }
+      await onModeChange(newMode);
     } catch (err) {
       console.error("Failed to change mode:", err);
     } finally {
@@ -65,176 +50,172 @@ export function TradingModeToggle() {
     }
   };
 
-  const getModeConfig = () => {
-    switch (mode.mode) {
-      case "simulation":
-        return {
-          color: "#3b82f6",
-          label: "Simulation",
-          description: "Virtual trading with simulated markets",
-          icon: Zap,
-        };
-      case "paper":
-        return {
-          color: "#f59e0b",
-          label: "Paper Trading",
-          description: "Real markets with virtual money",
-          icon: Shield,
-        };
-      case "real":
-        return {
-          color: "#22c55e",
-          label: "Real Trading",
-          description: "Real markets with real money",
-          icon: CheckCircle,
-        };
-    }
-  };
-
-  const config = getModeConfig();
-  const Icon = config.icon;
-
   return (
-    <div className="glass-card" style={{ padding: "1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
-        <span style={{ fontWeight: 600 }}>Trading Mode</span>
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.25rem 0.75rem",
-          background: `${config.color}20`,
-          borderRadius: 9999,
-          color: config.color,
-          fontSize: "0.875rem",
-          fontWeight: 500,
-        }}>
-          <Icon className="w-4 h-4" />
-          {config.label}
-        </div>
-      </div>
-
-      <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem", color: "var(--text-muted)" }}>
-        {config.description}
-      </p>
-
-      {/* Mode selector */}
-      <div style={{ display: "flex", gap: "0.5rem" }}>
+    <>
+      {/* Main Toggle */}
+      <div style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "0.25rem",
+        background: "var(--glass-bg)",
+        borderRadius: 12,
+        border: `2px solid ${currentMode === "live" ? "#ef4444" : "var(--border)"}`,
+        boxShadow: currentMode === "live" ? "0 0 20px rgba(239, 68, 68, 0.3)" : "none",
+      }}>
+        {/* Demo Button */}
         <button
-          onClick={() => requestModeChange("simulation")}
-          disabled={loading || mode.mode === "simulation"}
-          className={`quick-btn ${mode.mode === "simulation" ? "active" : ""}`}
+          onClick={() => requestModeChange("demo")}
+          disabled={loading || currentMode === "demo" || isDisabled}
           style={{
-            flex: 1,
-            opacity: mode.mode === "simulation" ? 1 : 0.7,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.5rem 1rem",
+            borderRadius: 8,
+            background: currentMode === "demo" ? "var(--primary)" : "transparent",
+            color: currentMode === "demo" ? "white" : "var(--text-muted)",
+            border: "none",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            cursor: currentMode === "demo" || isDisabled ? "default" : "pointer",
+            transition: "all 0.2s",
           }}
         >
-          <Zap className="w-3 h-3" />
-          Simulation
+          <FlaskConical className="w-4 h-4" />
+          DEMO
         </button>
+
+        {/* Live Button */}
         <button
-          onClick={() => requestModeChange("paper")}
-          disabled={loading || mode.mode === "paper"}
-          className={`quick-btn ${mode.mode === "paper" ? "active" : ""}`}
+          onClick={() => requestModeChange("live")}
+          disabled={loading || currentMode === "live" || !canGoLive || isDisabled}
           style={{
-            flex: 1,
-            opacity: mode.mode === "paper" ? 1 : 0.7,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.5rem 1rem",
+            borderRadius: 8,
+            background: currentMode === "live" ? "#ef4444" : "transparent",
+            color: currentMode === "live" ? "white" : canGoLive ? "var(--text-muted)" : "var(--text-muted)",
+            border: "none",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            cursor: currentMode === "live" || !canGoLive || isDisabled ? "default" : "pointer",
+            opacity: canGoLive ? 1 : 0.5,
+            transition: "all 0.2s",
           }}
+          title={!canGoLive ? "Connect wallet and configure API to enable live mode" : ""}
         >
-          <Shield className="w-3 h-3" />
-          Paper
-        </button>
-        <button
-          onClick={() => requestModeChange("real")}
-          disabled={loading || mode.mode === "real"}
-          className={`quick-btn ${mode.mode === "real" ? "active" : ""}`}
-          style={{
-            flex: 1,
-            opacity: mode.mode === "real" ? 1 : 0.7,
-            color: mode.mode === "real" ? "#22c55e" : undefined,
-          }}
-        >
-          <CheckCircle className="w-3 h-3" />
-          Real
+          <Zap className="w-4 h-4" />
+          LIVE
         </button>
       </div>
 
-      {/* Warning for real mode */}
-      {mode.mode === "real" && (
-        <div style={{
-          marginTop: "0.75rem",
-          padding: "0.5rem",
-          background: "rgba(34, 197, 94, 0.1)",
-          borderRadius: 6,
-          border: "1px solid rgba(34, 197, 94, 0.2)",
-          fontSize: "0.75rem",
-        }}>
-          <strong>Real trading enabled.</strong> All trades use actual funds from your connected wallet.
-        </div>
-      )}
-
-      {/* Confirmation Modal */}
+      {/* Confirmation Modal for Live Mode */}
       {showConfirm && (
         <div style={{
           position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0, 0, 0, 0.5)",
+          inset: 0,
+          background: "rgba(0, 0, 0, 0.85)",
+          backdropFilter: "blur(10px)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          zIndex: 1000,
+          zIndex: 200,
+          padding: "1rem",
         }}>
-          <div className="glass-card" style={{
-            padding: "1.5rem",
-            maxWidth: 400,
-            margin: "1rem",
+          <div style={{
+            background: "var(--bg)",
+            border: "2px solid #ef4444",
+            borderRadius: 16,
+            padding: "2rem",
+            maxWidth: 440,
+            width: "100%",
+            boxShadow: "0 0 60px rgba(239, 68, 68, 0.3)",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-              <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
-              <span style={{ fontWeight: 600, fontSize: "1.125rem" }}>Enable Real Trading?</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" }}>
+              <div style={{
+                padding: "0.75rem",
+                background: "rgba(239, 68, 68, 0.2)",
+                borderRadius: 12,
+              }}>
+                <AlertTriangle className="w-8 h-8" style={{ color: "#ef4444" }} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Switch to Live Mode?</h3>
+                <p style={{ margin: 0, color: "#ef4444", fontSize: "0.875rem", fontWeight: 600 }}>Real money trading</p>
+              </div>
             </div>
 
-            <p style={{ margin: "0 0 1rem", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-              Real trading uses actual funds from your wallet. Only enable this if you understand the risks and have tested your strategies thoroughly.
-            </p>
+            <div style={{
+              padding: "1rem",
+              background: "var(--glass-bg)",
+              borderRadius: 12,
+              marginBottom: "1.5rem",
+              border: "1px solid var(--border)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <Shield className="w-4 h-4" style={{ color: "#f59e0b" }} />
+                <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>Important Notice</span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: "1.25rem", color: "var(--text-secondary)", fontSize: "0.875rem", lineHeight: 1.6 }}>
+                <li>Bots will trade with <strong style={{ color: "#ef4444" }}>real USDC</strong> from your Polymarket account</li>
+                <li>Losses are <strong>permanent</strong> and cannot be recovered</li>
+                <li>Current live balance: <strong style={{ color: "#22c55e" }}>${liveBalance.toFixed(2)}</strong></li>
+                <li>Start with small amounts to test strategies</li>
+              </ul>
+            </div>
 
             <div style={{
               padding: "0.75rem",
               background: "rgba(239, 68, 68, 0.1)",
-              borderRadius: 6,
-              marginBottom: "1rem",
-              fontSize: "0.75rem",
+              borderRadius: 8,
+              marginBottom: "1.5rem",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
             }}>
-              <strong>Requirements:</strong>
-              <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1rem" }}>
-                <li>Connected Polymarket wallet</li>
-                <li>Minimum recommended test hours: 24h</li>
-                <li>Verified strategy performance</li>
-              </ul>
+              <p style={{ margin: 0, color: "#ef4444", fontSize: "0.875rem", fontWeight: 500 }}>
+                ⚠️ Only enable live mode if you have thoroughly tested your strategies in demo mode.
+              </p>
             </div>
 
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
               <button
                 onClick={() => setShowConfirm(false)}
-                className="quick-btn"
-                style={{ flex: 1 }}
+                style={{
+                  flex: 1,
+                  padding: "0.875rem",
+                  borderRadius: 10,
+                  background: "var(--glass-bg)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-primary)",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                  cursor: "pointer",
+                }}
               >
                 Cancel
               </button>
               <button
-                onClick={() => changeMode(pendingMode)}
-                className="trade-btn up"
-                style={{ flex: 1 }}
+                onClick={() => changeMode("live")}
+                style={{
+                  flex: 1,
+                  padding: "0.875rem",
+                  borderRadius: 10,
+                  background: "#ef4444",
+                  border: "none",
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 15px rgba(239, 68, 68, 0.4)",
+                }}
               >
-                I Understand - Enable
+                Yes, Enable Live Mode
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

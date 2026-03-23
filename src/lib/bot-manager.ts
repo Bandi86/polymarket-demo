@@ -17,6 +17,10 @@ import { priceService } from "./price";
 import { riskManager } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
+import { polymarketProvider } from "./providers/polymarket-provider";
+
+// Trading mode type
+export type TradingMode = "demo" | "live";
 
 // Debug mode - set to true to enable verbose logging
 const DEBUG_STRATEGIES = true;
@@ -889,6 +893,9 @@ export class BotManager {
     },
   };
 
+  // Trading mode: demo (simulated) or live (real Polymarket trades)
+  private tradingMode: TradingMode = "demo";
+
   constructor(config: BotManagerConfig = {}) {
     this.config = {
       maxBots: config.maxBots ?? 20,
@@ -1280,7 +1287,7 @@ export class BotManager {
     }).catch((e) => console.error("[BotManager] DB save error:", e));
   }
 
-  private executeBotStrategy(id: string): void {
+  private async executeBotStrategy(id: string): Promise<void> {
     const bot = this.bots.get(id);
     if (!bot || !bot.enabled) return;
 
@@ -1391,6 +1398,9 @@ export class BotManager {
       return;
     }
 
+    // At this point, decision.action is guaranteed to be non-null
+    const action = decision.action;
+
     // Check if bot already has an open position on this market - one position per market
     const existingPositions = marketEngine.getOpenPositions(id);
     const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
@@ -1400,8 +1410,8 @@ export class BotManager {
     }
 
     // Log the decision to trade
-    this.addLog(id, "DECISION", `Trade decision: ${decision.action} - ${decision.reason}`, {
-      action: decision.action,
+    this.addLog(id, "DECISION", `Trade decision: ${action} - ${decision.reason}`, {
+      action: action,
       confidence: decision.confidence,
       reason: decision.reason,
       yesPrice,
@@ -1425,12 +1435,12 @@ export class BotManager {
       const botStats = bot.stats;
       const winProbability = botStats.trades >= 5
         ? botStats.winRate
-        : (decision.action === "YES" ? 1 - yesPrice : 1 - noPrice);
+        : (action === "YES" ? 1 - yesPrice : 1 - noPrice);
 
       // Net odds: amount won per unit bet
       // If YES at 0.60, you pay 0.60 to win 1.00, so net odds = (1-0.60)/0.60 = 0.67
       // If NO at 0.40, you pay 0.40 to win 1.00, so net odds = (1-0.40)/0.40 = 1.5
-      const price = decision.action === "YES" ? yesPrice : noPrice;
+      const price = action === "YES" ? yesPrice : noPrice;
       const netOdds = (1 - price) / price;
 
       // Kelly formula: f* = (p*b - q) / b
@@ -1490,7 +1500,7 @@ export class BotManager {
         botId: id,
         botName: bot.name,
         strategy: bot.strategy,
-        action: decision.action,
+        action: action,
         confidence: decision.confidence,
         betSize,
       },
@@ -1499,7 +1509,7 @@ export class BotManager {
 
     if (!coordination.allowed) {
       this.addLog(id, "COORD", `Trade blocked by coordinator: ${coordination.reason}`, {
-        action: decision.action,
+        action: action,
         betSize,
         reason: coordination.reason,
       });
@@ -1523,29 +1533,112 @@ export class BotManager {
       return;
     }
 
-    const position = marketEngine.placeTrade(decision.action, finalBetSize, id);
-    if (position) {
-      // Confirm execution with coordinator
-      strategyCoordinator.confirmExecution(market.id, id, decision.action, finalBetSize);
-
-      this.addLog(id, "TRADE", `Executed ${decision.action} trade for $${finalBetSize.toFixed(2)} at ${position.odds.toFixed(3)} odds`, {
-        action: decision.action,
-        amount: finalBetSize,
-        odds: position.odds,
-        fee: position.fee,
-        positionId: position.id,
-        confidence: decision.confidence,
-        balanceAfter: portfolio.balance - finalBetSize - adjustedFee,
-        openPositions: portfolio.openPositions.length + 1,
-        kellyUsed: bot.useKelly,
-        strategy: bot.strategy,
-        coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
-      });
-      // Note: stats are synced from portfolio on getBots() / after market settlement
-      // Do NOT call updateBotStats here — position.pnl is null at placement time
+    // Execute trade based on trading mode
+    if (this.tradingMode === "live") {
+      // LIVE MODE: Place real order on Polymarket
+      await this.executeLiveTrade(id, market, action, decision.confidence, finalBetSize);
     } else {
-      // Trade failed, cancel with coordinator
-      strategyCoordinator.cancelDecision(market.id, id);
+      // DEMO MODE: Use simulated market engine
+      const position = marketEngine.placeTrade(action, finalBetSize, id);
+      if (position) {
+        // Confirm execution with coordinator
+        strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
+
+        this.addLog(id, "TRADE", `Executed ${action} trade for $${finalBetSize.toFixed(2)} at ${position.odds.toFixed(3)} odds`, {
+          action: action,
+          amount: finalBetSize,
+          odds: position.odds,
+          fee: position.fee,
+          positionId: position.id,
+          confidence: decision.confidence,
+          balanceAfter: portfolio.balance - finalBetSize - adjustedFee,
+          openPositions: portfolio.openPositions.length + 1,
+          kellyUsed: bot.useKelly,
+          strategy: bot.strategy,
+          coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
+          mode: "demo",
+        });
+      } else {
+        // Trade failed, cancel with coordinator
+        strategyCoordinator.cancelDecision(market.id, id);
+      }
+    }
+  }
+
+  /** Execute a live trade on Polymarket */
+  private async executeLiveTrade(
+    botId: string,
+    market: { id: string; tokens?: { token_id: string; outcome: string }[]; outcomePrices?: { yes: string; no: string } },
+    action: Outcome,
+    confidence: number,
+    betSize: number
+  ): Promise<void> {
+    try {
+      // Get token ID for the outcome
+      let tokenId: string | undefined;
+      if (market.tokens && market.tokens.length > 0) {
+        const token = market.tokens.find(t =>
+          (action === "YES" && (t.outcome.toLowerCase() === "yes" || t.outcome.toLowerCase().includes("up"))) ||
+          (action === "NO" && (t.outcome.toLowerCase() === "no" || t.outcome.toLowerCase().includes("down")))
+        );
+        tokenId = token?.token_id;
+      }
+
+      if (!tokenId) {
+        this.addLog(botId, "ERROR", `Cannot find token for ${action} outcome in live mode`, {
+          action: action,
+          marketId: market.id,
+        });
+        return;
+      }
+
+      // Get current price
+      const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
+      const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
+      const price = action === "YES" ? yesPrice : noPrice;
+
+      // Calculate size (number of shares)
+      const size = betSize / price;
+
+      this.addLog(botId, "TRADE", `LIVE: Placing ${action} order for $${betSize.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`, {
+        action: action,
+        amount: betSize,
+        price,
+        size,
+        tokenId,
+        mode: "live",
+      });
+
+      // Place order on Polymarket
+      const result = await polymarketProvider.placeOrder({
+        tokenId,
+        side: "BUY",
+        price,
+        size,
+      });
+
+      if (result.success) {
+        this.addLog(botId, "TRADE", `✅ LIVE order placed: ${action} $${betSize.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`, {
+          orderId: result.orderId,
+          action: action,
+          amount: betSize,
+          price,
+          size,
+          mode: "live",
+        });
+      } else {
+        this.addLog(botId, "ERROR", `❌ LIVE order failed: ${result.error}`, {
+          error: result.error,
+          action: action,
+          amount: betSize,
+          mode: "live",
+        });
+      }
+    } catch (error) {
+      this.addLog(botId, "ERROR", `LIVE trade exception: ${error instanceof Error ? error.message : "Unknown error"}`, {
+        error: error instanceof Error ? error.message : "Unknown",
+        mode: "live",
+      });
     }
   }
 
@@ -1748,6 +1841,35 @@ export class BotManager {
       },
     };
     return this.getCompetitionState();
+  }
+
+  // === Trading Mode Management ===
+
+  /** Get current trading mode */
+  getTradingMode(): TradingMode {
+    return this.tradingMode;
+  }
+
+  /** Set trading mode */
+  setTradingMode(mode: TradingMode): void {
+    const previousMode = this.tradingMode;
+    this.tradingMode = mode;
+
+    console.log(`[BotManager] Trading mode changed: ${previousMode} -> ${mode}`);
+
+    // Log mode change for all running bots
+    if (previousMode !== mode) {
+      for (const [id, bot] of this.bots) {
+        if (bot.enabled) {
+          this.addLog(id, "DECISION", `Trading mode changed to ${mode.toUpperCase()}`, { mode });
+        }
+      }
+    }
+  }
+
+  /** Check if in live mode */
+  isLiveMode(): boolean {
+    return this.tradingMode === "live";
   }
 
   private updateLeaderboard(): void {

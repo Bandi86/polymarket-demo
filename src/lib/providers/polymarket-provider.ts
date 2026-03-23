@@ -1,13 +1,15 @@
 import type { Market } from "../../types";
+import { privateKeyToAccount } from "viem/accounts";
 
 // Load credentials from environment (Bun automatically loads .env)
 const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
 const POLY_API_SECRET = process.env.POLYMARKET_API_SECRET || "";
-const POLY_API_PASSPHRASE = process.env.POLYMARKET_API_PASSPHRASE || "";
 const POLY_PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY || "";
 
 // Debug: Log if credentials are loaded (without revealing them)
-console.log(`[PolymarketProvider] API Key loaded: ${POLY_API_KEY ? `${POLY_API_KEY.slice(0, 8)}...` : 'NOT SET'}`);
+const hasCredentials = !!(POLY_API_KEY && POLY_API_SECRET);
+const hasPrivateKey = !!POLY_PRIVATE_KEY;
+console.log(`[PolymarketProvider] Credentials: API=${hasCredentials ? 'YES' : 'NO'} PrivateKey=${hasPrivateKey ? 'YES' : 'NO'}`);
 
 export interface PolymarketEvent {
   id: string;
@@ -404,126 +406,199 @@ export class PolymarketProvider {
   }
 
   /** Get API configuration status */
-  getConfig(): { apiKey: string; hasCredentials: boolean } {
+  getConfig(): { apiKey: string; hasCredentials: boolean; hasPrivateKey: boolean } {
     return {
       apiKey: POLY_API_KEY ? `${POLY_API_KEY.slice(0, 8)}...` : "",
       hasCredentials: !!(POLY_API_KEY && POLY_API_SECRET),
+      hasPrivateKey: !!POLY_PRIVATE_KEY,
     };
   }
 
   /**
-   * Fetch account balance from Polymarket.
-   *
-   * Note: Polymarket CLOB API requires EIP-712 signatures with the private key
-   * for authenticated endpoints. The API key/secret provided in .env are for
-   * read-only access. Full API access requires setting up L2 authentication.
-   *
-   * For now, we return a message indicating the balance needs to be checked
-   * manually on polymarket.com.
+   * Fetch account balance from Polymarket CLOB API.
+   * Uses L2 signature authentication with the private key.
    */
   async fetchAccountBalance(): Promise<{
     balance: number;
     available: number;
     locked: number;
     success: boolean;
+    isLive: boolean;
     error?: string;
   }> {
-    // Check if credentials are available
-    if (!POLY_API_KEY || !POLY_API_SECRET) {
+    // If we have a private key, try authenticated balance fetch
+    if (POLY_PRIVATE_KEY) {
+      return this.fetchBalanceWithPrivateKey();
+    }
+
+    // If we have API key/secret but no private key
+    if (POLY_API_KEY && POLY_API_SECRET) {
       return {
         balance: 0,
         available: 0,
         locked: 0,
         success: false,
-        error: "No API credentials configured. Set POLYMARKET_API_KEY and POLYMARKET_API_SECRET in .env",
+        isLive: false,
+        error: "API credentials configured but private key required for balance. Add POLYMARKET_PRIVATE_KEY to .env",
       };
     }
 
+    return {
+      balance: 0,
+      available: 0,
+      locked: 0,
+      success: false,
+      isLive: false,
+      error: "No API credentials configured",
+    };
+  }
+
+  /**
+   * Fetch balance using private key for L2 signature authentication.
+   * Implements Polymarket's EIP-712 typed data signature using viem.
+   */
+  private async fetchBalanceWithPrivateKey(): Promise<{
+    balance: number;
+    available: number;
+    locked: number;
+    success: boolean;
+    isLive: boolean;
+    error?: string;
+  }> {
     try {
-      // Polymarket CLOB API requires L2 signatures for balance endpoint
-      // The API key/secret alone are not sufficient for authenticated requests
-      // We'll try a few endpoints to see if any work
+      // Ensure private key has 0x prefix
+      const privateKey = POLY_PRIVATE_KEY.startsWith("0x")
+        ? POLY_PRIVATE_KEY as `0x${string}`
+        : `0x${POLY_PRIVATE_KEY}` as `0x${string}`;
 
-      // Try Gamma API for public user data (limited)
-      const publicEndpoints = [
-        `${GAMMA_API}/users/me`,
-        `${GAMMA_API}/user`,
-      ];
+      // Create account from private key using viem
+      const account = privateKeyToAccount(privateKey);
+      const address = account.address;
 
-      for (const endpoint of publicEndpoints) {
-        try {
-          const response = await fetch(endpoint, {
-            headers: {
-              "Authorization": `Bearer ${POLY_API_KEY}`,
-            },
-            signal: AbortSignal.timeout(3000),
-          });
+      console.log(`[PolymarketProvider] Using address: ${address}`);
 
-          if (response.ok) {
-            const data = await response.json();
-            if (data.balance !== undefined) {
-              const balance = parseFloat(data.balance);
-              return {
-                balance,
-                available: balance,
-                locked: 0,
-                success: true,
-              };
-            }
-          }
-        } catch {
-          // Continue to next endpoint
+      // Create timestamp and nonce for L2 signature
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = timestamp;
+
+      // EIP-712 typed data for Polymarket L2 authentication
+      const domain = {
+        name: "Polymarket CLOB",
+        version: "1",
+        chainId: 137,
+        verifyingContract: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`,
+      };
+
+      const types = {
+        Greeting: [
+          { name: "greeting", type: "string" },
+        ],
+      } as const;
+
+      const value = {
+        greeting: `greeting: ${timestamp}`,
+      };
+
+      // Sign the typed data using viem
+      const signature = await account.signTypedData({
+        domain,
+        types,
+        primaryType: "Greeting",
+        message: value,
+      });
+
+      console.log(`[PolymarketProvider] Signature created: ${signature.slice(0, 20)}...`);
+
+      // Fetch balance with L2 signature
+      const response = await fetch(`${CLOB_API}/balances`, {
+        method: "GET",
+        headers: {
+          "POLY-ADDRESS": address,
+          "POLY-SIGNATURE": signature,
+          "POLY-TIMESTAMP": timestamp.toString(),
+          "POLY-NONCE": nonce.toString(),
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[PolymarketProvider] Balance API error: ${response.status} ${errorText}`);
+
+        // Check if balance is simply $0
+        if (response.status === 400 || response.status === 404) {
+          return {
+            balance: 0,
+            available: 0,
+            locked: 0,
+            success: true,
+            isLive: true,
+            error: "No balance found (account may be empty)",
+          };
         }
+
+        return {
+          balance: 0,
+          available: 0,
+          locked: 0,
+          success: false,
+          isLive: false,
+          error: `API error: ${response.status}`,
+        };
       }
 
-      // If all endpoints fail, return credentials detected but API access limited
+      const data = await response.json();
+      console.log(`[PolymarketProvider] Balance response:`, JSON.stringify(data).slice(0, 200));
+
+      // Parse balance from response
+      // Polymarket returns balances as array
+      let balance = 0;
+      let available = 0;
+      let locked = 0;
+
+      if (Array.isArray(data)) {
+        // Find USDC balance
+        const usdcBalance = data.find((b: any) =>
+          b.currency === "USDC" || b.asset === "USDC" || b.symbol === "USDC"
+        );
+        if (usdcBalance) {
+          balance = parseFloat(usdcBalance.balance || usdcBalance.amount || 0) / 1e6;
+          available = parseFloat(usdcBalance.available || balance) / 1e6;
+          locked = parseFloat(usdcBalance.locked || 0) / 1e6;
+        }
+      } else if (data.balance !== undefined) {
+        balance = parseFloat(data.balance);
+        available = parseFloat(data.available || data.balance);
+        locked = parseFloat(data.locked || 0);
+      } else if (data.USDC !== undefined) {
+        balance = parseFloat(data.USDC);
+      }
+
+      console.log(`[PolymarketProvider] Live balance fetched: $${balance.toFixed(2)}`);
+
       return {
-        balance: 0,
-        available: 0,
-        locked: 0,
-        success: false,
-        error: "API credentials detected. Polymarket balance API requires L2 signature authentication. Check your balance at polymarket.com",
+        balance,
+        available,
+        locked,
+        success: true,
+        isLive: true,
       };
     } catch (error) {
-      console.error("[PolymarketProvider] Failed to fetch balance:", error);
+      console.error("[PolymarketProvider] Failed to fetch balance with private key:", error);
       return {
         balance: 0,
         available: 0,
         locked: 0,
         success: false,
+        isLive: false,
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   }
 
   /**
-   * Import HMAC key for signing
-   */
-  private async importKey(secret: string): Promise<CryptoKey> {
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    return await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-  }
-
-  /**
-   * Sign message with HMAC-SHA256
-   */
-  private async signHmac(key: CryptoKey, message: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(message);
-    const signature = await crypto.subtle.sign("HMAC", key, data);
-    // Convert to base64
-    return btoa(String.fromCharCode(...new Uint8Array(signature)));
-  }
-
-  /**
-   * Fetch positions from Polymarket
+   * Fetch positions from Polymarket using L2 signature
    */
   async fetchPositions(): Promise<{
     positions: Array<{
@@ -536,30 +611,60 @@ export class PolymarketProvider {
     success: boolean;
     error?: string;
   }> {
-    if (!POLY_API_KEY || !POLY_API_SECRET) {
+    if (!POLY_PRIVATE_KEY) {
       return {
         positions: [],
         success: false,
-        error: "No API credentials configured",
+        error: "No private key configured",
       };
     }
 
     try {
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const method = "GET";
-      const requestPath = "/positions";
+      // Ensure private key has 0x prefix
+      const privateKey = POLY_PRIVATE_KEY.startsWith("0x")
+        ? POLY_PRIVATE_KEY as `0x${string}`
+        : `0x${POLY_PRIVATE_KEY}` as `0x${string}`;
 
-      const message = timestamp + method + requestPath;
-      const key = await this.importKey(POLY_API_SECRET);
-      const signature = await this.signHmac(key, message);
+      // Create account from private key using viem
+      const account = privateKeyToAccount(privateKey);
+      const address = account.address;
 
-      const response = await fetch(`${CLOB_API}${requestPath}`, {
-        method: method,
+      // Create timestamp and nonce for L2 signature
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      // EIP-712 typed data for Polymarket L2 authentication
+      const domain = {
+        name: "Polymarket CLOB",
+        version: "1",
+        chainId: 137,
+        verifyingContract: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`,
+      };
+
+      const types = {
+        Greeting: [
+          { name: "greeting", type: "string" },
+        ],
+      } as const;
+
+      const value = {
+        greeting: `greeting: ${timestamp}`,
+      };
+
+      // Sign the typed data using viem
+      const signature = await account.signTypedData({
+        domain,
+        types,
+        primaryType: "Greeting",
+        message: value,
+      });
+
+      const response = await fetch(`${CLOB_API}/positions`, {
+        method: "GET",
         headers: {
-          "POLY-ADDRESS": POLY_API_KEY,
+          "POLY-ADDRESS": address,
           "POLY-SIGNATURE": signature,
-          "POLY-TIMESTAMP": timestamp,
-          "POLY-NONCE": timestamp,
+          "POLY-TIMESTAMP": timestamp.toString(),
+          "POLY-NONCE": timestamp.toString(),
           "Content-Type": "application/json",
         },
         signal: AbortSignal.timeout(5000),
@@ -591,6 +696,286 @@ export class PolymarketProvider {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       };
+    }
+  }
+
+  /**
+   * Place a market order on Polymarket CLOB.
+   * Uses GTC (Good Till Cancelled) order type.
+   */
+  async placeOrder(params: {
+    tokenId: string;
+    side: "BUY" | "SELL";
+    price: number;
+    size: number;
+  }): Promise<{
+    success: boolean;
+    orderId?: string;
+    error?: string;
+  }> {
+    if (!POLY_PRIVATE_KEY) {
+      return { success: false, error: "No private key configured" };
+    }
+
+    try {
+      const privateKey = POLY_PRIVATE_KEY.startsWith("0x")
+        ? POLY_PRIVATE_KEY as `0x${string}`
+        : `0x${POLY_PRIVATE_KEY}` as `0x${string}`;
+
+      const account = privateKeyToAccount(privateKey);
+      const address = account.address;
+
+      // Generate order parameters
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = `${timestamp}-${Math.random().toString(36).slice(2)}`;
+      const expiration = timestamp + 86400; // 24 hours from now
+
+      // EIP-712 Order type
+      const domain = {
+        name: "Polymarket CLOB",
+        version: "1",
+        chainId: 137,
+        verifyingContract: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`,
+      };
+
+      const types = {
+        Order: [
+          { name: "salt", type: "string" },
+          { name: "maker", type: "address" },
+          { name: "signer", type: "address" },
+          { name: "taker", type: "address" },
+          { name: "tokenId", type: "string" },
+          { name: "makerAmount", type: "string" },
+          { name: "takerAmount", type: "string" },
+          { name: "expiration", type: "string" },
+          { name: "nonce", type: "string" },
+          { name: "feeRateBps", type: "string" },
+          { name: "side", type: "string" },
+          { name: "signatureType", type: "string" },
+        ],
+      } as const;
+
+      // Calculate amounts
+      const makerAmount = params.side === "BUY"
+        ? Math.floor(params.price * params.size * 1e6) // USDC to spend
+        : Math.floor(params.size * 1e6); // Shares to sell
+      const takerAmount = params.side === "BUY"
+        ? Math.floor(params.size * 1e6) // Shares to receive
+        : Math.floor(params.price * params.size * 1e6); // USDC to receive
+
+      const orderValue = {
+        salt: nonce,
+        maker: address,
+        signer: address,
+        taker: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+        tokenId: params.tokenId,
+        makerAmount: makerAmount.toString(),
+        takerAmount: takerAmount.toString(),
+        expiration: expiration.toString(),
+        nonce: nonce,
+        feeRateBps: "0",
+        side: params.side === "BUY" ? "0" : "1",
+        signatureType: "0",
+      };
+
+      // Sign the order
+      const signature = await account.signTypedData({
+        domain,
+        types,
+        primaryType: "Order",
+        message: orderValue,
+      });
+
+      console.log(`[PolymarketProvider] Order signed: ${signature.slice(0, 20)}...`);
+
+      // Create order payload
+      const orderPayload = {
+        salt: nonce,
+        maker: address,
+        signer: address,
+        taker: "0x0000000000000000000000000000000000000000",
+        tokenId: params.tokenId,
+        makerAmount: makerAmount.toString(),
+        takerAmount: takerAmount.toString(),
+        expiration: expiration.toString(),
+        nonce: nonce,
+        feeRateBps: "0",
+        side: params.side,
+        signatureType: "EOA",
+        signature,
+      };
+
+      // Submit order to CLOB
+      const response = await fetch(`${CLOB_API}/order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(orderPayload),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[PolymarketProvider] Order failed: ${response.status} ${errorText}`);
+        return {
+          success: false,
+          error: `Order failed: ${response.status}`,
+        };
+      }
+
+      const result = await response.json();
+      console.log(`[PolymarketProvider] Order placed:`, result);
+
+      return {
+        success: true,
+        orderId: result.orderId || result.id || nonce,
+      };
+    } catch (error) {
+      console.error("[PolymarketProvider] Place order error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  /**
+   * Cancel an order on Polymarket CLOB.
+   */
+  async cancelOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    if (!POLY_PRIVATE_KEY) {
+      return { success: false, error: "No private key configured" };
+    }
+
+    try {
+      const privateKey = POLY_PRIVATE_KEY.startsWith("0x")
+        ? POLY_PRIVATE_KEY as `0x${string}`
+        : `0x${POLY_PRIVATE_KEY}` as `0x${string}`;
+
+      const account = privateKeyToAccount(privateKey);
+      const address = account.address;
+
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      // L2 signature for cancellation
+      const domain = {
+        name: "Polymarket CLOB",
+        version: "1",
+        chainId: 137,
+        verifyingContract: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`,
+      };
+
+      const types = {
+        Greeting: [{ name: "greeting", type: "string" }],
+      } as const;
+
+      const signature = await account.signTypedData({
+        domain,
+        types,
+        primaryType: "Greeting",
+        message: { greeting: `greeting: ${timestamp}` },
+      });
+
+      const response = await fetch(`${CLOB_API}/order/${orderId}`, {
+        method: "DELETE",
+        headers: {
+          "POLY-ADDRESS": address,
+          "POLY-SIGNATURE": signature,
+          "POLY-TIMESTAMP": timestamp.toString(),
+          "POLY-NONCE": timestamp.toString(),
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        return { success: false, error: `Cancel failed: ${response.status}` };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  }
+
+  /**
+   * Fetch trade history from Polymarket.
+   */
+  async fetchTrades(): Promise<{
+    trades: Array<{
+      id: string;
+      market: string;
+      outcome: string;
+      side: string;
+      size: number;
+      price: number;
+      timestamp: number;
+    }>;
+    success: boolean;
+    error?: string;
+  }> {
+    if (!POLY_PRIVATE_KEY) {
+      return { trades: [], success: false, error: "No private key configured" };
+    }
+
+    try {
+      const privateKey = POLY_PRIVATE_KEY.startsWith("0x")
+        ? POLY_PRIVATE_KEY as `0x${string}`
+        : `0x${POLY_PRIVATE_KEY}` as `0x${string}`;
+
+      const account = privateKeyToAccount(privateKey);
+      const address = account.address;
+
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      const domain = {
+        name: "Polymarket CLOB",
+        version: "1",
+        chainId: 137,
+        verifyingContract: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`,
+      };
+
+      const types = {
+        Greeting: [{ name: "greeting", type: "string" }],
+      } as const;
+
+      const signature = await account.signTypedData({
+        domain,
+        types,
+        primaryType: "Greeting",
+        message: { greeting: `greeting: ${timestamp}` },
+      });
+
+      const response = await fetch(`${CLOB_API}/trades`, {
+        method: "GET",
+        headers: {
+          "POLY-ADDRESS": address,
+          "POLY-SIGNATURE": signature,
+          "POLY-TIMESTAMP": timestamp.toString(),
+          "POLY-NONCE": timestamp.toString(),
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        return { trades: [], success: false, error: `API error: ${response.status}` };
+      }
+
+      const data = await response.json();
+
+      const trades = (data || []).map((t: any) => ({
+        id: t.id || t.transaction_hash || "",
+        market: t.market || t.condition_id || "Unknown",
+        outcome: t.outcome || "Unknown",
+        side: t.side || "BUY",
+        size: parseFloat(t.size || t.shares || 0),
+        price: parseFloat(t.price || t.avg_price || 0),
+        timestamp: t.timestamp || t.created_at || Date.now(),
+      }));
+
+      return { trades, success: true };
+    } catch (error) {
+      return { trades: [], success: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
   }
 }

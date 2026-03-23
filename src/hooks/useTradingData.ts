@@ -107,12 +107,16 @@ export interface Position {
 }
 
 export interface LiveBalance {
+  success: boolean;
   isLive: boolean;
   balance: number;
   available: number;
   locked: number;
-  lastSync: number | null;
+  demoBalance: number;
+  hasCredentials: boolean;
+  hasPrivateKey: boolean;
   error: string | null;
+  lastSync: number | null;
 }
 
 // Memory limits
@@ -151,12 +155,16 @@ export function useTradingData() {
 
   // Live balance from Polymarket API
   const [liveBalance, setLiveBalance] = useState<LiveBalance>({
+    success: false,
     isLive: false,
     balance: 0,
     available: 0,
     locked: 0,
-    lastSync: null,
+    demoBalance: 0,
+    hasCredentials: false,
+    hasPrivateKey: false,
     error: null,
+    lastSync: null,
   });
 
   // Refs for cleanup
@@ -273,10 +281,14 @@ export function useTradingData() {
       const data = await res.json();
 
       setLiveBalance({
+        success: data.success || false,
         isLive: data.isLive || false,
         balance: data.balance || 0,
         available: data.available || 0,
         locked: data.locked || 0,
+        demoBalance: data.demoBalance || 0,
+        hasCredentials: data.hasCredentials || false,
+        hasPrivateKey: data.hasPrivateKey || false,
         lastSync: data.lastSync || Date.now(),
         error: data.error || null,
       });
@@ -284,6 +296,7 @@ export function useTradingData() {
       console.error("Live balance fetch error:", err);
       setLiveBalance(prev => ({
         ...prev,
+        success: false,
         error: "Failed to fetch live balance",
         lastSync: Date.now(),
       }));

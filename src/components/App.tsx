@@ -240,6 +240,27 @@ export function App() {
     await fetchData();
   }, [fetchData]);
 
+  const handleModeChange = useCallback(async (mode: "demo" | "live") => {
+    const res = await fetch("/api/account/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      setTradingMode(mode);
+      toast.success(
+        mode === "live" ? "🔴 Live Mode Enabled" : "🧪 Demo Mode Enabled",
+        mode === "live"
+          ? "Bots will trade with real USDC on Polymarket"
+          : "Bots will trade with simulated balance"
+      );
+      await fetchLiveBalance();
+    } else {
+      toast.error("Failed to change mode", data.error || "Unknown error");
+    }
+  }, [fetchLiveBalance]);
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
@@ -276,6 +297,7 @@ export function App() {
         selectedTimeframe={selectedTimeframe}
         onTimeframeChange={setSelectedTimeframe}
         tradingMode={tradingMode}
+        onModeChange={handleModeChange}
         liveBalance={liveBalance}
         onRefreshLiveBalance={fetchLiveBalance}
       />

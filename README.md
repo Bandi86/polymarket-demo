@@ -18,12 +18,20 @@ A real-time Bitcoin/crypto prediction market simulator with automated trading bo
 - Competition mode for strategy comparison
 - Session history and performance tracking
 
+### Live Trading Mode
+- **Demo Mode**: Trade with simulated balance (default)
+- **Live Mode**: Connect to Polymarket for real USDC trading
+- MetaMask wallet integration
+- Real-time live balance from Polymarket
+- Warning system for live mode activation
+
 ### Modern UI
 - Dark/Light theme support
 - Real-time SSE updates
 - Glassmorphism design
 - Animated components with Framer Motion
 - Responsive layout
+- Demo/Live mode toggle with clear visual indicators
 
 ## Quick Start
 
@@ -66,15 +74,22 @@ src/
 │   ├── BotStatusCard.tsx # Bot monitoring
 │   ├── LiveMonitorTab.tsx # Bot dashboard
 │   ├── CompetitionTab.tsx # Competition view
-│   └── SessionSummaryModal.tsx # Results modal
+│   ├── SessionSummaryModal.tsx # Results modal
+│   ├── TradingModeToggle.tsx # Demo/Live mode switch
+│   ├── WalletButton.tsx # MetaMask wallet connection
+│   ├── DepositModal.tsx # USDC deposit modal
+│   ├── LivePositionsPanel.tsx # Live Polymarket positions
+│   └── TradeHistoryPanel.tsx # Trade history from Polymarket
 ├── lib/                  # Core logic
-│   ├── bot-manager.ts   # Bot strategies & competition
+│   ├── bot-manager.ts   # Bot strategies, trading mode, competition
 │   ├── market-engine.ts # Market lifecycle
 │   ├── risk-manager.ts  # Risk management
 │   ├── database.ts      # SQLite persistence
 │   └── providers/       # External data
+│       └── polymarket-provider.ts # Polymarket CLOB API
 ├── hooks/
-│   └── useTradingData.ts # State management
+│   ├── useTradingData.ts # State management
+│   └── useWallet.ts      # MetaMask wallet hook
 ├── types/
 │   └── index.ts         # TypeScript types
 └── server.ts            # Bun server + API
@@ -97,6 +112,13 @@ src/
 | POST | `/api/competition/start` | Start competition |
 | POST | `/api/competition/stop` | Stop competition |
 | POST | `/api/competition/clear` | Clear competition |
+| GET | `/api/account` | Account info (mode, balance) |
+| GET | `/api/account/balance` | Live Polymarket balance |
+| POST | `/api/account/mode` | Switch demo/live mode |
+| GET | `/api/orders/positions` | Live positions from Polymarket |
+| GET | `/api/orders/trades` | Trade history from Polymarket |
+| POST | `/api/orders/place` | Place order on Polymarket |
+| POST | `/api/orders/cancel` | Cancel order on Polymarket |
 
 ## Tech Stack
 
