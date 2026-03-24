@@ -65,10 +65,10 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
           bots={bots}
           botLogs={botLogs}
           yesPrice={yesPrice}
-          noPrice={noPrice}
           positions={positions}
           updateBotState={updateBotState}
           timeRemaining={timeRemaining}
+          competition={competition}
         />
       )}
 

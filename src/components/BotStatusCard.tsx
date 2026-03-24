@@ -7,7 +7,6 @@ import type { BotData } from "@/hooks/useTradingData";
 interface BotStatusCardProps {
   bot: BotData;
   yesPrice: number;
-  noPrice: number;
   positions: Array<{
     id: string;
     botId?: string;
@@ -27,7 +26,7 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 }
 
-export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
+export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
@@ -51,6 +50,10 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
 
   // Recent trades dots
   const recentTrades = closedPositions.slice(-8).map((p: any) => p.pnl || 0);
+
+  // Last trade result
+  const lastTrade = closedPositions[0];
+  const lastTradePnl = lastTrade?.pnl || 0;
 
   // Calculate initial balance and growth
   const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
@@ -382,45 +385,66 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
         </div>
       </div>
 
-      {/* Prices */}
+      {/* Status Row - Market Timer, Last Trade */}
       <div style={{
         display: "flex",
         gap: "0.5rem",
         marginBottom: "1rem",
       }}>
-        <div style={{
-          flex: 1,
-          padding: "0.5rem 0.75rem",
-          borderRadius: 8,
-          background: "rgba(34, 197, 94, 0.1)",
-          border: "1px solid rgba(34, 197, 94, 0.2)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}>
-          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.75rem" }}>YES</span>
-          <span style={{ color: "#22c55e", fontFamily: "ui-monospace, monospace", fontWeight: 700, fontSize: "0.875rem" }}>
-            {(yesPrice * 100).toFixed(1)}¢
-          </span>
-        </div>
-        <div style={{
-          flex: 1,
-          padding: "0.5rem 0.75rem",
-          borderRadius: 8,
-          background: "rgba(239, 68, 68, 0.1)",
-          border: "1px solid rgba(239, 68, 68, 0.2)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}>
-          <span style={{ color: "#ef4444", fontWeight: 600, fontSize: "0.75rem" }}>NO</span>
-          <span style={{ color: "#ef4444", fontFamily: "ui-monospace, monospace", fontWeight: 700, fontSize: "0.875rem" }}>
-            {(noPrice * 100).toFixed(1)}¢
-          </span>
-        </div>
+        {/* Market Timer */}
+        {timeRemaining !== undefined && timeRemaining > 0 && bot.enabled && (
+          <div style={{
+            flex: 1,
+            padding: "0.5rem 0.75rem",
+            borderRadius: 8,
+            background: timeRemaining < 60000 ? "rgba(239, 68, 68, 0.15)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.15)" : "rgba(34, 197, 94, 0.1)",
+            border: `1px solid ${timeRemaining < 60000 ? "rgba(239, 68, 68, 0.3)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.3)" : "rgba(34, 197, 94, 0.2)"}`,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+          }}>
+            <Timer style={{ width: 14, height: 14, color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#22c55e" }} />
+            <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>Market</span>
+            <span style={{
+              fontFamily: "ui-monospace, monospace",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#22c55e",
+            }}>
+              {formatDuration(timeRemaining)}
+            </span>
+          </div>
+        )}
+
+        {/* Last Trade Result */}
+        {bot.stats.trades > 0 && (
+          <div style={{
+            padding: "0.5rem 0.75rem",
+            borderRadius: 8,
+            background: lastTradePnl >= 0 ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+            border: `1px solid ${lastTradePnl >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+          }}>
+            {lastTradePnl >= 0 ? (
+              <TrendingUp style={{ width: 14, height: 14, color: "#22c55e" }} />
+            ) : (
+              <TrendingDown style={{ width: 14, height: 14, color: "#ef4444" }} />
+            )}
+            <span style={{
+              fontFamily: "ui-monospace, monospace",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: lastTradePnl >= 0 ? "#22c55e" : "#ef4444",
+            }}>
+              {lastTradePnl >= 0 ? "+" : ""}{lastTradePnl.toFixed(2)}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Open Positions */}
+      {/* Open Positions - Enhanced */}
       {botPositions.length > 0 && (
         <div style={{
           display: "flex",
@@ -437,17 +461,29 @@ export function BotStatusCard({ bot, yesPrice, noPrice, positions, onToggle, onO
             <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>
               {botPositions.length} Position{botPositions.length > 1 ? "s" : ""}
             </span>
+            <span style={{
+              padding: "0.125rem 0.375rem",
+              borderRadius: 4,
+              background: botPositions[0].outcome === "YES" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+              color: botPositions[0].outcome === "YES" ? "#22c55e" : "#ef4444",
+              fontSize: "0.625rem",
+              fontWeight: 700,
+            }}>
+              {botPositions[0].outcome}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               ${positionsValue.toFixed(2)} at risk
             </span>
-          </div>
-          <div style={{
-            fontSize: "0.875rem",
-            fontFamily: "ui-monospace, monospace",
-            fontWeight: 700,
-            color: unrealizedPnl >= 0 ? "#22c55e" : "#ef4444",
-          }}>
-            {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)} unrealized
+            <div style={{
+              fontSize: "0.875rem",
+              fontFamily: "ui-monospace, monospace",
+              fontWeight: 700,
+              color: unrealizedPnl >= 0 ? "#22c55e" : "#ef4444",
+            }}>
+              {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)}
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw, Wallet, Plus } from "lucide-react";
+import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw, Plus } from "lucide-react";
 import { formatCurrency } from "../lib/utils";
 import { PriceTicker } from "./ui/PriceTicker";
 import { ThemeToggle } from "./ui/ThemeToggle";
@@ -8,6 +8,7 @@ import { toast } from "./ui/toast";
 import { WalletButton } from "./WalletButton";
 import { DepositModal } from "./DepositModal";
 import { TradingModeToggle } from "./TradingModeToggle";
+import { CircularTimer, BotRunTimer } from "./ui/CircularTimer";
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "../hooks/useTradingData";
 import type { Portfolio } from "../types";
 
@@ -126,9 +127,8 @@ export function TopDashboard({
   const totalTrades = bots.reduce((sum, b) => sum + (b.stats?.trades || 0), 0);
   const totalWins = bots.reduce((sum, b) => sum + (b.stats?.wins || 0), 0);
   const totalLosses = bots.reduce((sum, b) => sum + (b.stats?.losses || 0), 0);
-  const totalWinRate = bots.length > 0
-    ? bots.reduce((sum, b) => sum + (b.stats?.winRate || 0), 0) / bots.length
-    : 0;
+  // Calculate win rate from actual wins/trades, not average of individual win rates
+  const totalWinRate = totalTrades > 0 ? totalWins / totalTrades : 0;
 
   // Calculate potential outcomes from positions
   const totalExposure = openPositionsValue;
@@ -417,58 +417,91 @@ export function TopDashboard({
         }}>
           {/* Top Half: Current Market */}
           <div style={{ borderBottom: "1px solid var(--border)", padding: "1rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-             <div style={{ flex: "1 1 auto", minWidth: 0, paddingRight: "2rem" }}>
-              <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
-                Current Market
-              </div>
-              <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {marketData.market.question || `${marketData.market.asset || "BTC"} ${marketData.market.timeframe || "5m"} Market`}
+             {/* Left: Market Info + Bot Run Timer */}
+            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+              {/* Bot Run Timer - Prominent Position */}
+              {isBotRunning && (
+                <BotRunTimer
+                  runTimeRemaining={runTimeRemaining}
+                  isRunning={isBotRunning}
+                  totalDuration={competition?.config?.duration || undefined}
+                />
+              )}
+
+              <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
+                  Current Market
+                </div>
+                <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {marketData.market.question || `${marketData.market.asset || "BTC"} ${marketData.market.timeframe || "5m"} Market`}
+                </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "2.5rem" }}>
-              {/* Time Remaining */}
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Time Left</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <span style={{
-                    fontSize: "1.25rem",
-                    fontWeight: 700,
-                    fontFamily: "ui-monospace, monospace",
-                    color: timeRemaining < 60000 ? "var(--red)" : timeRemaining < 180000 ? "var(--warning)" : "var(--text-primary)"
+            <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
+              {/* Circular Timer - Central, Animated */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "1rem",
+              }}>
+                <CircularTimer
+                  timeRemaining={timeRemaining}
+                  totalDuration={marketData.marketDuration || 300000}
+                  size={72}
+                  strokeWidth={5}
+                />
+                {/* Market Progress Info */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                  <div style={{
+                    fontSize: "0.625rem",
+                    color: "var(--text-muted)",
                   }}>
-                    {formatTimeRemaining(timeRemaining)}
-                  </span>
-                  <div style={{ width: 100, textAlign: "left" }}>
-                    <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" }}>
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${calculateMarketProgress(marketData)}%`,
-                          background: timeRemaining < 60 ? "var(--red)" : "var(--primary)",
-                          borderRadius: 3,
-                          transition: "width 1s linear"
-                        }}
-                      />
-                    </div>
-                    <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                      {calculateMarketProgress(marketData).toFixed(0)}% elapsed
-                    </div>
+                    {calculateMarketProgress(marketData).toFixed(0)}% elapsed
+                  </div>
+                  <div style={{
+                    width: 80,
+                    height: 4,
+                    background: "rgba(255,255,255,0.1)",
+                    borderRadius: 2,
+                    overflow: "hidden",
+                  }}>
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${calculateMarketProgress(marketData)}%`,
+                        background: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#22c55e",
+                        borderRadius: 2,
+                        transition: "width 1s linear"
+                      }}
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Current Probabilities */}
-              <div style={{ display: "flex", gap: "1.5rem", borderLeft: "1px solid var(--border)", paddingLeft: "2.5rem" }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>YES</div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--green)" }}>
+              <div style={{ display: "flex", gap: "1rem", borderLeft: "1px solid var(--border)", paddingLeft: "1.5rem" }}>
+                <div style={{
+                  textAlign: "center",
+                  padding: "0.5rem 0.75rem",
+                  background: "rgba(34, 197, 94, 0.1)",
+                  borderRadius: 8,
+                  border: "1px solid rgba(34, 197, 94, 0.2)",
+                }}>
+                  <div style={{ fontSize: "0.625rem", color: "#22c55e", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>YES</div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#22c55e" }}>
                     {(yesPrice * 100).toFixed(1)}¢
                   </div>
                 </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>NO</div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--red)" }}>
+                <div style={{
+                  textAlign: "center",
+                  padding: "0.5rem 0.75rem",
+                  background: "rgba(239, 68, 68, 0.1)",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}>
+                  <div style={{ fontSize: "0.625rem", color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>NO</div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#ef4444" }}>
                     {(noPrice * 100).toFixed(1)}¢
                   </div>
                 </div>

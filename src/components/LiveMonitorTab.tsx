@@ -3,14 +3,13 @@ import { Activity, Target, DollarSign, BarChart3, TrendingUp, TrendingDown } fro
 import { formatCurrency } from "../lib/utils";
 import { BotStatusCard } from "./BotStatusCard";
 import { BotConfigPanel } from "./BotConfigPanel";
-import type { BotData } from "../hooks/useTradingData";
+import type { BotData, CompetitionState } from "../hooks/useTradingData";
 import type { BotLog } from "../types";
 
 interface LiveMonitorTabProps {
   bots: BotData[];
   botLogs: BotLog[];
   yesPrice: number;
-  noPrice: number;
   positions: Array<{
     id: string;
     botId?: string;
@@ -20,11 +19,12 @@ interface LiveMonitorTabProps {
   }>;
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
   timeRemaining: number;
+  competition?: CompetitionState | null;
 }
 
 type SortField = 'pnl' | 'winRate' | 'trades' | 'balance';
 
-export function LiveMonitorTab({ bots, botLogs, yesPrice, noPrice, positions, updateBotState, timeRemaining }: LiveMonitorTabProps) {
+export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState, timeRemaining, competition }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [showActivityFeed, setShowActivityFeed] = useState(true);
   const [configBot, setConfigBot] = useState<BotData | null>(null);
@@ -41,12 +41,10 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, noPrice, positions, up
   const avgPnlPerTrade = totalTrades > 0 ? totalPnl / totalTrades : 0;
   const positionsValue = positions.reduce((sum, p) => sum + (p.amount || p.stake || 0), 0);
 
-  // Calculate total initial balance and growth
-  const totalInitialBalance = bots.reduce((sum, b) => {
-    const closedPositions = (b.portfolio?.closedPositions || []) as any[];
-    const totalClosedPnL = closedPositions.reduce((s: number, p: any) => s + (p.pnl || 0), 0);
-    return sum + (b.portfolio.balance - totalClosedPnL);
-  }, 0);
+  // Calculate total initial balance: use competition startBalance if active, otherwise bots.length * 10
+  const totalInitialBalance = competition?.active && competition.startBalance
+    ? competition.startBalance * bots.length
+    : bots.length * 10;
   const totalGrowth = totalBalance - totalInitialBalance;
   const totalGrowthPercent = totalInitialBalance > 0 ? (totalGrowth / totalInitialBalance) * 100 : 0;
 
@@ -279,7 +277,6 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, noPrice, positions, up
             key={bot.id}
             bot={bot}
             yesPrice={yesPrice}
-            noPrice={noPrice}
             positions={positions}
             onToggle={handleToggleBot}
             onOpenConfig={setConfigBot}

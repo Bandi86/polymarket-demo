@@ -878,6 +878,7 @@ export class BotManager {
   private config: Required<BotManagerConfig>;
   private logs: BotLog[] = [];
   private logListeners: Array<(log: BotLog) => void> = [];
+  private autoSaveInterval: Timer | null = null;
   private competition: CompetitionState = {
     active: false,
     startTime: 0,
@@ -903,6 +904,37 @@ export class BotManager {
     };
 
     this.initDefaultBots();
+    this.startAutoSave();
+  }
+
+  /** Auto-save sessions every 60 seconds to prevent data loss */
+  private startAutoSave(): void {
+    this.autoSaveInterval = setInterval(() => {
+      this.saveAllActiveSessions();
+    }, 60000); // Save every 60 seconds
+  }
+
+  /** Save all currently active sessions to database */
+  private saveAllActiveSessions(): void {
+    for (const [botId, session] of this.currentSessions) {
+      const portfolio = marketEngine.getBotPortfolio(botId);
+      if (!portfolio) continue;
+
+      // Update session with current state
+      session.endBalance = portfolio.balance;
+      session.totalPnL = portfolio.totalPnL;
+      session.totalTrades = portfolio.totalTrades;
+      session.winningTrades = portfolio.winningTrades;
+      session.losingTrades = portfolio.losingTrades;
+      session.endTime = Date.now(); // Update end time for auto-save
+
+      // Save to database with "running" status
+      this.saveBotSessionToDB(session, this.bots.get(botId));
+    }
+
+    if (this.currentSessions.size > 0) {
+      console.log(`[BotManager] Auto-saved ${this.currentSessions.size} active sessions`);
+    }
   }
 
   /** Add a log entry */
@@ -1544,10 +1576,17 @@ export class BotManager {
         // Confirm execution with coordinator
         strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
 
-        this.addLog(id, "TRADE", `Executed ${action} trade for $${finalBetSize.toFixed(2)} at ${position.odds.toFixed(3)} odds`, {
+        // Get market price for display (without slippage)
+        const marketPrice = action === "YES"
+          ? parseFloat(market.outcomePrices?.yes || "0.5")
+          : parseFloat(market.outcomePrices?.no || "0.5");
+
+        this.addLog(id, "TRADE", `Bought ${action} $${finalBetSize.toFixed(2)} @ ${(marketPrice * 100).toFixed(1)}¢`, {
           action: action,
           amount: finalBetSize,
-          odds: position.odds,
+          marketPrice,
+          fillPrice: position.odds,
+          slippage: position.odds - marketPrice,
           fee: position.fee,
           positionId: position.id,
           confidence: decision.confidence,
@@ -1971,8 +2010,22 @@ export class BotManager {
   }
 
   dispose(): void {
+    // Save all active sessions before shutdown
+    this.saveAllActiveSessions();
+
+    // Clear auto-save interval
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
+
     this.stopAllBots();
     this.intervals.clear();
+  }
+
+  /** Force save all sessions immediately (call on shutdown) */
+  forceSaveAll(): void {
+    this.saveAllActiveSessions();
   }
 }
 

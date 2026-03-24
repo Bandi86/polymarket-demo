@@ -28,6 +28,19 @@ botManager.onLog((log) => {
   })
 })
 
+// Graceful shutdown - save all active sessions
+process.on('SIGINT', () => {
+  console.log('\n[Server] Shutting down... saving active sessions')
+  botManager.forceSaveAll()
+  process.exit(0)
+})
+
+process.on('SIGTERM', () => {
+  console.log('\n[Server] Received SIGTERM... saving active sessions')
+  botManager.forceSaveAll()
+  process.exit(0)
+})
+
 // Subscribe to market price updates for faster SSE broadcasts
 marketEngine.onPriceUpdate((price) => {
   broadcastUpdate({
