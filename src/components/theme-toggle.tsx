@@ -1,4 +1,6 @@
-import { useTheme } from "../lib/theme-context";
+'use client'
+
+import { useTheme } from "@/lib/theme-context";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sun, Moon, Monitor } from "lucide-react";
 

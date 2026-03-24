@@ -1,5 +1,7 @@
+'use client'
+
 import { Activity, Bot, TrendingUp, TrendingDown, AlertCircle, Info, Zap } from "lucide-react";
-import type { TradeEvent, BotLog } from "../hooks/useTradingData";
+import type { TradeEvent, BotLog } from "@/hooks/useTradingData";
 
 interface ActivityLogProps {
   events: TradeEvent[];

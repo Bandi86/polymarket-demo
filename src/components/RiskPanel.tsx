@@ -1,6 +1,8 @@
+'use client'
+
 import { useState, useEffect, useCallback } from "react";
 import { Shield, AlertTriangle, Play, Pause, RefreshCw, Settings } from "lucide-react";
-import type { RiskSettings, RiskWarning, RiskStatus } from "../lib/risk-manager";
+import type { RiskSettings, RiskWarning, RiskStatus } from "@/lib/risk-manager";
 
 interface BotRiskInfo {
   id: string;

@@ -1,3 +1,5 @@
+'use client'
+
 import { Target, TrendingUp, TrendingDown, RefreshCw, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
 

@@ -1,6 +1,8 @@
+'use client'
+
 import { Activity, TrendingUp, TrendingDown } from "lucide-react";
-import { cn } from "../lib/utils";
-import type { PricePoint } from "../types";
+import { cn } from "@/lib/utils";
+import type { PricePoint } from "@/types";
 
 interface PriceChartProps {
   data: PricePoint[];

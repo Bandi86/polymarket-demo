@@ -1,7 +1,9 @@
+'use client'
+
 // Analytics Tab - Main analytics dashboard with all visualizations
-import { StrategyCorrelationMatrix } from "./StrategyCorrelationMatrix";
-import { PerformanceCharts } from "./PerformanceCharts";
-import { StrategyRecommendation } from "./StrategyRecommendation";
+import { StrategyCorrelationMatrix } from "@/components/StrategyCorrelationMatrix";
+import { PerformanceCharts } from "@/components/PerformanceCharts";
+import { StrategyRecommendation } from "@/components/StrategyRecommendation";
 
 export function AnalyticsTab() {
   return (

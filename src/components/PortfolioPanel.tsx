@@ -1,8 +1,10 @@
+'use client'
+
 import { Wallet, Target, LineChart, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
-import { formatCurrency, formatPercentage } from "../lib/utils";
-import { PnLChart } from "./pnl-chart";
-import type { Portfolio } from "../types";
-import type { Position } from "../hooks/useTradingData";
+import { formatCurrency, formatPercentage } from "@/lib/utils";
+import { PnLChart } from "@/components/pnl-chart";
+import type { Portfolio } from "@/types";
+import type { Position } from "@/hooks/useTradingData";
 
 interface PortfolioPanelProps {
   portfolio: Portfolio | null;

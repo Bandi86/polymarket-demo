@@ -1,6 +1,8 @@
+'use client'
+
 import { useState } from "react";
 import { BarChart3, TrendingUp, TrendingDown, Info } from "lucide-react";
-import type { MarketData } from "../hooks/useTradingData";
+import type { MarketData } from "@/hooks/useTradingData";
 
 interface MarketPanelProps {
   marketData: MarketData | null;

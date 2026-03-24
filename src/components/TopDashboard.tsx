@@ -1,16 +1,18 @@
+'use client'
+
 import { useState, useEffect } from "react";
 import { Zap, Play, Square, Activity, FlaskConical, Trophy, Settings, BarChart2, Clock, TrendingUp, Flame, AlertTriangle, Shield, RefreshCw, Plus } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import { PriceTicker } from "./ui/PriceTicker";
-import { ThemeToggle } from "./ui/ThemeToggle";
-import { SoundToggle } from "./ui/SoundToggle";
-import { toast } from "./ui/toast";
-import { WalletButton } from "./WalletButton";
-import { DepositModal } from "./DepositModal";
-import { TradingModeToggle } from "./TradingModeToggle";
-import { CircularTimer, BotRunTimer } from "./ui/CircularTimer";
-import type { MarketData, BotData, CompetitionState, LiveBalance } from "../hooks/useTradingData";
-import type { Portfolio } from "../types";
+import { formatCurrency } from "@/lib/utils";
+import { PriceTicker } from "@/components/ui/PriceTicker";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { SoundToggle } from "@/components/ui/SoundToggle";
+import { toast } from "@/components/ui/toast";
+import { WalletButton } from "@/components/WalletButton";
+import { DepositModal } from "@/components/DepositModal";
+import { TradingModeToggle } from "@/components/TradingModeToggle";
+import { CircularTimer, BotRunTimer } from "@/components/ui/CircularTimer";
+import type { MarketData, BotData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
+import type { Portfolio } from "@/types";
 
 export type TabId = 'trade' | 'monitor' | 'backtest' | 'leaderboard' | 'config' | 'risk';
 

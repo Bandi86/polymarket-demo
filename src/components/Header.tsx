@@ -1,6 +1,8 @@
+'use client'
+
 import { Zap, RefreshCw, Bot } from "lucide-react";
-import { PriceTicker } from "./ui/PriceTicker";
-import { ThemeToggle } from "./ui/ThemeToggle";
+import { PriceTicker } from "@/components/ui/PriceTicker";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 interface HeaderProps {
   isBotRunning: boolean;

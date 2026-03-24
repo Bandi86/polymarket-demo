@@ -1,3 +1,5 @@
+'use client'
+
 // Strategy Correlation Matrix - Heatmap visualization of strategy correlations
 import { useState, useEffect, useCallback } from "react";
 import { Info } from "lucide-react";

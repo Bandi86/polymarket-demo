@@ -1,3 +1,5 @@
+'use client'
+
 import { useState, useEffect, useCallback } from 'react';
 import { Moon, Sun, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';

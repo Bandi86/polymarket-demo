@@ -1,3 +1,5 @@
+'use client'
+
 export function MiniEquityCurve({ data, color, size = 60 }: { data: number[]; color: string; size?: number }) {
   if (data.length < 2) return null;
 

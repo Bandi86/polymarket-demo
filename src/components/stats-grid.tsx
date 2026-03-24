@@ -1,8 +1,10 @@
+'use client'
+
 import { Clock, TrendingUp, TrendingDown, Target, Percent } from "lucide-react";
-import { cn, formatCurrency, formatPercentage, formatTime } from "../lib/utils";
-import { Card, CardContent } from "./ui/card";
-import { Progress } from "./ui/progress";
-import type { Portfolio } from "../types";
+import { cn, formatCurrency, formatPercentage, formatTime } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import type { Portfolio } from "@/types";
 
 interface StatsGridProps {
   btcPrice: number;

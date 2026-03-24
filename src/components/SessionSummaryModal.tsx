@@ -1,7 +1,9 @@
+'use client'
+
 import { useEffect, useState } from "react";
 import { X, Trophy, TrendingUp, TrendingDown, Clock, Target, DollarSign, BarChart3, RotateCcw } from "lucide-react";
-import type { BotData, CompetitionState } from "../hooks/useTradingData";
-import { formatCurrency } from "../lib/utils";
+import type { BotData, CompetitionState } from "@/hooks/useTradingData";
+import { formatCurrency } from "@/lib/utils";
 
 interface SessionSummaryModalProps {
   competition: CompetitionState | null;

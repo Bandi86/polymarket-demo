@@ -1,3 +1,5 @@
+'use client'
+
 // Strategy Recommendation - Auto-strategy selection based on market conditions
 import { useState, useEffect, useCallback } from "react";
 import { Zap, TrendingUp, TrendingDown, Activity, Target, ArrowRight, RefreshCw } from "lucide-react";

@@ -1,7 +1,9 @@
+'use client'
+
 import { useState } from "react";
 import { Target, TrendingUp, TrendingDown, Wallet } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import type { Portfolio } from "../types";
+import { formatCurrency } from "@/lib/utils";
+import type { Portfolio } from "@/types";
 
 interface TradingPanelProps {
   portfolio: Portfolio | null;

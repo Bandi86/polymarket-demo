@@ -1,10 +1,12 @@
+'use client'
+
 import { useState, useCallback } from "react";
 import { Activity, Target, DollarSign, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import { BotStatusCard } from "./BotStatusCard";
-import { BotConfigPanel } from "./BotConfigPanel";
-import type { BotData, CompetitionState } from "../hooks/useTradingData";
-import type { BotLog } from "../types";
+import { formatCurrency } from "@/lib/utils";
+import { BotStatusCard } from "@/components/BotStatusCard";
+import { BotConfigPanel } from "@/components/BotConfigPanel";
+import type { BotData, CompetitionState } from "@/hooks/useTradingData";
+import type { BotLog } from "@/types";
 
 interface LiveMonitorTabProps {
   bots: BotData[];

@@ -1,6 +1,8 @@
+'use client'
+
 import { X, Clock, Target, TrendingUp } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import type { BotSession } from "../types";
+import { formatCurrency } from "@/lib/utils";
+import type { BotSession } from "@/types";
 
 interface SessionDetailPanelProps {
   session: BotSession;

@@ -1,3 +1,5 @@
+'use client'
+
 import { cn } from '@/lib/utils';
 import { getStrategyColor, getStrategyName } from '@/lib/design-tokens';
 import { ProgressRing } from '@/components/ui/ProgressRing';

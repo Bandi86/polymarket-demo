@@ -1,17 +1,19 @@
+'use client'
+
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useTradingData } from "../hooks/useTradingData";
-import { useSoundNotifications } from "../hooks/useSoundNotifications";
-import { MarketCard } from "./MarketCard";
-import { ChartPanel } from "./ChartPanel";
-import { TradingPanel } from "./TradingPanel";
-import { PositionsPanel } from "./PositionsPanel";
-import { ActivityLog } from "./ActivityLog";
-import { BotTabsContent } from "./BotDashboardPage";
-import { TopDashboard, type TabId } from "./TopDashboard";
-import { QuickActions } from "./quick-actions";
-import { OrderBook } from "./OrderBook";
-import { SessionSummaryModal } from "./SessionSummaryModal";
-import { useToastActions } from "./ui/toast";
+import { useTradingData } from "@/hooks/useTradingData";
+import { useSoundNotifications } from "@/hooks/useSoundNotifications";
+import { MarketCard } from "@/components/MarketCard";
+import { ChartPanel } from "@/components/ChartPanel";
+import { TradingPanel } from "@/components/TradingPanel";
+import { PositionsPanel } from "@/components/PositionsPanel";
+import { ActivityLog } from "@/components/ActivityLog";
+import { BotTabsContent } from "@/components/BotDashboardPage";
+import { TopDashboard, type TabId } from "@/components/TopDashboard";
+import { QuickActions } from "@/components/quick-actions";
+import { OrderBook } from "@/components/OrderBook";
+import { SessionSummaryModal } from "@/components/SessionSummaryModal";
+import { useToastActions } from "@/components/ui/toast";
 
 const ASSETS = [
   { id: "BTC", name: "Bitcoin", color: "#f7931a" },

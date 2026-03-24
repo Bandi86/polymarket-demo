@@ -1,8 +1,10 @@
+'use client'
+
 import { useState } from "react";
 import { Trophy, Play, Square, Clock, Zap, Download, RotateCcw, RefreshCw } from "lucide-react";
-import { formatCurrency, formatPercentage } from "../lib/utils";
-import { MiniEquityCurve } from "./charts/MiniEquityCurve";
-import type { BotData, CompetitionState } from "../hooks/useTradingData";
+import { formatCurrency, formatPercentage } from "@/lib/utils";
+import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
+import type { BotData, CompetitionState } from "@/hooks/useTradingData";
 
 interface CompetitionTabProps {
   bots?: BotData[];

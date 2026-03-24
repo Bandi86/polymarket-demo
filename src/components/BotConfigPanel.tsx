@@ -1,7 +1,9 @@
+'use client'
+
 import { useState, useEffect } from "react";
 import { X, Save, RotateCcw, Info } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import type { BotData } from "../hooks/useTradingData";
+import { formatCurrency } from "@/lib/utils";
+import type { BotData } from "@/hooks/useTradingData";
 
 interface BotConfigPanelProps {
   bot: BotData;

@@ -1,7 +1,9 @@
+'use client'
+
 // Settings Panel - API key configuration and trading settings
 import { useState, useEffect, useCallback } from "react";
 import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, DollarSign, RefreshCw, Shield } from "lucide-react";
-import { toast } from "./ui/toast";
+import { toast } from "@/components/ui/toast";
 
 interface PolymarketKeys {
   apiKey: string;

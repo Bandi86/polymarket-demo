@@ -1,3 +1,5 @@
+'use client'
+
 import { History, ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
 

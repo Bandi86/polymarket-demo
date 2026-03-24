@@ -1,3 +1,5 @@
+'use client'
+
 import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
 
 // Re-export toast functions for convenience

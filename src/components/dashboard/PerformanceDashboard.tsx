@@ -1,3 +1,5 @@
+'use client'
+
 import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Activity, Target, DollarSign, BarChart3 } from 'lucide-react';

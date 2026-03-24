@@ -1,7 +1,9 @@
+'use client'
+
 import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
-import type { MarketData } from "../hooks/useTradingData";
+import type { MarketData } from "@/hooks/useTradingData";
 
 interface MarketCardProps {
   marketData: MarketData | null;

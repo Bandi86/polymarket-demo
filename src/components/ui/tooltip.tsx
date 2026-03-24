@@ -1,5 +1,7 @@
+'use client'
+
 import { useState } from "react";
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 export interface TooltipProps {
   children: React.ReactNode;

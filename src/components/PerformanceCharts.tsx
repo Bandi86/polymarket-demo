@@ -1,3 +1,5 @@
+'use client'
+
 // Performance Charts - Visualizations for strategy performance
 import { useState, useEffect, useCallback } from "react";
 import { TrendingUp, TrendingDown, Activity, BarChart3 } from "lucide-react";

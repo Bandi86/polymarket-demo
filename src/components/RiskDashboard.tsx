@@ -1,6 +1,8 @@
+'use client'
+
 import { useState, useEffect } from "react";
 import { AlertTriangle, Activity, Shield, AlertCircle, CheckCircle } from "lucide-react";
-import type { BotData } from "../hooks/useTradingData";
+import type { BotData } from "@/hooks/useTradingData";
 
 interface RiskMetric {
   name: string;

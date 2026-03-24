@@ -1,3 +1,5 @@
+'use client'
+
 interface PnLChartProps {
   data: { time: number; pnl: number }[];
   height?: number;

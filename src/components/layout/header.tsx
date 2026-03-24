@@ -1,7 +1,9 @@
+'use client'
+
 import { RefreshCw, RotateCcw, Zap, Shuffle } from "lucide-react";
-import { cn, formatCurrency, formatRunTime } from "../../lib/utils";
-import { Button } from "../ui/button";
-import type { Portfolio } from "../../types";
+import { cn, formatCurrency, formatRunTime } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import type { Portfolio } from "@/types";
 
 interface Bot {
   id: string;

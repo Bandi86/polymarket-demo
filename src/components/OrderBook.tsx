@@ -1,3 +1,5 @@
+'use client'
+
 import { useMemo } from "react";
 import { BarChart3 } from "lucide-react";
 

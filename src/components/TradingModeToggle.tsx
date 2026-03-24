@@ -1,3 +1,5 @@
+'use client'
+
 // Trading Mode Toggle - Switch between Demo and Live trading
 import { useState } from "react";
 import { FlaskConical, Zap, AlertTriangle, Shield } from "lucide-react";

@@ -1,6 +1,8 @@
+'use client'
+
 import { TrendingUp } from "lucide-react";
-import { TradingViewWidget } from "./trading-view-widget";
-import type { MarketData } from "../hooks/useTradingData";
+import { TradingViewWidget } from "@/components/trading-view-widget";
+import type { MarketData } from "@/hooks/useTradingData";
 
 interface ChartPanelProps {
   marketData: MarketData | null;

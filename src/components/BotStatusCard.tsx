@@ -1,7 +1,9 @@
+'use client'
+
 import { useState } from "react";
 import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
-import { MiniEquityCurve } from "./charts/MiniEquityCurve";
+import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 import type { BotData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {

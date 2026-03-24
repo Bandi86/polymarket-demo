@@ -1,5 +1,7 @@
-import { cn, formatCurrency, formatPercentage } from "../../lib/utils";
-import type { Portfolio } from "../../types";
+'use client'
+
+import { cn, formatCurrency, formatPercentage } from "@/lib/utils";
+import type { Portfolio } from "@/types";
 
 interface FooterProps {
   btcPrice: number;

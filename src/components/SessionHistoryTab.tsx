@@ -1,9 +1,11 @@
+'use client'
+
 import { useState, useMemo } from "react";
 import { Clock, Download, Filter } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import { useBotSessions } from "../hooks/useBotSessions";
-import { SessionDetailPanel } from "./SessionDetailPanel";
-import type { BotSession } from "../types";
+import { formatCurrency } from "@/lib/utils";
+import { useBotSessions } from "@/hooks/useBotSessions";
+import { SessionDetailPanel } from "@/components/SessionDetailPanel";
+import type { BotSession } from "@/types";
 
 type SortField = 'date' | 'pnl' | 'winRate' | 'trades';
 type SortOrder = 'asc' | 'desc';

@@ -1,6 +1,8 @@
+'use client'
+
 import { Wallet, ChevronDown, ExternalLink, Copy, Check, AlertCircle } from "lucide-react";
 import { useState } from "react";
-import { useWallet } from "../hooks/useWallet";
+import { useWallet } from "@/hooks/useWallet";
 
 export function WalletButton() {
   const {

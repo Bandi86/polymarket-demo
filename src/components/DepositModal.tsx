@@ -1,6 +1,8 @@
+'use client'
+
 import { X, AlertCircle, ExternalLink, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useWallet } from "../hooks/useWallet";
+import { useWallet } from "@/hooks/useWallet";
 
 interface DepositModalProps {
   isOpen: boolean;

@@ -1,3 +1,5 @@
+'use client'
+
 import { Zap, Play, Square, RotateCcw } from "lucide-react";
 
 interface QuickActionsProps {

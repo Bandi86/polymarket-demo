@@ -1,7 +1,9 @@
+'use client'
+
 import { useState } from "react";
 import { FlaskConical, Play, BarChart3, TrendingUp, TrendingDown, Zap } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
-import { MiniEquityCurve } from "./charts/MiniEquityCurve";
+import { formatCurrency } from "@/lib/utils";
+import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 
 interface BacktestResult {
   strategy: string;

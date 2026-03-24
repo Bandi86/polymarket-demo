@@ -1,15 +1,17 @@
+'use client'
+
 import { useState, useEffect } from "react";
-import { LiveMonitorTab } from "./LiveMonitorTab";
-import { SessionHistoryTab } from "./SessionHistoryTab";
-import { StrategyLabTab } from "./StrategyLabTab";
-import { CompetitionTab } from "./CompetitionTab";
-import { RiskPanel } from "./RiskPanel";
-import { RiskDashboard } from "./RiskDashboard";
-import { AnalyticsTab } from "./AnalyticsTab";
-import { TradingModeToggle } from "./TradingModeToggle";
-import { SettingsPanel } from "./SettingsPanel";
-import { PerformanceDashboard } from "./dashboard/PerformanceDashboard";
-import { useTradingData } from "../hooks/useTradingData";
+import { LiveMonitorTab } from "@/components/LiveMonitorTab";
+import { SessionHistoryTab } from "@/components/SessionHistoryTab";
+import { StrategyLabTab } from "@/components/StrategyLabTab";
+import { CompetitionTab } from "@/components/CompetitionTab";
+import { RiskPanel } from "@/components/RiskPanel";
+import { RiskDashboard } from "@/components/RiskDashboard";
+import { AnalyticsTab } from "@/components/AnalyticsTab";
+import { TradingModeToggle } from "@/components/TradingModeToggle";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
+import { useTradingData } from "@/hooks/useTradingData";
 
 export function BotTabsContent({ activeTab }: { activeTab: string }) {
   const {
