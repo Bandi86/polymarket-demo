@@ -5,20 +5,20 @@ import { useState } from "react";
 import { FlaskConical, Zap, AlertTriangle, Shield } from "lucide-react";
 
 interface TradingModeToggleProps {
-  currentMode: "demo" | "live";
-  onModeChange: (mode: "demo" | "live") => Promise<void>;
-  liveBalance: number;
-  hasWallet: boolean;
-  hasApiKey: boolean;
+  currentMode?: "demo" | "live";
+  onModeChange?: (mode: "demo" | "live") => Promise<void>;
+  liveBalance?: number;
+  hasWallet?: boolean;
+  hasApiKey?: boolean;
   isDisabled?: boolean;
 }
 
 export function TradingModeToggle({
-  currentMode,
-  onModeChange,
-  liveBalance,
-  hasWallet,
-  hasApiKey,
+  currentMode = "demo",
+  onModeChange = async () => {},
+  liveBalance = 0,
+  hasWallet = false,
+  hasApiKey = false,
   isDisabled = false,
 }: TradingModeToggleProps) {
   const [loading, setLoading] = useState(false);

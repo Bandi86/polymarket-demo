@@ -1,6 +1,7 @@
 // src/lib/stores/trading-store.ts
 import { create } from 'zustand'
 import { devtools, subscribeWithSelector } from 'zustand/middleware'
+import type { Portfolio } from '@/types'
 
 interface TradingState {
   // Market data
@@ -11,7 +12,7 @@ interface TradingState {
   priceDirection: { yes: 'up' | 'down' | null; no: 'up' | 'down' | null }
 
   // Portfolio
-  portfolio: { balance: number; totalPnl: number } | null
+  portfolio: Portfolio | null
   openPositions: unknown[]
   openPositionsValue: number
 

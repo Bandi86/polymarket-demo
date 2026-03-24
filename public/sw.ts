@@ -12,7 +12,7 @@ const STATIC_ASSETS = [
 ];
 
 // Install event - cache static assets
-self.addEventListener("install", (event) => {
+self.addEventListener("install", (event: ExtendableEvent) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
@@ -22,7 +22,7 @@ self.addEventListener("install", (event) => {
 });
 
 // Activate event - clean up old caches
-self.addEventListener("activate", (event) => {
+self.addEventListener("activate", (event: ExtendableEvent) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -36,7 +36,7 @@ self.addEventListener("activate", (event) => {
 });
 
 // Fetch event - serve from cache or network
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", (event: FetchEvent) => {
   // Skip non-GET requests
   if (event.request.method !== "GET") return;
 
@@ -78,21 +78,8 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Background sync for offline trades
-self.addEventListener("sync", (event) => {
-  if (event.tag === "sync-trades") {
-    event.waitUntil(syncTrades());
-  }
-});
-
-async function syncTrades() {
-  // Retrieve pending trades from IndexedDB
-  // This would need to be implemented with actual IndexedDB access
-  console.log("Syncing pending trades...");
-}
-
 // Push notification support
-self.addEventListener("push", (event) => {
+self.addEventListener("push", (event: PushEvent) => {
   if (!event.data) return;
 
   const data = event.data.json();
@@ -102,7 +89,6 @@ self.addEventListener("push", (event) => {
     badge: "/icons/badge-72x72.png",
     tag: data.tag || "default",
     requireInteraction: data.requireInteraction || false,
-    actions: data.actions || [],
     data: data.data || {},
   };
 
@@ -112,7 +98,7 @@ self.addEventListener("push", (event) => {
 });
 
 // Handle notification clicks
-self.addEventListener("notificationclick", (event) => {
+self.addEventListener("notificationclick", (event: NotificationEvent) => {
   event.notification.close();
 
   const data = event.notification.data;
@@ -139,29 +125,5 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
-
-// Periodic background sync for market data
-self.addEventListener("periodicsync", (event) => {
-  if (event.tag === "market-data") {
-    event.waitUntil(fetchMarketData());
-  }
-});
-
-async function fetchMarketData() {
-  try {
-    const response = await fetch("/api/market");
-    const data = await response.json();
-    // Store in cache for offline access
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(
-      "/api/market",
-      new Response(JSON.stringify(data), {
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-  } catch (error) {
-    console.error("Failed to fetch market data:", error);
-  }
-}
 
 export {};

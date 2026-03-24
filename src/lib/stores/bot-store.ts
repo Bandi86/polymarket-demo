@@ -1,6 +1,7 @@
 // src/lib/stores/bot-store.ts
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
+import type { BotStats, BotLog } from '@/types'
 
 interface BotData {
   id: string
@@ -13,27 +14,17 @@ interface BotData {
   useKelly: boolean
   kellyFraction: number
   runTime?: number
-  stats: {
-    trades: number
-    wins: number
-    losses: number
-    pnl: number
-    winRate: number
-  }
+  stats: BotStats
   portfolio: {
     balance: number
-    closedPositions: unknown[]
+    totalPnL: number
+    totalTrades: number
+    winRate: number
+    roi: number
+    maxDrawdown?: number
+    sharpeRatio?: number
+    closedPositions?: unknown[]
   }
-}
-
-interface BotLog {
-  id: string
-  botId: string
-  botName: string
-  type: string
-  message: string
-  timestamp: number
-  details?: Record<string, unknown>
 }
 
 interface BotState {

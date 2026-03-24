@@ -98,6 +98,7 @@ export function RiskPanel() {
       rate_limit: "Rate Limit",
       position_size: "Position Size",
       portfolio_loss: "Portfolio Loss",
+      circuit_breaker: "Circuit Breaker",
     };
     return labels[type] || type;
   };

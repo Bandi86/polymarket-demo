@@ -5,7 +5,9 @@
 // - Trade history
 // - User configurations
 
-import { Database } from "bun:sqlite";
+import Database from "better-sqlite3";
+import { mkdirSync, existsSync } from "fs";
+import { dirname } from "path";
 
 export interface DatabaseConfig {
   mode: "memory" | "file";
@@ -82,7 +84,7 @@ export interface ConfigRow {
 }
 
 export class DatabaseService {
-  private db: Database | null = null;
+  private db: Database.Database | null = null;
   private config: DatabaseConfig;
   private initialized = false;
 
@@ -92,11 +94,9 @@ export class DatabaseService {
 
   private ensureDataDir(): void {
     if (this.config.mode === "file" && this.config.filePath) {
-      const dir = this.config.filePath.replace(/\/[^/]+$/, "");
-      try {
-        Bun.write(dir + "/", "");
-      } catch {
-        // Directory might already exist
+      const dir = dirname(this.config.filePath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
       }
     }
   }
@@ -121,7 +121,7 @@ export class DatabaseService {
     if (!this.db) return;
 
     // Markets table
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS markets (
         id TEXT PRIMARY KEY,
         question TEXT,
@@ -141,7 +141,7 @@ export class DatabaseService {
     `);
 
     // Positions table
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS positions (
         id TEXT PRIMARY KEY,
         market_id TEXT,
@@ -160,7 +160,7 @@ export class DatabaseService {
     `);
 
     // Bot sessions table
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS bot_sessions (
         id TEXT PRIMARY KEY,
         bot_id TEXT,
@@ -181,7 +181,7 @@ export class DatabaseService {
     `);
 
     // Trades table (for detailed trade history)
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS trades (
         id TEXT PRIMARY KEY,
         position_id TEXT,
@@ -199,7 +199,7 @@ export class DatabaseService {
     `);
 
     // Configuration table
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
         value TEXT,
@@ -208,10 +208,10 @@ export class DatabaseService {
     `);
 
     // Create indexes for common queries
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_positions_bot ON positions(bot_id)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_bot ON bot_sessions(bot_id)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_positions_bot ON positions(bot_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_bot ON bot_sessions(bot_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id)`);
   }
 
   // === Market Operations ===
@@ -485,13 +485,10 @@ export class DatabaseService {
     const tables = ["trades", "positions", "bot_sessions", "markets", "config"];
 
     for (const table of tables) {
-      this.db.run(`DELETE FROM ${table}`);
+      this.db.exec(`DELETE FROM ${table}`);
     }
   }
 }
 
 // Singleton instance
 export const dbService = new DatabaseService({ mode: "file", filePath: "./data/polymarket.db" });
-
-// Initialize database eagerly
-dbService.connect().catch((e) => console.error("[Database] Auto-init error:", e));

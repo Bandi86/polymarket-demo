@@ -170,7 +170,7 @@ export function useTradingData() {
         fetch("/api/market"),
         fetch("/api/portfolio"),
         fetch("/api/market/history"),
-        fetch("/api/competition/status"),
+        fetch("/api/competition"),
       ]);
 
       const marketJson = await marketRes.json();

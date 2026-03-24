@@ -142,7 +142,7 @@ function TradeEventItem({ event }: { event: TradeEvent }) {
 }
 
 function BotLogItem({ log }: { log: BotLog }) {
-  const typeConfig = {
+  const typeConfig: Record<string, { icon: typeof Zap; color: string; bg: string }> = {
     START: { icon: Zap, color: "#22c55e", bg: "rgba(34, 197, 94, 0.15)" },
     STOP: { icon: Zap, color: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" },
     TRADE: { icon: TrendingUp, color: "#3b82f6", bg: "rgba(59, 130, 246, 0.15)" },
@@ -151,6 +151,7 @@ function BotLogItem({ log }: { log: BotLog }) {
     RISK: { icon: AlertCircle, color: "#f59e0b", bg: "rgba(245, 158, 11, 0.15)" },
     COMPETITION: { icon: Bot, color: "#8b5cf6", bg: "rgba(139, 92, 246, 0.15)" },
     COORD: { icon: Bot, color: "#06b6d4", bg: "rgba(6, 182, 212, 0.15)" },
+    SETTLED: { icon: TrendingDown, color: "#22c55e", bg: "rgba(34, 197, 94, 0.15)" },
   };
 
   const config = typeConfig[log.type] || typeConfig.DECISION;

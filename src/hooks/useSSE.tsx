@@ -9,6 +9,8 @@ export function useSSE() {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttempts = useRef(0)
+  const prevYesPrice = useRef(0.5)
+  const prevNoPrice = useRef(0.5)
 
   const setMarketData = useTradingStore(s => s.setMarketData)
   const setCompetition = useTradingStore(s => s.setCompetition)
@@ -34,11 +36,20 @@ export function useSSE() {
         switch (type) {
           case 'connected':
           case 'market':
+            // Calculate price direction for animations
+            const yesDirection = data.yesPrice > prevYesPrice.current ? 'up' :
+                                 data.yesPrice < prevYesPrice.current ? 'down' : null
+            const noDirection = data.noPrice > prevNoPrice.current ? 'up' :
+                                data.noPrice < prevNoPrice.current ? 'down' : null
+            prevYesPrice.current = data.yesPrice
+            prevNoPrice.current = data.noPrice
+
             setMarketData({
               yesPrice: data.yesPrice,
               noPrice: data.noPrice,
               btcPrice: data.btcPrice,
               timeRemaining: data.timeRemaining,
+              priceDirection: { yes: yesDirection, no: noDirection },
               loading: false,
             })
             if (data.bots) setBots(data.bots)
