@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile } from 'fs/promises';
 
 import {
+  broadcastToSSE,
   getBotManager,
   getMarketEngine,
   getRiskManager,
@@ -61,10 +62,16 @@ export async function POST(request: NextRequest) {
       duration: durationMs,
     });
 
+    // Broadcast competition state change
+    broadcastToSSE('competition', competition);
+
     // Schedule auto-stop after duration
     setTimeout(async () => {
       console.log(`[API] ${durationMinutes}min run complete, stopping...`);
-      botManager.stopCompetition();
+      const finalCompetition = botManager.stopCompetition();
+
+      // Broadcast competition state change
+      broadcastToSSE('competition', finalCompetition);
 
       // Save data to file
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

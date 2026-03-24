@@ -129,13 +129,33 @@ export async function initializeServices(): Promise<void> {
 
     // 4. Set up market price update broadcasting
     marketEngine.onPriceUpdate((price) => {
+      const market = marketEngine.getCurrentMarket();
+      const marketDuration = market ? market.endTime - market.startTime : 0;
       broadcastToSSE("market_price", {
         yes: price.yes,
         no: price.no,
         timestamp: price.timestamp,
+        timeRemaining: marketEngine.getTimeRemaining(),
+        marketDuration: marketDuration,
+        btcPrice: priceService.getPrice(),
       });
     });
     console.log("[Global] Market price broadcasting set up");
+
+    // 4b. Set up timer broadcasting every second
+    setInterval(() => {
+      const market = marketEngine.getCurrentMarket();
+      if (market) {
+        const marketDuration = market.endTime - market.startTime;
+        const timeRemaining = marketEngine.getTimeRemaining();
+        broadcastToSSE("timer", {
+          timeRemaining,
+          marketDuration,
+          timestamp: Date.now(),
+        });
+      }
+    }, 1000);
+    console.log("[Global] Timer broadcasting set up");
 
     // 5. Set up settlement handling
     marketEngine.onSettlement((data) => {

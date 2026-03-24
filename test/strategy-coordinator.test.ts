@@ -16,7 +16,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 1.0,
@@ -35,7 +35,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 1.0,
@@ -49,7 +49,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-2',
           botName: 'Test Bot 2',
-          strategy: 'mean_reversion_sniper',
+          strategy: 'mean_reversion',
           action: 'NO',
           confidence: 0.7,
           betSize: 1.0,
@@ -68,7 +68,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 1.0,
@@ -82,7 +82,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-2',
           botName: 'Test Bot 2',
-          strategy: 'whale_follower',
+          strategy: 'trend',
           action: 'YES',
           confidence: 0.7,
           betSize: 1.0,
@@ -101,7 +101,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 30,
@@ -115,7 +115,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-2',
           botName: 'Test Bot 2',
-          strategy: 'whale_follower',
+          strategy: 'trend',
           action: 'YES',
           confidence: 0.7,
           betSize: 20,
@@ -136,7 +136,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 10,
@@ -159,7 +159,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 10,
@@ -186,7 +186,7 @@ describe('StrategyCoordinator', () => {
         {
           botId: 'bot-1',
           botName: 'Test Bot 1',
-          strategy: 'momentum_chaser',
+          strategy: 'momentum',
           action: 'YES',
           confidence: 0.8,
           betSize: 10,

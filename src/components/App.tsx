@@ -68,11 +68,12 @@ export function App() {
     // Notify on TRADE (position opened) and SETTLED (position closed/won/lost)
     if (latestLog.type === "TRADE") {
       const details = latestLog.details || {};
-      const outcome = details.outcome as string || "YES";
+      const outcome = details.outcome as string || details.action as string || "YES";
       const amount = details.amount as number || details.stake as number || 0;
-      const price = details.odds as number || details.price as number || details.avgPrice as number || 0;
+      // Try multiple price fields: odds, price, avgPrice, marketPrice, fillPrice
+      const price = details.odds as number || details.price as number || details.avgPrice as number || details.marketPrice as number || details.fillPrice as number || 0;
 
-      const isYes = outcome === "YES";
+      const isYes = outcome === "YES" || outcome === "UP";
       playTrade();
 
       toast.success(
@@ -235,6 +236,20 @@ export function App() {
     await fetchData();
   }, [isBotRunning, fetchData]);
 
+  const handleRunAll = useCallback(async () => {
+    await fetch("/api/bots/run-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ betSize: 1 })
+    });
+    await fetchData();
+  }, [fetchData]);
+
+  const handleStopAll = useCallback(async () => {
+    await fetch("/api/bots/stop-all", { method: "POST" });
+    await fetchData();
+  }, [fetchData]);
+
   const handleReset = useCallback(async () => {
     await fetch("/api/reset", { method: "POST" });
     await fetch("/api/bots/reset-all", { method: "POST" });
@@ -287,8 +302,8 @@ export function App() {
         soundEnabled={soundEnabled}
         onToggleSound={toggleSound}
         bots={bots}
-        onRunAll={handleToggleBot}
-        onStopAll={handleToggleBot}
+        onRunAll={handleRunAll}
+        onStopAll={handleStopAll}
         competition={competition}
         openPositionsCount={openPositionsCount}
         openPositionsValue={openPositionsValue}

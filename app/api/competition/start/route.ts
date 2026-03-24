@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getBotManager } from '@/lib/global';
+import { broadcastToSSE, getBotManager } from '@/lib/global';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,9 @@ export async function POST(request: NextRequest) {
       startBalance: body.startBalance,
       duration: body.duration,
     });
+
+    // Broadcast competition state change
+    broadcastToSSE('competition', competition);
 
     return NextResponse.json({ success: true, competition });
   } catch (error) {

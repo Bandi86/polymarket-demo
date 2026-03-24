@@ -9,6 +9,7 @@ interface TradingState {
   noPrice: number
   btcPrice: number
   timeRemaining: number
+  marketDuration: number
   priceDirection: { yes: 'up' | 'down' | null; no: 'up' | 'down' | null }
 
   // Portfolio
@@ -45,6 +46,7 @@ const initialState = {
   noPrice: 0.5,
   btcPrice: 0,
   timeRemaining: 300,
+  marketDuration: 300000,
   priceDirection: { yes: null, no: null } as { yes: 'up' | 'down' | null; no: 'up' | 'down' | null },
   portfolio: null,
   openPositions: [],

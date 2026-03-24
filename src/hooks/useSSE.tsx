@@ -49,14 +49,54 @@ export function useSSE() {
               noPrice: data.noPrice,
               btcPrice: data.btcPrice,
               timeRemaining: data.timeRemaining,
+              marketDuration: data.marketDuration,
               priceDirection: { yes: yesDirection, no: noDirection },
               loading: false,
             })
             if (data.bots) setBots(data.bots)
             if (data.competition) setCompetition(data.competition)
             break
+          case 'market_price':
+            // Real-time price updates from market engine
+            const marketYesDir = data.yes > prevYesPrice.current ? 'up' :
+                                 data.yes < prevYesPrice.current ? 'down' : null
+            const marketNoDir = data.no > prevNoPrice.current ? 'up' :
+                                data.no < prevNoPrice.current ? 'down' : null
+            prevYesPrice.current = data.yes
+            prevNoPrice.current = data.no
+
+            setMarketData({
+              yesPrice: data.yes,
+              noPrice: data.no,
+              timeRemaining: data.timeRemaining,
+              marketDuration: data.marketDuration,
+              priceDirection: { yes: marketYesDir, no: marketNoDir },
+              loading: false,
+            })
+            break
+          case 'price':
+            // BTC price updates from price service
+            setMarketData({
+              btcPrice: data.price,
+              loading: false,
+            })
+            break
+          case 'timer':
+            // Timer updates every second
+            setMarketData({
+              timeRemaining: data.timeRemaining,
+              marketDuration: data.marketDuration,
+              loading: false,
+            })
+            break
           case 'competition':
             setCompetition(data)
+            break
+          case 'bots':
+            // Bots state update (from run-all, stop-all, etc.)
+            if (Array.isArray(data)) {
+              setBots(data)
+            }
             break
           case 'bot_log':
             addLog(data)

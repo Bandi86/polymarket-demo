@@ -414,6 +414,16 @@ export class PolymarketProvider {
     };
   }
 
+  /** Check if we have API credentials configured */
+  hasCredentials(): boolean {
+    return !!(POLY_API_KEY && POLY_API_SECRET);
+  }
+
+  /** Check if we have a private key configured */
+  hasPrivateKey(): boolean {
+    return !!POLY_PRIVATE_KEY;
+  }
+
   /**
    * Fetch account balance from Polymarket CLOB API.
    * Uses L2 signature authentication with the private key.

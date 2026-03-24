@@ -23,7 +23,7 @@ describe('ParameterOptimizer', () => {
   describe('recordPerformance', () => {
     it('should record performance for a bot', () => {
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         {
@@ -35,7 +35,7 @@ describe('ParameterOptimizer', () => {
         }
       );
 
-      const history = parameterOptimizer.getHistory('momentum_chaser', 'test-bot-1');
+      const history = parameterOptimizer.getHistory('momentum', 'test-bot-1');
       expect(history).toHaveLength(1);
       expect(history[0].trades).toBe(15);
       expect(history[0].pnl).toBe(2.5);
@@ -43,7 +43,7 @@ describe('ParameterOptimizer', () => {
 
     it('should calculate fitness score', () => {
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         {
@@ -55,13 +55,13 @@ describe('ParameterOptimizer', () => {
         }
       );
 
-      const history = parameterOptimizer.getHistory('momentum_chaser', 'test-bot-1');
+      const history = parameterOptimizer.getHistory('momentum', 'test-bot-1');
       expect(history[0].fitness).toBeGreaterThan(0);
     });
 
     it('should return 0 fitness for insufficient trades', () => {
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         {
@@ -73,7 +73,7 @@ describe('ParameterOptimizer', () => {
         }
       );
 
-      const history = parameterOptimizer.getHistory('momentum_chaser', 'test-bot-1');
+      const history = parameterOptimizer.getHistory('momentum', 'test-bot-1');
       expect(history[0].fitness).toBe(0);
     });
   });
@@ -81,7 +81,7 @@ describe('ParameterOptimizer', () => {
   describe('getOptimizedParameters', () => {
     it('should return mutated params when not enough data', () => {
       const params = parameterOptimizer.getOptimizedParameters(
-        'momentum_chaser',
+        'momentum',
         testParams
       );
 
@@ -94,7 +94,7 @@ describe('ParameterOptimizer', () => {
       // Record enough performance data
       for (let i = 0; i < 3; i++) {
         parameterOptimizer.recordPerformance(
-          'momentum_chaser',
+          'momentum',
           `test-bot-${i}`,
           { ...testParams, betSize: 0.5 + i * 0.1 },
           {
@@ -108,7 +108,7 @@ describe('ParameterOptimizer', () => {
       }
 
       const params = parameterOptimizer.getOptimizedParameters(
-        'momentum_chaser',
+        'momentum',
         testParams
       );
 
@@ -122,7 +122,7 @@ describe('ParameterOptimizer', () => {
     it('should generate new population', () => {
       // First record some performance data
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         {
@@ -134,7 +134,7 @@ describe('ParameterOptimizer', () => {
         }
       );
 
-      const newPopulation = parameterOptimizer.evolveParameters('momentum_chaser');
+      const newPopulation = parameterOptimizer.evolveParameters('momentum');
 
       expect(newPopulation).toBeDefined();
       expect(newPopulation.length).toBeGreaterThan(0);
@@ -149,7 +149,7 @@ describe('ParameterOptimizer', () => {
     it('should return top performers sorted by fitness', () => {
       // Record multiple performances with different results
       parameterOptimizer.recordPerformance(
-        'mean_reversion_sniper',
+        'mean_reversion',
         'bot-1',
         testParams,
         {
@@ -162,7 +162,7 @@ describe('ParameterOptimizer', () => {
       );
 
       parameterOptimizer.recordPerformance(
-        'mean_reversion_sniper',
+        'mean_reversion',
         'bot-2',
         { ...testParams, betSize: 0.8 },
         {
@@ -174,7 +174,7 @@ describe('ParameterOptimizer', () => {
         }
       );
 
-      const top = parameterOptimizer.getTopPerformers('mean_reversion_sniper', 2);
+      const top = parameterOptimizer.getTopPerformers('mean_reversion', 2);
 
       expect(top.length).toBeLessThanOrEqual(2);
       if (top.length >= 2) {
@@ -186,7 +186,7 @@ describe('ParameterOptimizer', () => {
   describe('reset', () => {
     it('should clear all data', () => {
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         {
@@ -200,29 +200,29 @@ describe('ParameterOptimizer', () => {
 
       parameterOptimizer.reset();
 
-      const history = parameterOptimizer.getHistory('momentum_chaser', 'test-bot-1');
+      const history = parameterOptimizer.getHistory('momentum', 'test-bot-1');
       expect(history).toHaveLength(0);
     });
 
     it('should clear data for specific strategy', () => {
       parameterOptimizer.recordPerformance(
-        'momentum_chaser',
+        'momentum',
         'test-bot-1',
         testParams,
         { trades: 15, wins: 10, pnl: 2.0, sharpeRatio: 1.0, maxDrawdown: -0.05 }
       );
 
       parameterOptimizer.recordPerformance(
-        'mean_reversion_sniper',
+        'mean_reversion',
         'test-bot-2',
         testParams,
         { trades: 15, wins: 10, pnl: 2.0, sharpeRatio: 1.0, maxDrawdown: -0.05 }
       );
 
-      parameterOptimizer.reset('momentum_chaser');
+      parameterOptimizer.reset('momentum');
 
-      const historyMomentum = parameterOptimizer.getHistory('momentum_chaser', 'test-bot-1');
-      const historyMeanRev = parameterOptimizer.getHistory('mean_reversion_sniper', 'test-bot-2');
+      const historyMomentum = parameterOptimizer.getHistory('momentum', 'test-bot-1');
+      const historyMeanRev = parameterOptimizer.getHistory('mean_reversion', 'test-bot-2');
 
       expect(historyMomentum).toHaveLength(0);
       expect(historyMeanRev).toHaveLength(1);

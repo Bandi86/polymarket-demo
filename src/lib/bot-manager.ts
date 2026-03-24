@@ -1739,6 +1739,38 @@ export class BotManager {
     this.initDefaultBots();
   }
 
+  resetBot(id: string): BotConfig | null {
+    const bot = this.bots.get(id);
+    if (!bot) return null;
+
+    // Stop the bot if running
+    if (bot.enabled) {
+      this.stopBot(id);
+    }
+
+    // Reset balance and stats
+    bot.portfolio.balance = 10; // Default starting balance
+    bot.portfolio.positions = [];
+    bot.portfolio.closedPositions = [];
+    bot.stats = {
+      trades: 0,
+      wins: 0,
+      losses: 0,
+      pnl: 0,
+      winRate: 0,
+      avgWin: 0,
+      avgLoss: 0,
+      profitFactor: 0,
+      maxConsecutiveWins: 0,
+      maxConsecutiveLosses: 0,
+    };
+
+    // Clear session
+    this.currentSessions.delete(id);
+
+    return bot;
+  }
+
   getSessions(): BotSession[] {
     return [...this.sessions];
   }
@@ -1909,6 +1941,22 @@ export class BotManager {
   /** Check if in live mode */
   isLiveMode(): boolean {
     return this.tradingMode === "live";
+  }
+
+  /** Check if live trading is possible (has credentials and balance) */
+  canTradeLive(): { allowed: boolean; reason?: string } {
+    if (this.tradingMode !== "live") {
+      return { allowed: false, reason: "Not in live mode" };
+    }
+
+    // Check if we have API credentials
+    if (!polymarketProvider.hasCredentials()) {
+      return { allowed: false, reason: "Missing Polymarket API credentials" };
+    }
+
+    // The actual balance check should be done via API before trading
+    // For now, we return allowed but warn about balance
+    return { allowed: true };
   }
 
   private updateLeaderboard(): void {

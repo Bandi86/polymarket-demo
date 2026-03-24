@@ -157,6 +157,7 @@ export function useTradingData() {
   const botLogs = useBotStore(s => s.botLogs);
   const isAnyRunning = useBotStore(s => s.isAnyRunning);
   const updateBot = useBotStore(s => s.updateBot);
+  const setBots = useBotStore(s => s.setBots);
 
   // Local state for things not in stores
   const [marketData, setMarketData] = useState<MarketData | null>(null);
@@ -184,17 +185,19 @@ export function useTradingData() {
   const fetchData = useCallback(async () => {
     const startTime = Date.now();
     try {
-      const [marketRes, portfolioRes, historyRes, competitionRes] = await Promise.all([
+      const [marketRes, portfolioRes, historyRes, competitionRes, botsRes] = await Promise.all([
         fetch("/api/market"),
         fetch("/api/portfolio"),
         fetch("/api/market/history"),
         fetch("/api/competition"),
+        fetch("/api/bots"),
       ]);
 
       const marketJson = await marketRes.json();
       const portfolioJson = await portfolioRes.json();
       const historyJson = await historyRes.json();
       const competitionJson = await competitionRes.json();
+      const botsJson = await botsRes.json();
 
       if (marketJson && marketJson.market) {
         const primaryMarket = marketJson.market;
@@ -214,6 +217,9 @@ export function useTradingData() {
       // Update stores
       setPortfolio(portfolioJson);
       setCompetition(competitionJson);
+      if (botsJson && Array.isArray(botsJson)) {
+        setBots(botsJson);
+      }
 
       // Update PnL history with memory limit
       if (portfolioJson?.totalPnL !== undefined) {
@@ -233,7 +239,7 @@ export function useTradingData() {
     } finally {
       setLoading(false);
     }
-  }, [setPortfolio, setCompetition, setLoading]);
+  }, [setPortfolio, setCompetition, setLoading, setBots]);
 
   // Fetch live balance from Polymarket API
   const fetchLiveBalance = useCallback(async () => {

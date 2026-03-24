@@ -20,7 +20,7 @@ describe('StrategyCard', () => {
   };
 
   const defaultProps = {
-    strategy: 'momentum_chaser' as const,
+    strategy: 'momentum' as const,
     name: 'Momentum Chaser',
     stats: mockStats,
     enabled: true,

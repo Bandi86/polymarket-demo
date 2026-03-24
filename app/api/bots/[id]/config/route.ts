@@ -1,18 +1,25 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 import { broadcastToSSE, getBotManager } from '@/lib/global'
 
 export const dynamic = 'force-dynamic'
 
-// POST /api/bots/[id]/toggle - Toggle bot enabled state
+// POST /api/bots/[id]/config - Update bot configuration
 export async function POST(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const botManager = getBotManager()
   const { id } = await params
 
-  const bot = botManager.toggleBot(id)
+  let body = {}
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const bot = botManager.updateBotConfig(id, body as Record<string, unknown>)
   if (!bot) {
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 })
   }
@@ -20,5 +27,5 @@ export async function POST(
   // Broadcast updated bots state
   broadcastToSSE('bots', botManager.getBots())
 
-  return NextResponse.json(bot)
+  return NextResponse.json({ success: true, bot })
 }

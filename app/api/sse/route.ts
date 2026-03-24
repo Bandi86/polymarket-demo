@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
       const botManager = getBotManager();
 
       const market = marketEngine.getCurrentMarket();
+      const marketDuration = market ? market.endTime - market.startTime : 0;
       const data = {
         type: 'connected',
         data: {
@@ -66,11 +67,14 @@ export async function GET(request: NextRequest) {
           noPrice: parseFloat(market?.outcomePrices?.no || '0.5'),
           btcPrice: priceService.getPrice(),
           timeRemaining: marketEngine.getTimeRemaining(),
+          marketDuration: marketDuration,
           timestamp: Date.now(),
           // Include primary market for frontend initialization fallback
           market: market,
           // Include competition state
           competition: botManager.getCompetitionState(),
+          // Include bots data for stats
+          bots: botManager.getBots(),
         },
       };
 

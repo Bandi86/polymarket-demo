@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getBotManager } from '@/lib/global'
+import { broadcastToSSE, getBotManager } from '@/lib/global'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +17,9 @@ export async function POST(request: NextRequest) {
 
   const { betSize, interval } = body as { betSize?: number; interval?: number }
   botManager.runAllBots({ betSize, interval })
+
+  // Broadcast updated bots state
+  broadcastToSSE('bots', botManager.getBots())
 
   return NextResponse.json({ success: true })
 }
