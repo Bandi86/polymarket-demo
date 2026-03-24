@@ -10,6 +10,7 @@ interface TradingState {
   btcPrice: number
   timeRemaining: number
   marketDuration: number
+  marketEndTime: number // Timestamp when market ends (for local countdown)
   priceDirection: { yes: 'up' | 'down' | null; no: 'up' | 'down' | null }
 
   // Portfolio
@@ -45,8 +46,9 @@ const initialState = {
   yesPrice: 0.5,
   noPrice: 0.5,
   btcPrice: 0,
-  timeRemaining: 300,
+  timeRemaining: 300000,
   marketDuration: 300000,
+  marketEndTime: Date.now() + 300000, // Default 5 minutes from now
   priceDirection: { yes: null, no: null } as { yes: 'up' | 'down' | null; no: 'up' | 'down' | null },
   portfolio: null,
   openPositions: [],

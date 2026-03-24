@@ -11,6 +11,7 @@ import { WalletButton } from "@/components/WalletButton";
 import { DepositModal } from "@/components/DepositModal";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
 import { CircularTimer, BotRunTimer } from "@/components/ui/CircularTimer";
+import { useLocalTimer } from "@/hooks/useLocalTimer";
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
 import type { Portfolio } from "@/types";
 
@@ -140,7 +141,8 @@ export function TopDashboard({
   const potentialWin = openPositionsValue * 2; // If all positions are correct
   const potentialLoss = openPositionsValue; // If all positions are wrong
 
-  const timeRemaining = marketData?.timeRemaining || 0;
+  // Use local timer for smooth countdown
+  const { timeRemaining } = useLocalTimer();
 
   // Calculate run time remaining
   const [runTimeRemaining, setRunTimeRemaining] = useState(0);

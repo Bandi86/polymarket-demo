@@ -44,12 +44,16 @@ export function useSSE() {
             prevYesPrice.current = data.yesPrice
             prevNoPrice.current = data.noPrice
 
+            // Calculate market end time for local countdown
+            const marketEndTime = Date.now() + (data.timeRemaining || 0)
+
             setMarketData({
               yesPrice: data.yesPrice,
               noPrice: data.noPrice,
               btcPrice: data.btcPrice,
               timeRemaining: data.timeRemaining,
               marketDuration: data.marketDuration,
+              marketEndTime: marketEndTime,
               priceDirection: { yes: yesDirection, no: noDirection },
               loading: false,
             })
@@ -65,11 +69,15 @@ export function useSSE() {
             prevYesPrice.current = data.yes
             prevNoPrice.current = data.no
 
+            // Calculate market end time for local countdown
+            const priceMarketEndTime = Date.now() + (data.timeRemaining || 0)
+
             setMarketData({
               yesPrice: data.yes,
               noPrice: data.no,
               timeRemaining: data.timeRemaining,
               marketDuration: data.marketDuration,
+              marketEndTime: priceMarketEndTime,
               priceDirection: { yes: marketYesDir, no: marketNoDir },
               loading: false,
             })
@@ -82,10 +90,12 @@ export function useSSE() {
             })
             break
           case 'timer':
-            // Timer updates every second
+            // Timer sync from server - update marketEndTime to correct drift
+            const timerMarketEndTime = Date.now() + (data.timeRemaining || 0)
             setMarketData({
               timeRemaining: data.timeRemaining,
               marketDuration: data.marketDuration,
+              marketEndTime: timerMarketEndTime,
               loading: false,
             })
             break

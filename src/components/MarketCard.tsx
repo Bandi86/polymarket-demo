@@ -3,6 +3,7 @@
 import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedCounter } from "@/components/ui/AnimatedCounter";
+import { useLocalTimer } from "@/hooks/useLocalTimer";
 import type { MarketData } from "@/hooks/useTradingData";
 
 interface MarketCardProps {
@@ -45,7 +46,8 @@ export function MarketCard({
   btcPrice,
   priceToBeat,
 }: MarketCardProps) {
-  const timeRemaining = marketData?.timeRemaining || 0;
+  // Use local timer for smooth countdown
+  const { timeRemaining } = useLocalTimer();
   const market = marketData?.market;
 
   const isUrgent = timeRemaining < 60000;
