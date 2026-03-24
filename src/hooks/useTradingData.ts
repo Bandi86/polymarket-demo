@@ -1,4 +1,16 @@
+// src/hooks/useTradingData.ts
+/**
+ * @deprecated Use Zustand stores directly:
+ * - useTradingStore for market/portfolio/competition data
+ * - useBotStore for bots/logs
+ * - useUIStore for UI state
+ * - useSSE for real-time updates
+ *
+ * This hook is kept for backward compatibility and will be removed in a future version.
+ */
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTradingStore } from "@/lib/stores/trading-store";
+import { useBotStore } from "@/lib/stores/bot-store";
 import type { Market, Portfolio, BotLog } from "../types";
 
 // Re-export types for consumers
@@ -120,40 +132,20 @@ export interface LiveBalance {
 }
 
 // Memory limits
-const MAX_BOT_LOGS = 30;
 const MAX_PNL_HISTORY = 50;
-const MAX_EVENTS = 30;
 const PNGL_HISTORY_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
-const MEMORY_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * @deprecated Use stores directly. This hook wraps Zustand stores for backward compatibility.
+ */
 export function useTradingData() {
+  // Get values from Zustand stores
+  const tradingState = useTradingStore();
+  const botState = useBotStore();
+
+  // Local state for things not in stores
   const [marketData, setMarketData] = useState<MarketData | null>(null);
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [bots, setBots] = useState<BotData[]>([]);
-  const [events, setEvents] = useState<TradeEvent[]>([]);
   const [marketHistory, setMarketHistory] = useState<MarketHistory[]>([]);
-  const [botLogs, setBotLogs] = useState<BotLog[]>([]);
-  const [competition, setCompetition] = useState<CompetitionState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
-  const [apiLatency, setApiLatency] = useState(0);
-  const [isBotRunning, setIsBotRunning] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-
-  // Price animation state
-  const [yesPriceDirection, setYesPriceDirection] = useState<"up" | "down" | null>(null);
-  const [noPriceDirection, setNoPriceDirection] = useState<"up" | "down" | null>(null);
-  const prevYesPrice = useRef(0.5);
-  const prevNoPrice = useRef(0.5);
-
-  // Current prices
-  const [yesPrice, setYesPrice] = useState(0.5);
-  const [noPrice, setNoPrice] = useState(0.5);
-
-  // PnL history for chart
-  const [pnlHistory, setPnLHistory] = useState<{ time: number; pnl: number }[]>([]);
-
-  // Live balance from Polymarket API
   const [liveBalance, setLiveBalance] = useState<LiveBalance>({
     success: false,
     isLive: false,
@@ -166,44 +158,23 @@ export function useTradingData() {
     error: null,
     lastSync: null,
   });
-
-  // Refs for cleanup
-  const eventsRef = useRef<TradeEvent[]>([]);
-  const logsRef = useRef<BotLog[]>([]);
-  const animationTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  // Cleanup function for animation timeouts
-  const clearAnimationTimeouts = useCallback(() => {
-    animationTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
-    animationTimeoutsRef.current = [];
-  }, []);
-
-  // Safe setTimeout that tracks for cleanup
-  const safeSetTimeout = useCallback((callback: () => void, delay: number) => {
-    const timeout = setTimeout(() => {
-      callback();
-      // Remove from tracking after execution
-      animationTimeoutsRef.current = animationTimeoutsRef.current.filter(t => t !== timeout);
-    }, delay);
-    animationTimeoutsRef.current.push(timeout);
-    return timeout;
-  }, []);
+  const [pnlHistory, setPnLHistory] = useState<{ time: number; pnl: number }[]>([]);
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
+  const [apiLatency, setApiLatency] = useState(0);
 
   // Fetch data from API
   const fetchData = useCallback(async () => {
     const startTime = Date.now();
     try {
-      const [marketRes, portfolioRes, botsRes, historyRes, competitionRes] = await Promise.all([
+      const [marketRes, portfolioRes, historyRes, competitionRes] = await Promise.all([
         fetch("/api/market"),
         fetch("/api/portfolio"),
-        fetch("/api/bots"),
         fetch("/api/market/history"),
         fetch("/api/competition/status"),
       ]);
 
       const marketJson = await marketRes.json();
       const portfolioJson = await portfolioRes.json();
-      const botsJson = await botsRes.json();
       const historyJson = await historyRes.json();
       const competitionJson = await competitionRes.json();
 
@@ -218,61 +189,33 @@ export function useTradingData() {
           startedAt: marketJson.startedAt || 0,
           priceToBeat: primaryMarket.priceToBeat || marketJson.priceToBeat,
         });
-        
-        // Sync prices from GET /api/market
-        const yPrice = primaryMarket.yesPrice || parseFloat(primaryMarket.outcomePrices?.yes || '0.5');
-        const nPrice = primaryMarket.noPrice || parseFloat(primaryMarket.outcomePrices?.no || '0.5');
-        
-        setYesPrice(yPrice);
-        setNoPrice(nPrice);
-        prevYesPrice.current = yPrice;
-        prevNoPrice.current = nPrice;
       } else {
-        setMarketData(null); 
+        setMarketData(null);
       }
 
-      setPortfolio(portfolioJson);
-      setBots(botsJson);
-      setMarketHistory(historyJson);
-      setCompetition(competitionJson);
+      // Update stores
+      tradingState.setPortfolio(portfolioJson);
+      tradingState.setCompetition(competitionJson);
 
       // Update PnL history with memory limit
       if (portfolioJson?.totalPnL !== undefined) {
         setPnLHistory(prev => {
           const now = Date.now();
           const newEntry = { time: now, pnl: portfolioJson.totalPnL };
-          // Keep only recent entries within time window and max count
           const filtered = prev.filter(p => now - p.time < PNGL_HISTORY_MAX_AGE_MS);
-          const newHistory = [...filtered, newEntry].slice(-MAX_PNL_HISTORY);
-          return newHistory;
+          return [...filtered, newEntry].slice(-MAX_PNL_HISTORY);
         });
       }
 
-      setIsBotRunning(botsJson.some((b: BotData) => b.enabled));
+      setMarketHistory(historyJson);
       setApiLatency(Date.now() - startTime);
       setLastUpdate(Date.now());
     } catch (err) {
       console.error("Fetch error:", err);
     } finally {
-      setLoading(false);
+      tradingState.setLoading(false);
     }
-  }, []);
-
-  // Fetch bot logs
-  const fetchBotLogs = useCallback(async () => {
-    try {
-      const res = await fetch("/api/bots/logs");
-      if (res.ok) {
-        const logs = await res.json();
-        // Limit to prevent memory growth
-        const limitedLogs = logs.slice(0, MAX_BOT_LOGS);
-        logsRef.current = limitedLogs;
-        setBotLogs(limitedLogs);
-      }
-    } catch (err) {
-      console.error("Bot logs fetch error:", err);
-    }
-  }, []);
+  }, [tradingState]);
 
   // Fetch live balance from Polymarket API
   const fetchLiveBalance = useCallback(async () => {
@@ -306,172 +249,58 @@ export function useTradingData() {
   // Initial fetch
   useEffect(() => {
     fetchData();
-    fetchBotLogs();
     fetchLiveBalance();
 
-    // Fallback timeout - ensure we don't stay in loading state forever
     const timeout = setTimeout(() => {
-      setLoading(false);
+      tradingState.setLoading(false);
     }, 5000);
 
     return () => clearTimeout(timeout);
-  }, [fetchData, fetchBotLogs, fetchLiveBalance]);
+  }, [fetchData, fetchLiveBalance, tradingState]);
 
-  // SSE for real-time updates
+  // Fallback polling every 5 seconds for full data refresh
   useEffect(() => {
-    const eventSource = new EventSource("/api/sse");
-
-    eventSource.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        // Handle connected or market messages
-        if ((message.type === "market" || message.type === "connected") && message.data) {
-          const newYesPrice = message.data.yesPrice;
-          const newNoPrice = message.data.noPrice;
-
-          // Update time remaining
-          if (message.data.timeRemaining !== undefined) {
-            setTimeRemaining(message.data.timeRemaining);
-          }
-
-          // Detect price direction for animation (keep this separate for micro-animations)
-          if (newYesPrice > prevYesPrice.current) {
-            setYesPriceDirection("up");
-            safeSetTimeout(() => setYesPriceDirection(null), 400);
-          } else if (newYesPrice < prevYesPrice.current) {
-            setYesPriceDirection("down");
-            safeSetTimeout(() => setYesPriceDirection(null), 400);
-          }
-
-          if (newNoPrice > prevNoPrice.current) {
-            setNoPriceDirection("up");
-            safeSetTimeout(() => setNoPriceDirection(null), 400);
-          } else if (newNoPrice < prevNoPrice.current) {
-            setNoPriceDirection("down");
-            safeSetTimeout(() => setNoPriceDirection(null), 400);
-          }
-
-          prevYesPrice.current = newYesPrice;
-          prevNoPrice.current = newNoPrice;
-
-          // Batch state updates
-          setYesPrice(newYesPrice);
-          setNoPrice(newNoPrice);
-          setLastUpdate(message.data.timestamp);
-
-          // Update market data if exists
-          setMarketData(prev => {
-            const hasNewMarket = message.data.market;
-            const pm = hasNewMarket || prev?.market;
-
-            return {
-              market: pm,
-              spotPrice: message.data.btcPrice || pm?.spotPrice || 0,
-              priceHistory: pm?.priceHistory || prev?.priceHistory || [],
-              timeRemaining: message.data.timeRemaining || pm?.timeRemaining || 0,
-              marketDuration: message.data.marketDuration || pm?.marketDuration || 0,
-              startedAt: message.data.startedAt || pm?.startedAt || 0,
-            };
-          });
-
-          // Update competition state if included (from connected message)
-          if (message.data.competition) {
-            setCompetition(message.data.competition);
-          }
-        }
-
-        // Handle competition state updates
-        if (message.type === "competition" && message.data) {
-          setCompetition(message.data);
-        }
-
-        // Handle bot log events
-        if (message.type === "bot_log" && message.data) {
-          const newLog: BotLog = message.data;
-          // Limit logs to prevent memory growth
-          logsRef.current = [newLog, ...logsRef.current.slice(0, MAX_BOT_LOGS - 1)];
-          setBotLogs([...logsRef.current]);
-        }
-      } catch (err) {
-        console.error("SSE parse error:", err);
-      }
-    };
-
-    eventSource.onerror = () => {
-      console.error("SSE connection error");
-    };
-
-    // Fallback polling every 5 seconds for full data refresh
     const pollInterval = setInterval(() => {
       fetchData();
-      fetchBotLogs();
     }, 5000);
 
-    return () => {
-      eventSource.close();
-      clearInterval(pollInterval);
-      clearAnimationTimeouts();
-    };
-  }, [fetchData, fetchBotLogs, safeSetTimeout, clearAnimationTimeouts]);
-
-  // Memory cleanup interval - runs every 5 minutes
-  useEffect(() => {
-    const cleanupInterval = setInterval(() => {
-      // Trim botLogs if somehow exceeded limit
-      setBotLogs(prev => prev.slice(0, MAX_BOT_LOGS));
-
-      // Trim events
-      setEvents(prev => prev.slice(0, MAX_EVENTS));
-
-      // Trim pnlHistory by age
-      const now = Date.now();
-      setPnLHistory(prev => prev.filter(p => now - p.time < PNGL_HISTORY_MAX_AGE_MS));
-
-      // Trim marketHistory to last 50 entries
-      setMarketHistory(prev => prev.slice(-50));
-    }, MEMORY_CLEANUP_INTERVAL_MS);
-
-    return () => clearInterval(cleanupInterval);
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      clearAnimationTimeouts();
-    };
-  }, [clearAnimationTimeouts]);
+    return () => clearInterval(pollInterval);
+  }, [fetchData]);
 
   // Add a trade event
   const addTradeEvent = useCallback((event: TradeEvent) => {
-    eventsRef.current = [event, ...eventsRef.current.slice(0, MAX_EVENTS - 1)];
-    setEvents([...eventsRef.current]);
-  }, []);
+    tradingState.addEvent(event);
+  }, [tradingState]);
 
   // Update a single bot's state (for immediate UI updates after toggle)
   const updateBotState = useCallback((botId: string, updates: Partial<BotData>) => {
-    setBots(prev => prev.map(b => b.id === botId ? { ...b, ...updates } : b));
-  }, []);
+    botState.updateBot(botId, updates);
+  }, [botState]);
 
   return {
+    // From stores
+    portfolio: tradingState.portfolio,
+    bots: botState.bots,
+    events: tradingState.events as TradeEvent[],
+    botLogs: botState.botLogs,
+    competition: tradingState.competition as CompetitionState,
+    loading: tradingState.loading,
+    isBotRunning: botState.isAnyRunning,
+    yesPrice: tradingState.yesPrice,
+    noPrice: tradingState.noPrice,
+    yesPriceDirection: tradingState.priceDirection.yes,
+    noPriceDirection: tradingState.priceDirection.no,
+    timeRemaining: tradingState.timeRemaining,
+
+    // Local state
     marketData,
-    portfolio,
-    bots,
-    events,
     marketHistory,
-    botLogs,
-    competition,
-    loading,
+    pnlHistory,
+    liveBalance,
     lastUpdate,
     apiLatency,
-    isBotRunning,
-    yesPrice,
-    noPrice,
-    yesPriceDirection,
-    noPriceDirection,
-    pnlHistory,
-    timeRemaining,
-    liveBalance,
+
+    // Actions
     fetchData,
     fetchLiveBalance,
     addTradeEvent,
