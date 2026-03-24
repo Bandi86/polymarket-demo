@@ -18,6 +18,7 @@ import { riskManager } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
 import { polymarketProvider } from "./providers/polymarket-provider";
+import { broadcastToSSE } from "./global";
 
 // Trading mode type
 export type TradingMode = "demo" | "live";
@@ -837,7 +838,7 @@ export interface BotLog {
   id: string;
   botId: string;
   botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD";
+  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED";
   message: string;
   details?: Record<string, unknown>;
   timestamp: number;
@@ -1597,6 +1598,8 @@ export class BotManager {
           coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
           mode: "demo",
         });
+        // Broadcast updated bots to all SSE clients
+        broadcastToSSE("bots", this.getBots());
       } else {
         // Trade failed, cancel with coordinator
         strategyCoordinator.cancelDecision(market.id, id);

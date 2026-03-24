@@ -167,6 +167,25 @@ export async function initializeServices(): Promise<void> {
         pnl: data.pnl,
         marketResult: data.marketResult,
       });
+
+      // Add bot log for SETTLED event (triggers notifications in frontend)
+      if (data.position.botId) {
+        botManager.addLog(
+          data.position.botId,
+          "SETTLED",
+          `${data.won ? "WON" : "LOST"} ${data.position.outcome} position | PnL: $${data.pnl.toFixed(2)}`,
+          {
+            outcome: data.position.outcome,
+            amount: data.position.amount,
+            pnl: data.pnl,
+            won: data.won,
+            marketResult: data.marketResult,
+          }
+        );
+      }
+
+      // Broadcast updated bots after settlement for real-time stats
+      broadcastToSSE("bots", botManager.getBots());
     });
     console.log("[Global] Settlement handling set up");
 

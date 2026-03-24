@@ -50,8 +50,8 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
   // Extract trades data
   const closedPositions = (bot.portfolio.closedPositions || []) as any[];
 
-  // Recent trades dots
-  const recentTrades = closedPositions.slice(-8).map((p: any) => p.pnl || 0);
+  // Recent trades dots (most recent 8 trades - closedPositions[0] is newest)
+  const recentTrades = closedPositions.slice(0, 8).map((p: any) => p.pnl || 0);
 
   // Last trade result
   const lastTrade = closedPositions[0];
@@ -63,10 +63,11 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
   const balanceGrowth = bot.portfolio.balance - initialBalance;
   const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
 
-  // Equity curve
+  // Equity curve (need to reverse since closedPositions[0] is newest)
   const equityCurvePlot = [initialBalance];
   let currentBalance = initialBalance;
-  closedPositions.forEach((p: any) => {
+  // Iterate in reverse order (oldest to newest) to build correct equity curve
+  [...closedPositions].reverse().forEach((p: any) => {
     currentBalance += (p.pnl || 0);
     equityCurvePlot.push(currentBalance);
   });
@@ -85,14 +86,15 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
   const health = getHealthStatus();
   const HealthIcon = health.icon;
 
-  // Current streak
+  // Current streak (closedPositions[0] is newest, so start from there)
   const getCurrentStreak = () => {
     if (closedPositions.length === 0) return { type: "none", count: 0 };
     let streak = 0;
     let streakType: "win" | "loss" = "win";
-    for (let i = closedPositions.length - 1; i >= 0; i--) {
+    // Start from newest (index 0) and go forward
+    for (let i = 0; i < closedPositions.length; i++) {
       const pnl = closedPositions[i].pnl || 0;
-      if (i === closedPositions.length - 1) {
+      if (i === 0) {
         streakType = pnl > 0 ? "win" : "loss";
         streak = 1;
       } else {
