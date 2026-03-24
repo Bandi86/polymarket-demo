@@ -139,9 +139,24 @@ const PNGL_HISTORY_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
  * @deprecated Use stores directly. This hook wraps Zustand stores for backward compatibility.
  */
 export function useTradingData() {
-  // Get values from Zustand stores
-  const tradingState = useTradingStore();
-  const botState = useBotStore();
+  // Use selectors to get specific values (prevents re-render loops)
+  const setPortfolio = useTradingStore(s => s.setPortfolio);
+  const setCompetition = useTradingStore(s => s.setCompetition);
+  const setLoading = useTradingStore(s => s.setLoading);
+  const portfolio = useTradingStore(s => s.portfolio);
+  const competition = useTradingStore(s => s.competition);
+  const loading = useTradingStore(s => s.loading);
+  const yesPrice = useTradingStore(s => s.yesPrice);
+  const noPrice = useTradingStore(s => s.noPrice);
+  const priceDirection = useTradingStore(s => s.priceDirection);
+  const timeRemaining = useTradingStore(s => s.timeRemaining);
+  const events = useTradingStore(s => s.events);
+  const addEvent = useTradingStore(s => s.addEvent);
+
+  const bots = useBotStore(s => s.bots);
+  const botLogs = useBotStore(s => s.botLogs);
+  const isAnyRunning = useBotStore(s => s.isAnyRunning);
+  const updateBot = useBotStore(s => s.updateBot);
 
   // Local state for things not in stores
   const [marketData, setMarketData] = useState<MarketData | null>(null);
@@ -162,7 +177,10 @@ export function useTradingData() {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [apiLatency, setApiLatency] = useState(0);
 
-  // Fetch data from API
+  // Use ref to track if initial fetch happened
+  const hasFetchedRef = useRef(false);
+
+  // Fetch data from API - no store dependencies
   const fetchData = useCallback(async () => {
     const startTime = Date.now();
     try {
@@ -194,8 +212,8 @@ export function useTradingData() {
       }
 
       // Update stores
-      tradingState.setPortfolio(portfolioJson);
-      tradingState.setCompetition(competitionJson);
+      setPortfolio(portfolioJson);
+      setCompetition(competitionJson);
 
       // Update PnL history with memory limit
       if (portfolioJson?.totalPnL !== undefined) {
@@ -213,9 +231,9 @@ export function useTradingData() {
     } catch (err) {
       console.error("Fetch error:", err);
     } finally {
-      tradingState.setLoading(false);
+      setLoading(false);
     }
-  }, [tradingState]);
+  }, [setPortfolio, setCompetition, setLoading]);
 
   // Fetch live balance from Polymarket API
   const fetchLiveBalance = useCallback(async () => {
@@ -246,51 +264,54 @@ export function useTradingData() {
     }
   }, []);
 
-  // Initial fetch
+  // Initial fetch - only once
   useEffect(() => {
-    fetchData();
-    fetchLiveBalance();
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchData();
+      fetchLiveBalance();
+    }
 
     const timeout = setTimeout(() => {
-      tradingState.setLoading(false);
+      setLoading(false);
     }, 5000);
 
     return () => clearTimeout(timeout);
-  }, [fetchData, fetchLiveBalance, tradingState]);
+  }, [fetchData, fetchLiveBalance, setLoading]);
 
-  // Fallback polling every 5 seconds for full data refresh
+  // Fallback polling every 10 seconds (reduced from 5)
   useEffect(() => {
     const pollInterval = setInterval(() => {
       fetchData();
-    }, 5000);
+    }, 10000);
 
     return () => clearInterval(pollInterval);
   }, [fetchData]);
 
   // Add a trade event
   const addTradeEvent = useCallback((event: TradeEvent) => {
-    tradingState.addEvent(event);
-  }, [tradingState]);
+    addEvent(event);
+  }, [addEvent]);
 
   // Update a single bot's state (for immediate UI updates after toggle)
   const updateBotState = useCallback((botId: string, updates: Partial<BotData>) => {
-    botState.updateBot(botId, updates);
-  }, [botState]);
+    updateBot(botId, updates);
+  }, [updateBot]);
 
   return {
     // From stores
-    portfolio: tradingState.portfolio,
-    bots: botState.bots,
-    events: tradingState.events as TradeEvent[],
-    botLogs: botState.botLogs,
-    competition: tradingState.competition as CompetitionState,
-    loading: tradingState.loading,
-    isBotRunning: botState.isAnyRunning,
-    yesPrice: tradingState.yesPrice,
-    noPrice: tradingState.noPrice,
-    yesPriceDirection: tradingState.priceDirection.yes,
-    noPriceDirection: tradingState.priceDirection.no,
-    timeRemaining: tradingState.timeRemaining,
+    portfolio,
+    bots,
+    events: events as TradeEvent[],
+    botLogs,
+    competition: competition as CompetitionState,
+    loading,
+    isBotRunning: isAnyRunning,
+    yesPrice,
+    noPrice,
+    yesPriceDirection: priceDirection.yes,
+    noPriceDirection: priceDirection.no,
+    timeRemaining,
 
     // Local state
     marketData,
