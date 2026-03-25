@@ -35,22 +35,30 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
 
   // Calculate summary stats
   const activeBots = bots.filter(b => b.enabled);
-  const totalPnl = bots.reduce((sum, b) => sum + b.stats.pnl, 0);
-  const totalPositions = positions.filter(p => p.botId).length;
+
+  // Active bots stats (what matters when running manually)
+  const activeBalance = activeBots.reduce((sum, b) => sum + b.portfolio.balance, 0);
+  const activeInitialBalance = activeBots.length * 10;
+  const activePnl = activeBots.reduce((sum, b) => sum + b.stats.pnl, 0);
+
+  // All bots stats (for overview)
   const totalBalance = bots.reduce((sum, b) => sum + b.portfolio.balance, 0);
+  const totalPnl = bots.reduce((sum, b) => sum + b.stats.pnl, 0);
   const totalTrades = bots.reduce((sum, b) => sum + b.stats.trades, 0);
   const totalWins = bots.reduce((sum, b) => sum + b.stats.wins, 0);
   const totalLosses = bots.reduce((sum, b) => sum + b.stats.losses, 0);
   const totalWinRate = totalTrades > 0 ? totalWins / totalTrades : 0;
   const avgPnlPerTrade = totalTrades > 0 ? totalPnl / totalTrades : 0;
+  const totalPositions = positions.filter(p => p.botId).length;
   const positionsValue = positions.reduce((sum, p) => sum + (p.amount || p.stake || 0), 0);
 
-  // Calculate total initial balance: use competition startBalance if active, otherwise bots.length * 10
-  const totalInitialBalance = competition?.active && competition.startBalance
-    ? competition.startBalance * bots.length
-    : bots.length * 10;
-  const totalGrowth = totalBalance - totalInitialBalance;
-  const totalGrowthPercent = totalInitialBalance > 0 ? (totalGrowth / totalInitialBalance) * 100 : 0;
+  // Growth calculation: use active bots if any are running, otherwise show total
+  const showActiveStats = activeBots.length > 0;
+  const displayBalance = showActiveStats ? activeBalance : totalBalance;
+  const displayInitialBalance = showActiveStats ? activeInitialBalance : bots.length * 10;
+  const displayPnl = showActiveStats ? activePnl : totalPnl;
+  const displayGrowth = displayBalance - displayInitialBalance;
+  const displayGrowthPercent = displayInitialBalance > 0 ? (displayGrowth / displayInitialBalance) * 100 : 0;
 
   // Sort bots
   const sortedBots = [...bots].sort((a, b) => {
@@ -126,28 +134,30 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
             display: "flex",
             flexDirection: "column",
             padding: "0.75rem",
-            background: totalGrowth >= 0 ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05))" : "linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05))",
+            background: displayGrowth >= 0 ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05))" : "linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05))",
             borderRadius: 10,
-            border: `1px solid ${totalGrowth >= 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+            border: `1px solid ${displayGrowth >= 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
-              {totalGrowth >= 0 ? (
+              {displayGrowth >= 0 ? (
                 <TrendingUp className="w-4 h-4" style={{ color: "#22c55e" }} />
               ) : (
                 <TrendingDown className="w-4 h-4" style={{ color: "#ef4444" }} />
               )}
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Portfolio Growth</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {showActiveStats ? "Active Growth" : "Portfolio Growth"}
+              </span>
             </div>
             <span style={{
               fontWeight: 700,
               fontFamily: "ui-monospace, monospace",
               fontSize: "1.25rem",
-              color: totalGrowth >= 0 ? "#22c55e" : "#ef4444"
+              color: displayGrowth >= 0 ? "#22c55e" : "#ef4444"
             }}>
-              {totalGrowth >= 0 ? "+" : ""}{formatCurrency(totalGrowth)}
+              {displayGrowth >= 0 ? "+" : ""}{formatCurrency(displayGrowth)}
             </span>
-            <span style={{ fontSize: "0.7rem", color: totalGrowth >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-              ({totalGrowthPercent >= 0 ? "+" : ""}{totalGrowthPercent.toFixed(1)}%)
+            <span style={{ fontSize: "0.7rem", color: displayGrowth >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+              ({displayGrowthPercent >= 0 ? "+" : ""}{displayGrowthPercent.toFixed(1)}%)
             </span>
           </div>
 
@@ -161,13 +171,15 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
               <DollarSign className="w-4 h-4" style={{ color: "var(--primary)" }} />
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Total Balance</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {showActiveStats ? "Active Balance" : "Total Balance"}
+              </span>
             </div>
             <span style={{ fontWeight: 700, fontFamily: "ui-monospace, monospace", fontSize: "1.25rem" }}>
-              {formatCurrency(totalBalance)}
+              {formatCurrency(displayBalance)}
             </span>
             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-              Initial: {formatCurrency(totalInitialBalance)}
+              Initial: {formatCurrency(displayInitialBalance)}
             </span>
           </div>
 

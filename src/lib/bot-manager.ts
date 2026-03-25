@@ -1859,10 +1859,10 @@ export class BotManager {
       this.stopBot(id);
     }
 
-    // Reset balance and stats
-    bot.portfolio.balance = 10; // Default starting balance
-    bot.portfolio.positions = [];
-    bot.portfolio.closedPositions = [];
+    // Reset the ACTUAL portfolio in marketEngine (source of truth)
+    const portfolio = marketEngine.initBotPortfolio(id, 10);
+
+    // Reset stats
     bot.stats = {
       trades: 0,
       wins: 0,
@@ -1878,6 +1878,9 @@ export class BotManager {
 
     // Clear session
     this.currentSessions.delete(id);
+
+    // Update bot with fresh portfolio reference
+    bot.portfolio = portfolio;
 
     return bot;
   }
