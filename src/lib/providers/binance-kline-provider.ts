@@ -58,6 +58,14 @@ export class BinanceKlineProvider {
   }
 
   private connect(): void {
+    // Clean up existing WebSocket before creating new one
+    if (this.ws) {
+      this.ws.onclose = null; // Prevent recursive reconnect
+      this.ws.onerror = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
     const stream = `${this.config.symbol}@kline_${this.config.interval}`;
     const wsUrl = `wss://stream.binance.com:9443/ws/${stream}`;
 

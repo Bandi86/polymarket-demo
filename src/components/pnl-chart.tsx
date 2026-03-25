@@ -3,9 +3,13 @@
 interface PnLChartProps {
   data: { time: number; pnl: number }[];
   height?: number;
+  gradientId?: string;
 }
 
-export function PnLChart({ data, height = 100 }: PnLChartProps) {
+export function PnLChart({ data, height = 100, gradientId }: PnLChartProps) {
+  // Use unique gradient ID to avoid collisions when multiple charts are rendered
+  const uniqueGradientId = gradientId || `pnlGradient-${Math.random().toString(36).substring(2, 11)}`;
+
   if (data.length < 2) {
     return (
       <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>
@@ -34,12 +38,12 @@ export function PnLChart({ data, height = 100 }: PnLChartProps) {
     <div style={{ height, position: "relative" }}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
         <defs>
-          <linearGradient id="pnlGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={uniqueGradientId} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor={color} stopOpacity="0.3" />
             <stop offset="100%" stopColor={color} stopOpacity="0.02" />
           </linearGradient>
         </defs>
-        <polygon fill="url(#pnlGradient)" points={areaPoints} />
+        <polygon fill={`url(#${uniqueGradientId})`} points={areaPoints} />
         <polyline
           fill="none"
           stroke={color}

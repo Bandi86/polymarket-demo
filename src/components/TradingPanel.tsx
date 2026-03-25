@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from "react";
-import { Target, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { Target, TrendingUp, TrendingDown } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import type { Portfolio } from "@/types";
 
@@ -64,7 +64,7 @@ export function TradingPanel({ portfolio, yesPrice, noPrice, coinColor, onTrade 
             <span style={{ fontFamily: "monospace" }}>{(yesPrice * 100).toFixed(1)}¢</span>
           </div>
           <p style={{ fontSize: "0.75rem", opacity: 0.8 }}>
-            Return: {formatCurrency(yesPayout)}
+            Payout: {formatCurrency(yesPayout)} <span style={{ opacity: 0.6 }}>(incl. stake)</span>
           </p>
         </button>
 
@@ -84,7 +84,7 @@ export function TradingPanel({ portfolio, yesPrice, noPrice, coinColor, onTrade 
             <span style={{ fontFamily: "monospace" }}>{(noPrice * 100).toFixed(1)}¢</span>
           </div>
           <p style={{ fontSize: "0.75rem", opacity: 0.8 }}>
-            Return: {formatCurrency(noPayout)}
+            Payout: {formatCurrency(noPayout)} <span style={{ opacity: 0.6 }}>(incl. stake)</span>
           </p>
         </button>
       </div>

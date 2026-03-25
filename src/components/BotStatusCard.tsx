@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
@@ -15,6 +15,8 @@ interface BotStatusCardProps {
     outcome: "YES" | "NO";
     amount: number;
     stake: number;
+    odds: number;
+    fee?: number;
   }>;
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
@@ -31,21 +33,33 @@ function formatDuration(ms: number): string {
 export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  // Update timer every second when bot is running
+  useEffect(() => {
+    if (!bot.enabled) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [bot.enabled]);
 
   const strategyColor = getStrategyColor(bot.strategy);
   const strategyName = getStrategyName(bot.strategy);
 
   const botPositions = positions.filter(p => p.botId === bot.id);
   const positionsValue = botPositions.reduce((sum, p) => sum + p.stake, 0);
+
+  // BUG-001 FIX: Correct unrealized PnL calculation
+  // Formula: currentValue = amount * (currentOdds / entryOdds)
+  // unrealizedPnl = currentValue - amount - fee
   const unrealizedPnl = botPositions.reduce((sum, pos) => {
-    if (pos.outcome === "YES") {
-      return sum + (pos.amount * yesPrice - pos.stake);
-    }
-    return sum + (pos.amount * (1 - yesPrice) - pos.stake);
+    const currentOdds = pos.outcome === "YES" ? yesPrice : (1 - yesPrice);
+    const entryOdds = pos.odds;
+    const currentValue = pos.amount * (currentOdds / entryOdds);
+    return sum + (currentValue - pos.amount - (pos.fee || 0));
   }, 0);
 
-  // Calculate running time
-  const runningTime = bot.enabled && bot.runTime ? Date.now() - bot.runTime : 0;
+  // Calculate running time - FIX: use 'now' state for real-time updates
+  const runningTime = bot.enabled && bot.runTime ? now - bot.runTime : 0;
 
   // Extract trades data
   const closedPositions = (bot.portfolio.closedPositions || []) as any[];

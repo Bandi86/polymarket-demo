@@ -21,8 +21,10 @@ interface MarketCardProps {
 
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "Expired";
-  const minutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
   const seconds = Math.floor((ms % 60_000) / 1_000);
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
   if (minutes > 0) return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   return `0:${seconds.toString().padStart(2, "0")}`;
 }
