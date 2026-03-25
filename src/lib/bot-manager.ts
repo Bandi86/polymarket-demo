@@ -79,9 +79,10 @@ const strategies: Record<StrategyType, Strategy> = {
         return { action: null, confidence: 0, reason: "Ablak eleje - várakozás" };
       }
 
-      // ERŐS jel: delta > 0.15% (emelve 0.12%-ról a megbízhatóságért)
-      if (deltaPct > 0.15) {
-        const conf = Math.min(0.92, 0.72 + (deltaPct - 0.15) * 2.5);
+      // OPTIMIZED: Raised thresholds for better risk/reward
+      // ERŐS jel: delta > 0.18% (raised from 0.15% for better selectivity)
+      if (deltaPct > 0.18) {
+        const conf = Math.min(0.95, 0.78 + (deltaPct - 0.18) * 2.0);
         debugLog('WindowDelta', '✅ ERŐS UP jel', { action: 'YES', confidence: conf.toFixed(2) });
         return {
           action: "YES",
@@ -89,8 +90,8 @@ const strategies: Record<StrategyType, Strategy> = {
           reason: `Erős UP delta: +${deltaPct.toFixed(3)}% az ablakon belül`
         };
       }
-      if (deltaPct < -0.15) {
-        const conf = Math.min(0.92, 0.72 + (-deltaPct - 0.15) * 2.5);
+      if (deltaPct < -0.18) {
+        const conf = Math.min(0.95, 0.78 + (-deltaPct - 0.18) * 2.0);
         debugLog('WindowDelta', '✅ ERŐS DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
         return {
           action: "NO",
@@ -99,25 +100,8 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      // KÖZEPES jel: delta > 0.09% (emelve 0.07%-ról — kevesebb, jobb trade)
-      if (deltaPct > 0.09) {
-        const conf = 0.56 + (deltaPct - 0.09) * 3;
-        debugLog('WindowDelta', '⚠️ KÖZEPES UP jel', { action: 'YES', confidence: conf.toFixed(2) });
-        return {
-          action: "YES",
-          confidence: Math.min(0.78, conf),
-          reason: `UP delta: +${deltaPct.toFixed(3)}%`
-        };
-      }
-      if (deltaPct < -0.09) {
-        const conf = 0.56 + (-deltaPct - 0.09) * 3;
-        debugLog('WindowDelta', '⚠️ KÖZEPES DOWN jel', { action: 'NO', confidence: conf.toFixed(2) });
-        return {
-          action: "NO",
-          confidence: Math.min(0.78, conf),
-          reason: `DOWN delta: ${deltaPct.toFixed(3)}%`
-        };
-      }
+      // OPTIMIZED: Removed medium signals - only trade on strong signals
+      // This reduces trade frequency but improves win rate
 
       debugLog('WindowDelta', '⏸️ Delta túl kicsi');
       return { action: null, confidence: 0, reason: `Delta túl kicsi: ${deltaPct.toFixed(4)}%` };
@@ -332,7 +316,7 @@ const strategies: Record<StrategyType, Strategy> = {
       const edge = upProb - yesPrice;
 
       // Szigorúbb edge küszöb
-      const minEdge = 0.08;
+      const minEdge = 0.10;
 
       // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
       // Az adatok szerint 1-30¢ odds-nál 0% win rate van
@@ -393,16 +377,17 @@ const strategies: Record<StrategyType, Strategy> = {
       const marketYes = marketPrice.yesPrice;
       const edge = fairUpProb - marketYes;
 
-      const minEdge = 0.10; // Emelve 0.07-ről — csak erősebb edge-nél kereskedj
+      // OPTIMIZED: Raised minEdge from 0.10 to 0.15 for better selectivity
+      const minEdge = 0.15;
 
       // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
       const MIN_ENTRY_ODDS = 0.40;
-      const MAX_ENTRY_ODDS = 0.60;
+      const MAX_ENTRY_ODDS = 0.55; // OPTIMIZED: Lowered from 0.60 to avoid overpaying
 
       if (edge > minEdge && marketYes >= MIN_ENTRY_ODDS && marketYes <= MAX_ENTRY_ODDS) {
         return {
           action: "YES",
-          confidence: Math.min(0.82, 0.5 + edge * 2.5),
+          confidence: Math.min(0.85, 0.55 + edge * 2.5),
           reason: `Fair value: számított=${(fairUpProb * 100).toFixed(1)}% vs piac=${(marketYes * 100).toFixed(1)}¢`,
         };
       }
@@ -411,7 +396,7 @@ const strategies: Record<StrategyType, Strategy> = {
         const fairDownProb = 1 - fairUpProb;
         return {
           action: "NO",
-          confidence: Math.min(0.82, 0.5 + (-edge) * 2.5),
+          confidence: Math.min(0.85, 0.55 + (-edge) * 2.5),
           reason: `Fair value: számított DOWN=${(fairDownProb * 100).toFixed(1)}% vs piac=${(marketPrice.noPrice * 100).toFixed(1)}¢`,
         };
       }
@@ -440,12 +425,12 @@ const strategies: Record<StrategyType, Strategy> = {
 
       // KRITIKUS: Minimális entry odds ellenőrzés
       const MIN_ENTRY_ODDS = 0.40;
-      const MAX_ENTRY_ODDS = 0.70;
+      const MAX_ENTRY_ODDS = 0.65;
 
       // BTC price change preferált (valós adat)
-      if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.0005) {
+      if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.0008) {
         const pct = btcPriceChange * 100;
-        if (pct > 0.05) {
+        if (pct > 0.08) {
           const targetPrice = marketPrice.yesPrice;
           if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
             return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
@@ -456,7 +441,7 @@ const strategies: Record<StrategyType, Strategy> = {
             reason: `BTC momentum +${pct.toFixed(3)}%`,
           };
         }
-        if (pct < -0.05) {
+        if (pct < -0.08) {
           const targetPrice = marketPrice.noPrice;
           if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
             return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
@@ -473,7 +458,7 @@ const strategies: Record<StrategyType, Strategy> = {
       const windowOpen = btcWindowOpen || btcPrice || 0;
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
-      if (deltaPct > 0.05) {
+      if (deltaPct > 0.08) {
         const targetPrice = marketPrice.yesPrice;
         if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
           return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
@@ -484,7 +469,7 @@ const strategies: Record<StrategyType, Strategy> = {
           reason: `Window delta momentum +${deltaPct.toFixed(3)}%`
         };
       }
-      if (deltaPct < -0.05) {
+      if (deltaPct < -0.08) {
         const targetPrice = marketPrice.noPrice;
         if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
           return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
@@ -639,12 +624,12 @@ const strategies: Record<StrategyType, Strategy> = {
       // BTC megerősítés
       const windowOpen = btcWindowOpen || btcPrice || 0;
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
-      const btcConfirmsUp = deltaPct > 0.02;
-      const btcConfirmsDown = deltaPct < -0.02;
+      const btcConfirmsUp = deltaPct > 0.08;
+      const btcConfirmsDown = deltaPct < -0.08;
 
       // KRITIKUS: Minimális entry odds ellenőrzés
       const MIN_ENTRY_ODDS = 0.40;
-      const MAX_ENTRY_ODDS = 0.70;
+      const MAX_ENTRY_ODDS = 0.65;
 
       if (shortTrendUp && mediumTrendUp && btcConfirmsUp) {
         const targetPrice = marketPrice.yesPrice;
@@ -903,7 +888,7 @@ const strategies: Record<StrategyType, Strategy> = {
       const MAX_ENTRY_ODDS = 0.65;
 
       // Csak akkor ha van edge ÉS a piac még nem árazta be
-      if (edge > 0.06 && yesPrice >= MIN_ENTRY_ODDS && yesPrice <= MAX_ENTRY_ODDS) {
+      if (edge > 0.08 && yesPrice >= MIN_ENTRY_ODDS && yesPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "YES",
           confidence: Math.min(0.78, 0.5 + edge * 3),
@@ -911,7 +896,7 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      if (-edge > 0.06 && noPrice >= MIN_ENTRY_ODDS && noPrice <= MAX_ENTRY_ODDS) {
+      if (-edge > 0.08 && noPrice >= MIN_ENTRY_ODDS && noPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "NO",
           confidence: Math.min(0.78, 0.5 + (-edge) * 3),
@@ -1259,12 +1244,13 @@ export class BotManager {
       this.stopBot(id);
     }
 
-    // Ensure the bot state is saved
-    this.bots.set(id, bot);
+    // Get fresh bot state after startBot/stopBot modified it
+    const updatedBot = this.bots.get(id);
+    if (!updatedBot) return null;
 
-    console.log(`[BotManager] Bot ${id} toggled to ${newEnabled ? 'enabled' : 'disabled'}`);
+    console.log(`[BotManager] Bot ${id} toggled to ${newEnabled ? 'enabled' : 'disabled'}, runTime: ${updatedBot.runTime}`);
 
-    return { ...bot, portfolio: marketEngine.getBotPortfolio(id) };
+    return { ...updatedBot, portfolio: marketEngine.getBotPortfolio(id) };
   }
 
   private startBot(id: string): void {
@@ -1859,6 +1845,9 @@ export class BotManager {
       this.stopBot(id);
     }
 
+    // Clear all positions for this bot from market engine
+    marketEngine.clearBotPositions(id);
+
     // Reset the ACTUAL portfolio in marketEngine (source of truth)
     const portfolio = marketEngine.initBotPortfolio(id, 10);
 
@@ -1879,8 +1868,14 @@ export class BotManager {
     // Clear session
     this.currentSessions.delete(id);
 
+    // Reset runTime
+    bot.runTime = 0;
+
     // Update bot with fresh portfolio reference
     bot.portfolio = portfolio;
+
+    // Save updated bot to map
+    this.bots.set(id, bot);
 
     return bot;
   }
@@ -1905,6 +1900,13 @@ export class BotManager {
   // === Competition Mode ===
 
   startCompetition(config?: { minTrades?: number; duration?: number | null; startBalance?: number }): CompetitionState {
+    // KRITIKUS: Demo módban csak szimulált kereskedés engedélyezett
+    if (this.tradingMode === "live") {
+      console.error("[BotManager] ERROR: Cannot start competition in live mode! Switching to demo mode.");
+      this.tradingMode = "demo";
+      this.addLog("system", "RISK", "Competition automatically switched to demo mode (live mode not allowed)");
+    }
+
     // Stop any existing competition
     if (this.competition.active) {
       this.stopCompetition();

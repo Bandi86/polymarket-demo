@@ -11,6 +11,11 @@ interface PriceChartProps {
 }
 
 export function PriceChart({ data, height = 200, isProbability = false }: PriceChartProps) {
+  // Use unique gradient ID to avoid collisions when multiple charts are rendered
+  const uniqueId = `chart-${Math.random().toString(36).substring(2, 11)}`;
+  const gradientId = `chartGradient-${uniqueId}`;
+  const glowId = `glow-${uniqueId}`;
+
   if (data.length < 2) {
     return (
       <div className="flex items-center justify-center h-[200px] text-[var(--color-text-muted)] text-sm">
@@ -44,11 +49,11 @@ export function PriceChart({ data, height = 200, isProbability = false }: PriceC
     <div className="relative" style={{ height }}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
         <defs>
-          <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor={isUp ? "var(--color-success)" : "var(--color-danger)"} stopOpacity="0.4" />
             <stop offset="100%" stopColor={isUp ? "var(--color-success)" : "var(--color-danger)"} stopOpacity="0.02" />
           </linearGradient>
-          <filter id="glow">
+          <filter id={glowId}>
             <feGaussianBlur stdDeviation="0.5" result="coloredBlur"/>
             <feMerge>
               <feMergeNode in="coloredBlur"/>
@@ -56,13 +61,13 @@ export function PriceChart({ data, height = 200, isProbability = false }: PriceC
             </feMerge>
           </filter>
         </defs>
-        <polygon fill="url(#chartGradient)" points={areaPoints} />
+        <polygon fill={`url(#${gradientId})`} points={areaPoints} />
         <polyline
           fill="none"
           stroke={isUp ? "var(--color-success)" : "var(--color-danger)"}
           strokeWidth="0.8"
           points={points}
-          filter="url(#glow)"
+          filter={`url(#${glowId})`}
           className="drop-shadow-lg"
         />
         {/* Current price indicator */}

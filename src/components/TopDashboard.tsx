@@ -48,6 +48,7 @@ interface TopDashboardProps {
   // Trading mode
   tradingMode?: "demo" | "live";
   onModeChange?: (mode: "demo" | "live") => Promise<void>;
+  setTradingMode?: (mode: "demo" | "live") => void; // For internal sync without API call
   // Live balance from Polymarket
   liveBalance?: LiveBalance;
   onRefreshLiveBalance?: () => Promise<void>;
@@ -56,8 +57,10 @@ interface TopDashboardProps {
 function formatTimeRemaining(ms: number): string {
   if (!ms || ms <= 0) return "0:00";
   const totalSeconds = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
   const secs = totalSeconds % 60;
+  if (hours > 0) return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
@@ -117,6 +120,7 @@ export function TopDashboard({
   onTimeframeChange,
   tradingMode = "demo",
   onModeChange,
+  setTradingMode,
   liveBalance,
   onRefreshLiveBalance,
 }: TopDashboardProps) {
@@ -179,10 +183,17 @@ export function TopDashboard({
         body: JSON.stringify({ durationMinutes })
       });
 
+      const data = await res.json();
+
       if (res.ok) {
+        // Sync trading mode with backend (might have switched to demo)
+        if (data.mode && data.mode !== tradingMode && setTradingMode) {
+          console.log(`[TopDashboard] Backend switched mode to ${data.mode}`);
+          setTradingMode(data.mode);
+        }
         toast.success(`Started ${formatDurationMs(durationMinutes * 60000)} run`, `${bots.length} bots enabled`);
       } else {
-        toast.error("Failed to start quick run");
+        toast.error("Failed to start quick run", data.error || "Unknown error");
       }
     } catch (err) {
       toast.error("Failed to start quick run");

@@ -36,6 +36,13 @@ export async function POST(request: NextRequest) {
     const riskManager = getRiskManager();
     const marketEngine = getMarketEngine();
 
+    // KRITIKUS: Biztosítsuk, hogy demo módban legyünk
+    if (botManager.getTradingMode() === "live") {
+      console.warn("[API] Switching from live to demo mode for quick-run");
+      botManager.setTradingMode("demo");
+      marketEngine.setMode("simulated");
+    }
+
     // Reset everything first
     botManager.resetAllBots();
     riskManager.resetAll();
@@ -101,7 +108,11 @@ export async function POST(request: NextRequest) {
       }
     }, durationMs);
 
-    return NextResponse.json({ success: true, competition });
+    return NextResponse.json({
+      success: true,
+      competition,
+      mode: botManager.getTradingMode(), // Return current mode for frontend sync
+    });
   } catch (error) {
     console.error('[API] Error in quick-run:', error);
     return NextResponse.json(

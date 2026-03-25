@@ -765,6 +765,15 @@ export class MarketEngine {
     this.startNewMarket();
   }
 
+  /** Clear all positions for a specific bot */
+  clearBotPositions(botId: string): void {
+    for (const [id, position] of this.positions) {
+      if (position.botId === botId) {
+        this.positions.delete(id);
+      }
+    }
+  }
+
   async disposing(): Promise<void> {
     if (this.priceUpdateTimer) clearInterval(this.priceUpdateTimer);
     if (this.currentMarket) {

@@ -6,9 +6,11 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/account/mode - Get trading mode
 export async function GET() {
+  const botManager = getBotManager()
   const marketEngine = getMarketEngine()
   return NextResponse.json({
-    mode: marketEngine.getMode() === 'real' ? 'live' : 'demo',
+    mode: botManager.getTradingMode(),
+    marketMode: marketEngine.getMode(),
   })
 }
 

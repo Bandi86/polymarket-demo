@@ -122,6 +122,23 @@ export function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch trading mode from backend on mount
+  useEffect(() => {
+    const fetchTradingMode = async () => {
+      try {
+        const res = await fetch("/api/account/mode");
+        const data = await res.json();
+        if (data.mode && (data.mode === "demo" || data.mode === "live")) {
+          setTradingMode(data.mode);
+          console.log("[App] Loaded trading mode from backend:", data.mode);
+        }
+      } catch (err) {
+        console.error("Failed to fetch trading mode:", err);
+      }
+    };
+    fetchTradingMode();
+  }, []);
+
   // Show session summary when competition ends
   useEffect(() => {
     if (prevCompetitionActive.current && !competition?.active && competition?.completedAt) {
@@ -315,6 +332,7 @@ export function App() {
         onTimeframeChange={setSelectedTimeframe}
         tradingMode={tradingMode}
         onModeChange={handleModeChange}
+        setTradingMode={setTradingMode}
         liveBalance={liveBalance}
         onRefreshLiveBalance={fetchLiveBalance}
       />
