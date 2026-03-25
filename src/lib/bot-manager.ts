@@ -171,8 +171,15 @@ const strategies: Record<StrategyType, Strategy> = {
         ? marketPrice.yesPrice
         : marketPrice.noPrice;
 
-      // Ha a piac már 80%+ feletti, nem éri meg
-      if (marketImplied > 0.82) {
+      // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.80;
+
+      if (marketImplied < MIN_ENTRY_ODDS) {
+        debugLog('OracleLag', '❌ Ár túl alacsony', { price: (marketImplied * 100).toFixed(0) + '¢' });
+        return { action: null, confidence: 0, reason: `Ár túl alacsony: ${(marketImplied * 100).toFixed(0)}¢ (nagy kockázat)` };
+      }
+      if (marketImplied > MAX_ENTRY_ODDS) {
         debugLog('OracleLag', '❌ Piac már beárazta', { price: (marketImplied * 100).toFixed(0) + '¢' });
         return { action: null, confidence: 0, reason: "Piac már beárazta" };
       }
@@ -247,11 +254,16 @@ const strategies: Record<StrategyType, Strategy> = {
 
       const action = deltaPct > 0 ? "YES" : "NO";
 
-      // KRITIKUS: Ellenőrizd az árat - SOHA ne vegyél 68¢ felett!
-      // A 2% fee miatt 68¢ felett már -EV a trade (csökkentve 72-ről)
+      // KRITIKUS: Ellenőrizd az árat - SOHA ne vegyél túl olcsón vagy túl drágán!
+      // A 2% fee miatt 65¢ felett már -EV a trade
+      // Az adatok szerint 40¢ alatt 0% win rate van!
       const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
-      const MAX_BUY_PRICE = 0.68;
+      const MIN_BUY_PRICE = 0.40; // 40¢ minimum - alatt 0% win rate
+      const MAX_BUY_PRICE = 0.65; // 65¢ maximum - fee miatt
 
+      if (targetPrice < MIN_BUY_PRICE) {
+        return { action: null, confidence: 0, reason: `Ár túl alacsony: ${(targetPrice * 100).toFixed(0)}¢ < ${(MIN_BUY_PRICE * 100).toFixed(0)}¢ min (nagy kockázat)` };
+      }
       if (targetPrice > MAX_BUY_PRICE) {
         return { action: null, confidence: 0, reason: `Ár túl magas: ${(targetPrice * 100).toFixed(0)}¢ > ${(MAX_BUY_PRICE * 100).toFixed(0)}¢ max (fee miatt -EV)` };
       }
@@ -322,7 +334,12 @@ const strategies: Record<StrategyType, Strategy> = {
       // Szigorúbb edge küszöb
       const minEdge = 0.08;
 
-      if (edge > minEdge && yesPrice < 0.70) {
+      // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
+      // Az adatok szerint 1-30¢ odds-nál 0% win rate van
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.65;
+
+      if (edge > minEdge && yesPrice >= MIN_ENTRY_ODDS && yesPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "YES",
           confidence: Math.min(0.75, 0.5 + edge * 3),
@@ -330,7 +347,7 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      if (-edge > minEdge && noPrice < 0.70) {
+      if (-edge > minEdge && noPrice >= MIN_ENTRY_ODDS && noPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "NO",
           confidence: Math.min(0.75, 0.5 + (-edge) * 3),
@@ -378,7 +395,11 @@ const strategies: Record<StrategyType, Strategy> = {
 
       const minEdge = 0.10; // Emelve 0.07-ről — csak erősebb edge-nél kereskedj
 
-      if (edge > minEdge && marketYes < 0.65) {
+      // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.60;
+
+      if (edge > minEdge && marketYes >= MIN_ENTRY_ODDS && marketYes <= MAX_ENTRY_ODDS) {
         return {
           action: "YES",
           confidence: Math.min(0.82, 0.5 + edge * 2.5),
@@ -386,7 +407,7 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      if (-edge > minEdge && marketPrice.noPrice < 0.65) {
+      if (-edge > minEdge && marketPrice.noPrice >= MIN_ENTRY_ODDS && marketPrice.noPrice <= MAX_ENTRY_ODDS) {
         const fairDownProb = 1 - fairUpProb;
         return {
           action: "NO",
@@ -411,16 +432,24 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "BTC valós idejű momentum alapján (nem Polymarket odds)",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen } = ctx;
+      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (timeRemaining < 30000) {
         return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
       }
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
+
       // BTC price change preferált (valós adat)
       if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.0005) {
         const pct = btcPriceChange * 100;
         if (pct > 0.05) {
+          const targetPrice = marketPrice.yesPrice;
+          if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+            return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+          }
           return {
             action: "YES",
             confidence: Math.min(0.78, 0.50 + pct * 5),
@@ -428,6 +457,10 @@ const strategies: Record<StrategyType, Strategy> = {
           };
         }
         if (pct < -0.05) {
+          const targetPrice = marketPrice.noPrice;
+          if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+            return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+          }
           return {
             action: "NO",
             confidence: Math.min(0.78, 0.50 + (-pct) * 5),
@@ -441,6 +474,10 @@ const strategies: Record<StrategyType, Strategy> = {
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
       if (deltaPct > 0.05) {
+        const targetPrice = marketPrice.yesPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "YES",
           confidence: Math.min(0.70, 0.50 + deltaPct * 4),
@@ -448,6 +485,10 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
       if (deltaPct < -0.05) {
+        const targetPrice = marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "NO",
           confidence: Math.min(0.70, 0.50 + (-deltaPct) * 4),
@@ -467,7 +508,7 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "Extreme BTC elmozdulás után visszatérést vár",
     category: "mean_reversion",
     execute: (ctx) => {
-      const { timeRemaining, btcPrice, btcWindowOpen } = ctx;
+      const { timeRemaining, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (timeRemaining < 30000) {
         return { action: null, confidence: 0, reason: "Túl közel a záráshoz" };
@@ -476,8 +517,16 @@ const strategies: Record<StrategyType, Strategy> = {
       const windowOpen = btcWindowOpen || btcPrice || 0;
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
+
       // Extrém UP elmozdulás → NO (visszatérés várható)
       if (deltaPct > 0.20 && timeRemaining > 60000) {
+        const targetPrice = marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "NO",
           confidence: Math.min(0.68, 0.5 + (deltaPct - 0.20) * 2),
@@ -486,6 +535,10 @@ const strategies: Record<StrategyType, Strategy> = {
       }
       // Extrém DOWN elmozdulás → YES
       if (deltaPct < -0.20 && timeRemaining > 60000) {
+        const targetPrice = marketPrice.yesPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "YES",
           confidence: Math.min(0.68, 0.5 + (-deltaPct - 0.20) * 2),
@@ -505,7 +558,7 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "Rövid és hosszú távú trend megerősítés",
     category: "trend",
     execute: (ctx) => {
-      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (priceHistory.length < 10 || timeRemaining < 30000) {
         return { action: null, confidence: 0, reason: "Nincs elég adat" };
@@ -523,7 +576,15 @@ const strategies: Record<StrategyType, Strategy> = {
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
       const btcAligned = (trend > 0 && deltaPct > 0) || (trend < 0 && deltaPct < 0);
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
+
       if (trend > 0.0008 && btcAligned) {
+        const targetPrice = marketPrice.yesPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "YES",
           confidence: Math.min(0.72, 0.50 + trend * 200),
@@ -531,6 +592,10 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
       if (trend < -0.0008 && btcAligned) {
+        const targetPrice = marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "NO",
           confidence: Math.min(0.72, 0.50 + (-trend) * 200),
@@ -554,7 +619,7 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "Multi-timeframe trend + BTC megerősítés",
     category: "trend",
     execute: (ctx) => {
-      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (priceHistory.length < 15 || timeRemaining < 45000) {
         return { action: null, confidence: 0, reason: "Nincs elég adat" };
@@ -577,7 +642,15 @@ const strategies: Record<StrategyType, Strategy> = {
       const btcConfirmsUp = deltaPct > 0.02;
       const btcConfirmsDown = deltaPct < -0.02;
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
+
       if (shortTrendUp && mediumTrendUp && btcConfirmsUp) {
+        const targetPrice = marketPrice.yesPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `YES ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "YES",
           confidence: 0.72,
@@ -585,6 +658,10 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
       if (!shortTrendUp && !mediumTrendUp && btcConfirmsDown) {
+        const targetPrice = marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `NO ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action: "NO",
           confidence: 0.72,
@@ -619,11 +696,14 @@ const strategies: Record<StrategyType, Strategy> = {
       const windowOpen = btcWindowOpen || btcPrice;
       const deltaPct = windowOpen > 0 ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
+      // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
+      const MIN_ENTRY_ODDS = 0.40;
+
       // EGYSZERŰSÍTETT: Ha BTC már mozdult, kövesd, még ha a piac mást is mutat
       // Ez nem igazi "contrarian" - inkább "BTC follower"
 
-      // BTC UP de piac még alacsony YES ár → vedd YES-t
-      if (deltaPct > 0.05 && yesPrice < 0.60) {
+      // BTC UP de piac még alacsony YES ár → vedd YES-t (de min 40¢!)
+      if (deltaPct > 0.05 && yesPrice >= MIN_ENTRY_ODDS && yesPrice < 0.60) {
         return {
           action: "YES",
           confidence: Math.min(0.75, 0.55 + deltaPct * 3),
@@ -631,8 +711,8 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      // BTC DOWN de piac még alacsony NO ár → vedd NO-t
-      if (deltaPct < -0.05 && noPrice < 0.60) {
+      // BTC DOWN de piac még alacsony NO ár → vedd NO-t (de min 40¢!)
+      if (deltaPct < -0.05 && noPrice >= MIN_ENTRY_ODDS && noPrice < 0.60) {
         return {
           action: "NO",
           confidence: Math.min(0.75, 0.55 + (-deltaPct) * 3),
@@ -669,7 +749,7 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "Volatilitás kitörés kereskedés",
     category: "momentum",
     execute: (ctx) => {
-      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen } = ctx;
+      const { priceHistory, timeRemaining, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (priceHistory.length < 20 || timeRemaining < 60000) {
         return { action: null, confidence: 0, reason: "Nincs elég adat" };
@@ -678,8 +758,16 @@ const strategies: Record<StrategyType, Strategy> = {
       const windowOpen = btcWindowOpen || btcPrice || 0;
       const deltaPct = windowOpen > 0 && btcPrice ? ((btcPrice - windowOpen) / windowOpen) * 100 : 0;
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
+
       if (Math.abs(deltaPct) > 0.08) {
         const action = deltaPct > 0 ? "YES" : "NO";
+        const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `${action} ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+        }
         return {
           action,
           confidence: Math.min(0.72, 0.5 + Math.abs(deltaPct) * 3),
@@ -702,9 +790,16 @@ const strategies: Record<StrategyType, Strategy> = {
         return { action: null, confidence: 0, reason: "Túl közel" };
       }
 
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+
       const sum = marketPrice.yesPrice + marketPrice.noPrice;
       if (sum < 0.96) {
         const action = marketPrice.yesPrice < marketPrice.noPrice ? "YES" : "NO";
+        const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
+        if (targetPrice < MIN_ENTRY_ODDS) {
+          return { action: null, confidence: 0, reason: `${action} ár ${(targetPrice * 100).toFixed(0)}¢ túl alacsony (nagy kockázat)` };
+        }
         return {
           action,
           confidence: Math.min(0.80, (1 - sum) * 15),
@@ -721,11 +816,15 @@ const strategies: Record<StrategyType, Strategy> = {
     description: "Hirtelen BTC mozgások elkapása",
     category: "momentum",
     execute: (ctx) => {
-      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen } = ctx;
+      const { timeRemaining, btcPriceChange, btcPrice, btcWindowOpen, marketPrice } = ctx;
 
       if (timeRemaining < 20000) {
         return { action: null, confidence: 0, reason: "Nincs elég idő" };
       }
+
+      // KRITIKUS: Minimális entry odds ellenőrzés
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.70;
 
       if (btcPriceChange !== undefined && Math.abs(btcPriceChange) > 0.001) {
         const pct = btcPriceChange * 100;
@@ -734,8 +833,13 @@ const strategies: Record<StrategyType, Strategy> = {
         const aligned = (pct > 0 && deltaPct > 0) || (pct < 0 && deltaPct < 0);
 
         if (aligned) {
+          const action = pct > 0 ? "YES" : "NO";
+          const targetPrice = action === "YES" ? marketPrice.yesPrice : marketPrice.noPrice;
+          if (targetPrice < MIN_ENTRY_ODDS || targetPrice > MAX_ENTRY_ODDS) {
+            return { action: null, confidence: 0, reason: `${action} ár ${(targetPrice * 100).toFixed(0)}¢ kívül esik a biztonságos tartományon` };
+          }
           return {
-            action: pct > 0 ? "YES" : "NO",
+            action,
             confidence: Math.min(0.78, 0.5 + Math.abs(pct) * 30),
             reason: `Momentum burst: ${pct.toFixed(4)}% + delta megerősítve`,
           };
@@ -794,8 +898,12 @@ const strategies: Record<StrategyType, Strategy> = {
       const fairProb = Math.min(0.95, Math.max(0.05, 0.5 + deltaPct * 3.5));
       const edge = fairProb - yesPrice;
 
+      // KRITIKUS: Minimális entry odds - soha ne trade-elj 40¢ alatt!
+      const MIN_ENTRY_ODDS = 0.40;
+      const MAX_ENTRY_ODDS = 0.65;
+
       // Csak akkor ha van edge ÉS a piac még nem árazta be
-      if (edge > 0.06 && yesPrice < 0.70) {
+      if (edge > 0.06 && yesPrice >= MIN_ENTRY_ODDS && yesPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "YES",
           confidence: Math.min(0.78, 0.5 + edge * 3),
@@ -803,7 +911,7 @@ const strategies: Record<StrategyType, Strategy> = {
         };
       }
 
-      if (-edge > 0.06 && noPrice < 0.70) {
+      if (-edge > 0.06 && noPrice >= MIN_ENTRY_ODDS && noPrice <= MAX_ENTRY_ODDS) {
         return {
           action: "NO",
           confidence: Math.min(0.78, 0.5 + (-edge) * 3),

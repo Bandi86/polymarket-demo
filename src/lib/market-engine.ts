@@ -707,15 +707,13 @@ export class MarketEngine {
   }
 
   initBotPortfolio(botId: string, startingBalance?: number): Portfolio {
-    if (!this.portfolios.has(botId)) {
-      this.portfolios.set(botId, this.createEmptyPortfolio());
-      if (startingBalance !== undefined) {
-        const portfolio = this.portfolios.get(botId)!;
-        portfolio.balance = startingBalance;
-        portfolio.initialBalance = startingBalance;
-      }
-    }
-    return this.portfolios.get(botId)!;
+    // MINDIG reseteljük a portfolio-t, hogy új session-nél 10-ről induljon
+    const balance = startingBalance ?? 10;
+    const portfolio = this.createEmptyPortfolio();
+    portfolio.balance = balance;
+    portfolio.initialBalance = balance;
+    this.portfolios.set(botId, portfolio);
+    return portfolio;
   }
 
   getBotPortfolio(botId: string): Portfolio {
