@@ -32,6 +32,8 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
     outcome: "YES" | "NO";
     amount: number;
     stake: number;
+    odds: number;
+    fee?: number;
   }>>([]);
 
   useEffect(() => {

@@ -175,7 +175,7 @@ export class PriceService {
   private pollInterval: number;
   private historyLimit: number;
   private fallbackEnabled: boolean;
-  private pollTimer: Timer | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private lastPriceUpdate: PriceUpdate | null = null;
   private unsubscribeProvider: (() => void) | null = null;
   private wsUnsubscribe: (() => void) | null = null;
@@ -198,10 +198,8 @@ export class PriceService {
     this.currentProviderIndex = 0;
 
     // Start WebSocket subscription for real-time updates from Binance
+    // WebSocket is primary - polling only runs as fallback
     this.startWebSocket();
-
-    // Also start polling for reliability
-    this.startPolling();
   }
 
   private startWebSocket(): void {
@@ -209,15 +207,25 @@ export class PriceService {
     if (binanceProvider && binanceProvider.subscribe) {
       this.wsUnsubscribe = binanceProvider.subscribe((update: PriceUpdate) => {
         this.handlePriceUpdate(update);
+
+        // Stop polling if WebSocket is working - only use as fallback
+        if (this.pollTimer) {
+          clearInterval(this.pollTimer);
+          this.pollTimer = null;
+        }
       });
+
+      // Start polling as fallback - will be stopped when WS works
+      this.startPollingFallback();
     }
   }
 
-  private async startPolling(): Promise<void> {
+  /** Start polling as fallback when WebSocket isn't working */
+  private async startPollingFallback(): Promise<void> {
     // Initial fetch with fallback
     await this.fetchWithFallback();
 
-    // Start polling
+    // Start polling (will be stopped when WebSocket receives data)
     this.pollTimer = setInterval(() => {
       this.fetchWithFallback();
     }, this.pollInterval);

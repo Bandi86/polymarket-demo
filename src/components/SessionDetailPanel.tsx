@@ -1,19 +1,12 @@
 'use client'
 
 import { X, Clock, Target, TrendingUp } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDuration } from "@/lib/utils";
 import type { BotSession } from "@/types";
 
 interface SessionDetailPanelProps {
   session: BotSession;
   onClose: () => void;
-}
-
-function formatDuration(ms: number): string {
-  if (!ms) return "-";
-  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 }
 
 export function SessionDetailPanel({ session, onClose }: SessionDetailPanelProps) {

@@ -18,6 +18,8 @@ interface LiveMonitorTabProps {
     outcome: "YES" | "NO";
     amount: number;
     stake: number;
+    odds: number;
+    fee?: number;
   }>;
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
   timeRemaining: number;

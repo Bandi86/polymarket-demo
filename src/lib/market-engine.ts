@@ -32,7 +32,7 @@ export class MarketEngine {
   private marketHistory: Map<string, MarketHistory> = new Map();
   private mode: "real" | "simulated" = "real";
   private config: Required<MarketEngineConfig>;
-  private priceUpdateTimer: Timer | null = null;
+  private priceUpdateTimer: ReturnType<typeof setTimeout> | null = null;
   private lastMarketSwitch = 0;
   private settledMarketIds: Set<string> = new Set();
   private priceUpdateCallbacks: Array<(price: { yes: number; no: number; timestamp: number }) => void> = [];

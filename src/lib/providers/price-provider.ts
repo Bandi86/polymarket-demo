@@ -190,7 +190,7 @@ export class MockPriceProvider implements PriceProvider {
   name = "Mock";
   private basePrice = 45000;
   private currentPrice = this.basePrice;
-  private interval: Timer | null = null;
+  private interval: ReturnType<typeof setInterval> | null = null;
   private listeners: Set<(update: PriceUpdate) => void> = new Set();
   private priceHistory: PricePoint[] = [];
 

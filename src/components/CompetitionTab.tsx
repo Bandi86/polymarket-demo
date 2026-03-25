@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Trophy, Play, Square, Clock, Zap, Download, RotateCcw, RefreshCw } from "lucide-react";
-import { formatCurrency, formatPercentage } from "@/lib/utils";
+import { formatCurrency, formatPercentage, formatDuration } from "@/lib/utils";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 import type { BotData, CompetitionState } from "@/hooks/useTradingData";
 
@@ -180,15 +180,6 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
     if (rank === 2) return <Trophy className="w-4 h-4" style={{ color: "#9ca3af" }} />;
     if (rank === 3) return <Trophy className="w-4 h-4" style={{ color: "#cd7f32" }} />;
     return <span style={{ fontWeight: 600, color: "var(--text-muted)" }}>#{rank}</span>;
-  };
-
-  const formatDuration = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-    return `${seconds}s`;
   };
 
   const getPerformanceIndicator = (pnl: number, trades: number): { emoji: string; label: string } => {

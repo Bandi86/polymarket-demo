@@ -981,13 +981,13 @@ export interface CompetitionState {
 
 export class BotManager {
   private bots: Map<string, BotConfig> = new Map();
-  private intervals: Map<string, Timer> = new Map();
+  private intervals: Map<string, ReturnType<typeof setInterval>> = new Map();
   private sessions: BotSession[] = [];
   private currentSessions: Map<string, BotSession> = new Map();
   private config: Required<BotManagerConfig>;
   private logs: BotLog[] = [];
   private logListeners: Array<(log: BotLog) => void> = [];
-  private autoSaveInterval: Timer | null = null;
+  private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
   private competition: CompetitionState = {
     active: false,
     startTime: 0,

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
+import { formatDuration } from "@/lib/utils";
 import type { BotData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {
@@ -21,13 +22,6 @@ interface BotStatusCardProps {
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
   timeRemaining?: number;
-}
-
-function formatDuration(ms: number): string {
-  if (!ms || ms <= 0) return "0s";
-  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
 }
 
 export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {

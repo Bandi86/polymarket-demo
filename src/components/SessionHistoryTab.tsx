@@ -1,21 +1,14 @@
 'use client'
 
 import { useState, useMemo } from "react";
-import { Clock, Download, Filter } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Download, Filter } from "lucide-react";
+import { formatCurrency, formatDuration } from "@/lib/utils";
 import { useBotSessions } from "@/hooks/useBotSessions";
 import { SessionDetailPanel } from "@/components/SessionDetailPanel";
 import type { BotSession } from "@/types";
 
 type SortField = 'date' | 'pnl' | 'winRate' | 'trades';
 type SortOrder = 'asc' | 'desc';
-
-function formatDuration(ms: number): string {
-  if (!ms) return "-";
-  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m`;
-  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
-}
 
 export function SessionHistoryTab() {
   const { sessions, loading, error, refetch } = useBotSessions();
