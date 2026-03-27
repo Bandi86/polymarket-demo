@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
-import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
+import { useState } from "react";
+import { Play, Square, Settings, Timer, TrendingDown, TrendingUp, Target } from "lucide-react";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 import { formatDuration } from "@/lib/utils";
+import { useBotStatusState, BotCardHeader, BotBalanceCard, BotStatsGrid } from "./bot-card";
 import type { BotData } from "@/hooks/useTradingData";
 
 interface BotStatusCardProps {
@@ -27,99 +27,9 @@ interface BotStatusCardProps {
 export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
-  const [now, setNow] = useState(Date.now());
 
-  // Update timer every second when bot is running
-  useEffect(() => {
-    if (!bot.enabled) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [bot.enabled]);
-
-  // Memoized values for performance
-  const strategyColor = useMemo(() => getStrategyColor(bot.strategy), [bot.strategy]);
-  const strategyName = useMemo(() => getStrategyName(bot.strategy), [bot.strategy]);
-
-  // Memoize bot positions filter
-  const botPositions = useMemo(() => positions.filter(p => p.botId === bot.id), [positions, bot.id]);
-  const positionsValue = useMemo(() => botPositions.reduce((sum, p) => sum + p.stake, 0), [botPositions]);
-
-  // Memoize unrealized PnL calculation
-  const unrealizedPnl = useMemo(() => botPositions.reduce((sum, pos) => {
-    const currentOdds = pos.outcome === "YES" ? yesPrice : (1 - yesPrice);
-    const entryOdds = pos.odds;
-    const currentValue = pos.amount * (currentOdds / entryOdds);
-    return sum + (currentValue - pos.amount - (pos.fee || 0));
-  }, 0), [botPositions, yesPrice]);
-
-  // Calculate running time
-  const runningTime = bot.enabled && bot.runTime ? now - bot.runTime : 0;
-
-  // Memoize closed positions data
-  const closedPositions = useMemo(() => (bot.portfolio.closedPositions || []) as any[], [bot.portfolio.closedPositions]);
-
-  // Memoize equity curve calculation
-  const { recentTrades, lastTradePnl, initialBalance, growthPercent, equityCurvePlot, balanceGrowth } = useMemo(() => {
-    const recentTrades = closedPositions.slice(0, 8).map((p: any) => p.pnl || 0);
-    const lastTrade = closedPositions[0];
-    const lastTradePnl = lastTrade?.pnl || 0;
-    const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
-    const initialBalance = bot.portfolio.balance - totalClosedPnL;
-    const balanceGrowth = bot.portfolio.balance - initialBalance;
-    const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
-
-    // Build equity curve
-    const equityCurvePlot = [initialBalance];
-    let currentBalance = initialBalance;
-    [...closedPositions].reverse().forEach((p: any) => {
-      currentBalance += (p.pnl || 0);
-      equityCurvePlot.push(currentBalance);
-    });
-    if (equityCurvePlot.length === 1) {
-      equityCurvePlot.push(initialBalance);
-    }
-
-    return { recentTrades, lastTradePnl, initialBalance, growthPercent, equityCurvePlot, balanceGrowth };
-  }, [closedPositions, bot.portfolio.balance]);
-
-  // Health status
-  const getHealthStatus = () => {
-    if (!bot.enabled) return { status: "stopped", color: "#6b7280", icon: XCircle, label: "Stopped" };
-    if (bot.stats.trades === 0 && runningTime > 60000) return { status: "idle", color: "#f59e0b", icon: AlertCircle, label: "Idle" };
-    if (bot.stats.pnl < 0) return { status: "losing", color: "#ef4444", icon: TrendingDown, label: "Losing" };
-    return { status: "winning", color: "#22c55e", icon: TrendingUp, label: "Winning" };
-  };
-
-  const health = getHealthStatus();
-  const HealthIcon = health.icon;
-
-  // Current streak (closedPositions[0] is newest, so start from there)
-  const getCurrentStreak = () => {
-    if (closedPositions.length === 0) return { type: "none", count: 0 };
-    let streak = 0;
-    let streakType: "win" | "loss" = "win";
-    // Start from newest (index 0) and go forward
-    for (let i = 0; i < closedPositions.length; i++) {
-      const pnl = closedPositions[i].pnl || 0;
-      if (i === 0) {
-        streakType = pnl > 0 ? "win" : "loss";
-        streak = 1;
-      } else {
-        const currentType = pnl > 0 ? "win" : "loss";
-        if (currentType === streakType) {
-          streak++;
-        } else {
-          break;
-        }
-      }
-    }
-    return { type: streakType, count: streak };
-  };
-
-  const currentStreak = getCurrentStreak();
-
-  // Win rate calculation
-  const winRate = bot.stats.trades > 0 ? (bot.stats.wins / bot.stats.trades) * 100 : 0;
+  // Use custom hook for state management
+  const state = useBotStatusState({ bot, yesPrice, positions });
 
   const handleToggle = async () => {
     if (isToggling) return;
@@ -135,328 +45,43 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
     <div
       className="glass-card rounded-xl transition-all duration-300"
       style={{
-        borderLeftColor: strategyColor,
+        borderLeftColor: state.strategyColor,
         borderLeftWidth: "4px",
         border: `1px solid ${bot.enabled ? 'rgba(34, 197, 94, 0.3)' : 'var(--border)'}`,
         padding: "1.5rem",
       }}
     >
-      {/* Header with Running Time */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {/* Bot Icon with Status */}
-          <div style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
-            background: bot.enabled ? `${strategyColor}20` : "var(--glass-bg)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            border: `2px solid ${bot.enabled ? strategyColor : "var(--border)"}`,
-            position: "relative",
-          }}>
-            <Bot style={{ width: 22, height: 22, color: bot.enabled ? strategyColor : "var(--text-muted)" }} />
-            {/* Running indicator dot */}
-            {bot.enabled && (
-              <div style={{
-                position: "absolute",
-                top: -2,
-                right: -2,
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: "#22c55e",
-                border: "2px solid var(--bg)",
-                animation: "pulse 2s infinite",
-              }} />
-            )}
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: "1.125rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {bot.name}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem" }}>
-              {/* Strategy Badge */}
-              <span style={{
-                padding: "0.15rem 0.5rem",
-                borderRadius: 4,
-                background: `${strategyColor}15`,
-                color: strategyColor,
-                fontWeight: 500,
-                fontSize: "0.7rem",
-              }}>
-                {strategyName}
-              </span>
-              {/* Health Badge */}
-              <span style={{
-                padding: "0.15rem 0.5rem",
-                borderRadius: 4,
-                background: `${health.color}20`,
-                color: health.color,
-                display: "flex",
-                alignItems: "center",
-                gap: "0.2rem",
-                fontWeight: 600,
-                fontSize: "0.7rem",
-              }}>
-                <HealthIcon style={{ width: 10, height: 10 }} />
-                {health.label}
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Header */}
+      <BotCardHeader
+        bot={bot}
+        strategyColor={state.strategyColor}
+        health={state.health}
+        HealthIcon={state.HealthIcon}
+        runningTime={state.runningTime}
+        timeRemaining={timeRemaining}
+      />
 
-        {/* Running Time - More Prominent */}
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: "0.25rem",
-        }}>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            padding: "0.375rem 0.625rem",
-            borderRadius: 8,
-            background: bot.enabled ? "rgba(34, 197, 94, 0.15)" : "rgba(107, 114, 128, 0.15)",
-          }}>
-            <Clock style={{ width: 14, height: 14, color: bot.enabled ? "#22c55e" : "#6b7280" }} />
-            <span style={{
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              color: bot.enabled ? "#22c55e" : "#6b7280",
-            }}>
-              {bot.enabled ? formatDuration(runningTime) : "STOPPED"}
-            </span>
-          </div>
-          {/* Market Timer */}
-          {timeRemaining !== undefined && timeRemaining > 0 && bot.enabled && (
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              padding: "0.25rem 0.5rem",
-              borderRadius: 6,
-              background: timeRemaining < 60000 ? "rgba(239, 68, 68, 0.2)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.2)" : "rgba(59, 130, 246, 0.2)",
-            }}>
-              <Timer style={{ width: 12, height: 12, color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#3b82f6" }} />
-              <span style={{
-                fontFamily: "ui-monospace, monospace",
-                fontSize: "0.7rem",
-                fontWeight: 600,
-                color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#3b82f6",
-              }}>
-                {formatDuration(timeRemaining)}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Portfolio Growth Card */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "1rem",
-        background: balanceGrowth >= 0 ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05))" : "linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05))",
-        borderRadius: 12,
-        marginBottom: "1rem",
-        border: `1px solid ${balanceGrowth >= 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
-      }}>
-        <div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-            Bot Balance
-          </div>
-          <div style={{
-            fontWeight: 700,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "1.5rem",
-            color: "var(--text-primary)",
-          }}>
-            ${bot.portfolio.balance.toFixed(2)}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-            Started: ${initialBalance.toFixed(2)}
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "0.25rem",
-            color: balanceGrowth >= 0 ? "#22c55e" : "#ef4444",
-          }}>
-            {balanceGrowth >= 0 ? (
-              <ArrowUpRight style={{ width: 20, height: 20 }} />
-            ) : (
-              <ArrowDownRight style={{ width: 20, height: 20 }} />
-            )}
-            <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>
-              {balanceGrowth >= 0 ? "+" : ""}{balanceGrowth.toFixed(2)}
-            </span>
-          </div>
-          <div style={{
-            fontSize: "0.875rem",
-            fontWeight: 600,
-            color: balanceGrowth >= 0 ? "#22c55e" : "#ef4444",
-          }}>
-            ({growthPercent >= 0 ? "+" : ""}{growthPercent.toFixed(1)}%)
-          </div>
-        </div>
-      </div>
+      {/* Balance Card */}
+      <BotBalanceCard
+        balance={bot.portfolio.balance}
+        initialBalance={state.initialBalance}
+        balanceGrowth={state.balanceGrowth}
+        growthPercent={state.growthPercent}
+      />
 
       {/* Stats Grid */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
-        gap: "0.5rem",
-        marginBottom: "1rem",
-      }}>
-        {/* Win Rate */}
-        <div style={{
-          padding: "0.625rem",
-          background: "rgba(0,0,0,0.2)",
-          borderRadius: 8,
-          textAlign: "center",
-        }}>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Win Rate</div>
-          <div style={{
-            fontWeight: 700,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.875rem",
-            color: winRate >= 50 ? "#22c55e" : winRate > 0 ? "#f59e0b" : "var(--text-muted)",
-          }}>
-            {winRate.toFixed(0)}%
-          </div>
-        </div>
+      <BotStatsGrid
+        winRate={state.winRate}
+        trades={bot.stats.trades}
+        wins={bot.stats.wins}
+        losses={bot.stats.losses}
+        currentStreak={state.currentStreak}
+        avgTrade={bot.stats.pnl / Math.max(1, bot.stats.trades)}
+        pnl={bot.stats.pnl}
+      />
 
-        {/* Trades */}
-        <div style={{
-          padding: "0.625rem",
-          background: "rgba(0,0,0,0.2)",
-          borderRadius: 8,
-          textAlign: "center",
-        }}>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Trades</div>
-          <div style={{ fontWeight: 700, fontFamily: "ui-monospace, monospace", fontSize: "0.875rem" }}>
-            {bot.stats.trades}
-          </div>
-          <div style={{ fontSize: "0.625rem", fontWeight: 500 }}>
-            <span style={{ color: "#22c55e" }}>{bot.stats.wins}W</span>
-            <span style={{ color: "var(--text-muted)" }}>/</span>
-            <span style={{ color: "#ef4444" }}>{bot.stats.losses}L</span>
-          </div>
-        </div>
-
-        {/* Streak */}
-        <div style={{
-          padding: "0.625rem",
-          background: "rgba(0,0,0,0.2)",
-          borderRadius: 8,
-          textAlign: "center",
-        }}>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Streak</div>
-          <div style={{
-            fontWeight: 700,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.875rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.2rem",
-            color: currentStreak.type === "win" ? "#f59e0b" : currentStreak.type === "loss" ? "#3b82f6" : "var(--text-muted)",
-          }}>
-            {currentStreak.type === "win" && <Flame style={{ width: 14, height: 14 }} />}
-            {currentStreak.type === "loss" && <Snowflake style={{ width: 14, height: 14 }} />}
-            {currentStreak.count > 0 ? currentStreak.count : "-"}
-          </div>
-        </div>
-
-        {/* Avg Trade */}
-        <div style={{
-          padding: "0.625rem",
-          background: "rgba(0,0,0,0.2)",
-          borderRadius: 8,
-          textAlign: "center",
-        }}>
-          <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Avg Trade</div>
-          <div style={{
-            fontWeight: 700,
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "0.875rem",
-            color: bot.stats.trades > 0 ? (bot.stats.pnl / bot.stats.trades >= 0 ? "#22c55e" : "#ef4444") : "var(--text-muted)",
-          }}>
-            {bot.stats.trades > 0 ? `$${(bot.stats.pnl / bot.stats.trades).toFixed(2)}` : "-"}
-          </div>
-        </div>
-      </div>
-
-      {/* Status Row - Market Timer, Last Trade */}
-      <div style={{
-        display: "flex",
-        gap: "0.5rem",
-        marginBottom: "1rem",
-      }}>
-        {/* Market Timer */}
-        {timeRemaining !== undefined && timeRemaining > 0 && bot.enabled && (
-          <div style={{
-            flex: 1,
-            padding: "0.5rem 0.75rem",
-            borderRadius: 8,
-            background: timeRemaining < 60000 ? "rgba(239, 68, 68, 0.15)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.15)" : "rgba(34, 197, 94, 0.1)",
-            border: `1px solid ${timeRemaining < 60000 ? "rgba(239, 68, 68, 0.3)" : timeRemaining < 180000 ? "rgba(245, 158, 11, 0.3)" : "rgba(34, 197, 94, 0.2)"}`,
-            display: "flex",
-            alignItems: "center",
-            gap: "0.375rem",
-          }}>
-            <Timer style={{ width: 14, height: 14, color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#22c55e" }} />
-            <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>Market</span>
-            <span style={{
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              color: timeRemaining < 60000 ? "#ef4444" : timeRemaining < 180000 ? "#f59e0b" : "#22c55e",
-            }}>
-              {formatDuration(timeRemaining)}
-            </span>
-          </div>
-        )}
-
-        {/* Last Trade Result */}
-        {bot.stats.trades > 0 && (
-          <div style={{
-            padding: "0.5rem 0.75rem",
-            borderRadius: 8,
-            background: lastTradePnl >= 0 ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
-            border: `1px solid ${lastTradePnl >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
-            display: "flex",
-            alignItems: "center",
-            gap: "0.375rem",
-          }}>
-            {lastTradePnl >= 0 ? (
-              <TrendingUp style={{ width: 14, height: 14, color: "#22c55e" }} />
-            ) : (
-              <TrendingDown style={{ width: 14, height: 14, color: "#ef4444" }} />
-            )}
-            <span style={{
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: lastTradePnl >= 0 ? "#22c55e" : "#ef4444",
-            }}>
-              {lastTradePnl >= 0 ? "+" : ""}{lastTradePnl.toFixed(2)}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Open Positions - Enhanced */}
-      {botPositions.length > 0 && (
+      {/* Open Positions */}
+      {state.botPositions.length > 0 && (
         <div style={{
           display: "flex",
           alignItems: "center",
@@ -470,30 +95,30 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Target style={{ width: 16, height: 16, color: "#3b82f6" }} />
             <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>
-              {botPositions.length} Position{botPositions.length > 1 ? "s" : ""}
+              {state.botPositions.length} Position{state.botPositions.length > 1 ? "s" : ""}
             </span>
             <span style={{
               padding: "0.125rem 0.375rem",
               borderRadius: 4,
-              background: botPositions[0].outcome === "YES" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
-              color: botPositions[0].outcome === "YES" ? "#22c55e" : "#ef4444",
+              background: state.botPositions[0].outcome === "YES" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+              color: state.botPositions[0].outcome === "YES" ? "#22c55e" : "#ef4444",
               fontSize: "0.625rem",
               fontWeight: 700,
             }}>
-              {botPositions[0].outcome}
+              {state.botPositions[0].outcome}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              ${positionsValue.toFixed(2)} at risk
+              ${state.positionsValue.toFixed(2)} at risk
             </span>
             <div style={{
               fontSize: "0.875rem",
               fontFamily: "ui-monospace, monospace",
               fontWeight: 700,
-              color: unrealizedPnl >= 0 ? "#22c55e" : "#ef4444",
+              color: state.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444",
             }}>
-              {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)}
+              {state.unrealizedPnl >= 0 ? "+" : ""}${state.unrealizedPnl.toFixed(2)}
             </div>
           </div>
         </div>
@@ -512,7 +137,7 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
         <div>
           <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.375rem" }}>Last 8 trades</div>
           <div style={{ display: "flex", gap: "0.375rem" }}>
-            {recentTrades.length > 0 ? recentTrades.map((pnl: number, i: number) => (
+            {state.recentTrades.length > 0 ? state.recentTrades.map((pnl: number, i: number) => (
               <div
                 key={i}
                 style={{
@@ -531,11 +156,7 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Equity curve</div>
-          <MiniEquityCurve
-            data={equityCurvePlot}
-            color={strategyColor}
-            size={32}
-          />
+          <MiniEquityCurve data={state.equityCurvePlot} color={state.strategyColor} size={32} />
         </div>
       </div>
 
@@ -673,10 +294,10 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
           </div>
 
           {/* Recent Trades List */}
-          {closedPositions.length > 0 && (
+          {state.closedPositions.length > 0 && (
             <div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem", fontWeight: 500 }}>
-                Recent Trades ({closedPositions.length} total)
+                Recent Trades ({state.closedPositions.length} total)
               </div>
               <div style={{
                 maxHeight: 120,
@@ -685,7 +306,7 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
                 flexDirection: "column",
                 gap: "0.25rem",
               }}>
-                {closedPositions.slice(-6).reverse().map((trade: any, i: number) => {
+                {state.closedPositions.slice(-6).reverse().map((trade: any, i: number) => {
                   const isWin = (trade.pnl || 0) > 0;
                   return (
                     <div
