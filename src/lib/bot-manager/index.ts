@@ -16,3 +16,18 @@ export {
   type TradeDecision,
   type StrategyExecutionResult,
 } from "./strategy-executor";
+export {
+  BotEventBus,
+  botEventBus,
+  type BotEvent,
+  type BotEventType,
+  type PriceChangeEvent,
+  type PositionEvent,
+} from "./bot-event-bus";
+export {
+  PositionMonitor,
+  positionMonitor,
+  type PositionRiskConfig,
+  type MonitoredPosition,
+  type RiskCheckResult,
+} from "./position-monitor";

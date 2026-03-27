@@ -25,6 +25,7 @@ import {
   buildStrategyContext,
   calculateBetSize,
   executeLiveTrade as executeLiveTradeFn,
+  botEventBus,
 } from "./bot-manager/index";
 
 // Re-export TradingMode type for backward compatibility
@@ -599,6 +600,16 @@ export class BotManager {
       if (position) {
         // Confirm execution with coordinator
         strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
+
+        // Emit position opened event
+        botEventBus.emitPositionOpened({
+          botId: id,
+          positionId: position.id,
+          marketId: market.id,
+          outcome: action,
+          amount: finalBetSize,
+          entryPrice: position.odds,
+        });
 
         // Get market price for display (without slippage)
         const marketPrice = action === "YES"
