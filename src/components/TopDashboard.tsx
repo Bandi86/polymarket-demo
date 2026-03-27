@@ -12,6 +12,7 @@ import { DepositModal } from "@/components/DepositModal";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
 import { CircularTimer, BotRunTimer } from "@/components/ui/CircularTimer";
 import { useLocalTimer } from "@/hooks/useLocalTimer";
+import { TABS, ASSETS, TIMEFRAMES, QUICK_RUN_OPTIONS } from "@/components/dashboard";
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
 import type { Portfolio } from "@/types";
 
@@ -199,30 +200,6 @@ export function TopDashboard({
       toast.error("Failed to start quick run");
     }
   };
-
-  const tabs: { id: TabId; label: string; icon: any }[] = [
-    { id: 'trade', label: 'Manual Trade', icon: BarChart2 },
-    { id: 'monitor', label: 'Monitor', icon: Activity },
-    { id: 'risk', label: 'Risk', icon: Shield },
-    { id: 'backtest', label: 'Backtest', icon: FlaskConical },
-    { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-    { id: 'config', label: 'Config', icon: Settings },
-  ];
-
-  const ASSETS = ["BTC", "ETH", "SOL", "XRP"];
-  const TIMEFRAMES = [
-    { id: "5", label: "5m" },
-    { id: "15", label: "15m" },
-    { id: "60", label: "1h" },
-    { id: "240", label: "4h" },
-  ];
-
-  const QUICK_RUN_OPTIONS = [
-    { minutes: 30, label: "30m" },
-    { minutes: 60, label: "1h" },
-    { minutes: 120, label: "2h" },
-    { minutes: 240, label: "4h" },
-  ];
 
   return (
     <div style={{
@@ -813,7 +790,7 @@ export function TopDashboard({
         gap: "0.5rem",
         marginTop: "auto"
       }}>
-        {tabs.map(tab => {
+        {TABS.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
