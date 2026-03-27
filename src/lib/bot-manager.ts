@@ -613,7 +613,19 @@ export class BotManager {
       btcPriceHistory,
     };
 
-    const decision = strategy.execute(context);
+    // Execute strategy with error handling to prevent silent failures
+    let decision: { action: import("../types").Outcome | null; confidence: number; reason?: string };
+    try {
+      decision = strategy.execute(context);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.addLog(id, "ERROR", `Strategy execution failed: ${errorMessage}`, {
+        strategy: bot.strategy,
+        error: errorMessage,
+      });
+      console.error(`[BotManager] Strategy error for ${bot.name}:`, error);
+      return;
+    }
 
     // Log decision even if no action
     if (!decision.action) {
