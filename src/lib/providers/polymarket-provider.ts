@@ -1,4 +1,5 @@
 import type { Market } from "../../types";
+import type { PolymarketEvent, PolymarketMarket } from "../../types/provider.types";
 import { privateKeyToAccount } from "viem/accounts";
 
 // Load credentials from environment (Bun automatically loads .env)
@@ -11,43 +12,8 @@ const hasCredentials = !!(POLY_API_KEY && POLY_API_SECRET);
 const hasPrivateKey = !!POLY_PRIVATE_KEY;
 console.log(`[PolymarketProvider] Credentials: API=${hasCredentials ? 'YES' : 'NO'} PrivateKey=${hasPrivateKey ? 'YES' : 'NO'}`);
 
-export interface PolymarketEvent {
-  id: string;
-  ticker: string;
-  slug: string;
-  title: string;
-  description: string;
-  resolutionSource: string;
-  startDate: string;
-  endDate: string;
-  image: string;
-  active: boolean;
-  closed: boolean;
-  volume: number;
-  liquidityClob: number;
-  markets: PolymarketMarket[];
-  eventMetadata?: {
-    priceToBeat?: number;
-  };
-}
-
-export interface PolymarketMarket {
-  id: string;
-  question: string;
-  conditionId: string;
-  slug: string;
-  endDate: string;
-  image: string;
-  description: string;
-  outcomes: string;
-  outcomePrices: string;
-  volumeNum: number;
-  liquidity: number;
-  active: boolean;
-  closed: boolean;
-  tokens?: { token_id: string; outcome: string }[];
-  clobTokenIds?: string;
-}
+// Re-export types for backward compatibility
+export type { PolymarketEvent, PolymarketMarket } from "../../types/provider.types";
 
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";

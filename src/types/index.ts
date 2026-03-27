@@ -65,4 +65,3 @@ export type {
   PolymarketOrder,
   PolymarketPosition,
 } from "./provider.types";
-export { polymarketEventToMarket } from "./provider.types";

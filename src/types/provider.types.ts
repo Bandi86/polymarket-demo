@@ -2,41 +2,51 @@
 
 import type { Market } from "./market.types";
 
+// Full PolymarketEvent from Gamma API
 export interface PolymarketEvent {
-  conditionId: string;
-  questionId: string;
-  question: string;
+  id: string;
+  ticker: string;
+  slug: string;
+  title: string;
   description: string;
-  marketSlug: string;
+  resolutionSource: string;
+  startDate: string;
   endDate: string;
-  liquidity: number;
-  volume: number;
+  image: string;
   active: boolean;
   closed: boolean;
-  imageUrl?: string;
-  tokens?: PolymarketToken[];
+  volume: number;
+  liquidityClob: number;
+  markets: PolymarketMarket[];
+  eventMetadata?: {
+    priceToBeat?: number;
+  };
+}
+
+// Individual market within an event
+export interface PolymarketMarket {
+  id: string;
+  question: string;
+  conditionId: string;
+  slug: string;
+  endDate: string;
+  image: string;
+  description: string;
+  outcomes: string;
+  outcomePrices: string;
+  volumeNum: number;
+  liquidity: number;
+  active: boolean;
+  closed: boolean;
+  tokens?: { token_id: string; outcome: string }[];
+  clobTokenIds?: string;
 }
 
 export interface PolymarketToken {
   token_id: string;
   outcome: string;
-  price: number;
-  winner: boolean;
-}
-
-export interface PolymarketMarket {
-  conditionId: string;
-  questionId: string;
-  question: string;
-  slug: string;
-  endDate: string;
-  outcomes: string[];
-  outcomePrices: string[];
-  active: boolean;
-  closed: boolean;
-  volume: string;
-  liquidity: string;
-  imageUrl?: string;
+  price?: number;
+  winner?: boolean;
 }
 
 export interface PolymarketOrder {
@@ -56,21 +66,4 @@ export interface PolymarketPosition {
   avgPrice: string;
   currentPrice: string;
   pnl: string;
-}
-
-// Helper function to convert PolymarketEvent to Market
-export function polymarketEventToMarket(event: PolymarketEvent, simulated?: boolean): Partial<Market> {
-  return {
-    id: event.conditionId,
-    question: event.question,
-    description: event.description,
-    conditionId: event.conditionId,
-    liquidity: event.liquidity,
-    volumeNum: event.volume,
-    active: event.active,
-    closed: event.closed,
-    imageUrl: event.imageUrl,
-    tokens: event.tokens,
-    isSimulated: simulated,
-  };
 }
