@@ -5,24 +5,31 @@ import type {
   BotConfig,
   BotSession,
   StrategyType,
-  StrategyContext,
   Outcome,
   TradingMode,
 } from "../types";
 import { marketEngine } from "./market-engine";
 import { dbService } from "./database";
 import { generateId, clamp } from "./utils";
-import { binanceKlineProvider } from "./providers/binance-kline-provider";
-import { priceService } from "./price";
 import { riskManager } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
 import { polymarketProvider } from "./providers/polymarket-provider";
 import { broadcastToSSE } from "./global";
 import { strategies } from "./strategies";
+import {
+  BotLogger,
+  type BotLog,
+  CompetitionManager,
+  type CompetitionState,
+  buildStrategyContext,
+  calculateBetSize,
+  executeLiveTrade as executeLiveTradeFn,
+} from "./bot-manager/index";
 
 // Re-export TradingMode type for backward compatibility
 export type { TradingMode } from "../types";
+export type { BotLog, CompetitionState };
 
 // === Bot Manager ===
 
@@ -31,66 +38,15 @@ export interface BotManagerConfig {
   defaultInterval?: number;
 }
 
-export interface BotLog {
-  id: string;
-  botId: string;
-  botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED";
-  message: string;
-  details?: Record<string, unknown>;
-  timestamp: number;
-}
-
-export interface CompetitionState {
-  active: boolean;
-  startTime: number;
-  minTrades: number;
-  startBalance: number;
-  leaderboard: Array<{
-    botId: string;
-    botName: string;
-    strategy: string;
-    rank: number;
-    trades: number;
-    winRate: number;
-    profitFactor: number;
-    sharpeRatio: number;
-    pnl: number;
-    roi: number;
-    balance: number;
-  }>;
-  winner: string | null;
-  completedAt: number | null;
-  config: {
-    minTrades: number;
-    duration: number | null; // null = no time limit
-    startBalance: number;
-  };
-}
-
 export class BotManager {
   private bots: Map<string, BotConfig> = new Map();
   private intervals: Map<string, ReturnType<typeof setInterval>> = new Map();
   private sessions: BotSession[] = [];
   private currentSessions: Map<string, BotSession> = new Map();
   private config: Required<BotManagerConfig>;
-  private logs: BotLog[] = [];
-  private logListeners: Array<(log: BotLog) => void> = [];
+  private logger: BotLogger;
+  private competitionManager: CompetitionManager;
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
-  private competition: CompetitionState = {
-    active: false,
-    startTime: 0,
-    minTrades: 50,
-    startBalance: 10,
-    leaderboard: [],
-    winner: null,
-    completedAt: null,
-    config: {
-      minTrades: 50,
-      duration: null,
-      startBalance: 10,
-    },
-  };
 
   // Trading mode: demo (simulated) or live (real Polymarket trades)
   private tradingMode: TradingMode = "demo";
@@ -100,6 +56,10 @@ export class BotManager {
       maxBots: config.maxBots ?? 20,
       defaultInterval: config.defaultInterval ?? 5000,
     };
+    this.logger = new BotLogger();
+    this.competitionManager = new CompetitionManager((botId, type, message, details) => {
+      this.addLog(botId, type, message, details);
+    });
 
     this.initDefaultBots();
     this.startAutoSave();
@@ -135,58 +95,26 @@ export class BotManager {
     }
   }
 
-  /** Add a log entry */
   /** Add a log entry for a bot (public for external use like settlement events) */
   addLog(botId: string, type: BotLog["type"], message: string, details?: Record<string, unknown>): void {
     const bot = this.bots.get(botId);
     if (!bot) return;
-
-    const log: BotLog = {
-      id: generateId("log"),
-      botId,
-      botName: bot.name,
-      type,
-      message,
-      details,
-      timestamp: Date.now(),
-    };
-
-    this.logs.unshift(log);
-    if (this.logs.length > 100) {
-      this.logs.pop();
-    }
-
-    // Notify listeners
-    for (const listener of this.logListeners) {
-      try {
-        listener(log);
-      } catch (e) {
-        console.error("[BotManager] Log listener error:", e);
-      }
-    }
-
-    console.log(`[BotManager] ${bot.name}: ${message}`);
+    this.logger.addLog(botId, bot.name, type, message, details);
   }
 
   /** Subscribe to log updates */
   onLog(callback: (log: BotLog) => void): () => void {
-    this.logListeners.push(callback);
-    return () => {
-      const index = this.logListeners.indexOf(callback);
-      if (index > -1) {
-        this.logListeners.splice(index, 1);
-      }
-    };
+    return this.logger.addListener(callback);
   }
 
   /** Get all logs */
   getLogs(limit = 50): BotLog[] {
-    return this.logs.slice(0, limit);
+    return this.logger.getLogs(limit);
   }
 
   /** Clear logs */
   clearLogs(): void {
-    this.logs = [];
+    this.logger.clear();
   }
 
   private initDefaultBots(): void {
@@ -537,84 +465,20 @@ export class BotManager {
     const strategy = strategies[bot.strategy];
     if (!strategy) return;
 
-    // Build context from Polymarket odds data (NOT BTC price)
-    const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
-    const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
-    const yesPriceHistory = market.yesPriceHistory || [];
-    const priceHistory = yesPriceHistory.map((p) => p.price);
-    const timeRemaining = marketEngine.getTimeRemaining();
-    const totalDuration = market.endTime - market.startTime;
-
-    // Calculate volatility from YES price changes
-    let volatility = 0;
-    if (priceHistory.length >= 5) {
-      const changes: number[] = [];
-      for (let i = 1; i < priceHistory.length; i++) {
-        changes.push(Math.abs(priceHistory[i] - priceHistory[i - 1]));
-      }
-      volatility = changes.reduce((a, b) => a + b, 0) / changes.length;
-    }
-
-    // Calculate momentum from YES price trend
-    let momentum = 0;
-    if (priceHistory.length >= 3) {
-      const recent = priceHistory.slice(-3);
-      const older = priceHistory.slice(-6, -3);
-      if (older.length > 0) {
-        const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-        momentum = recentAvg - olderAvg;
-      }
-    }
-
-    // Get Binance signal data for predictive strategies
-    const lastSignal = binanceKlineProvider.getLastSignal();
-    const binanceSignal = lastSignal ? {
-      type: lastSignal.type,
-      changePercent: lastSignal.changePercent,
-      confidence: lastSignal.confidence,
-      timestamp: lastSignal.timestamp,
-      predictedOutcome: lastSignal.predictedOutcome,
-    } : undefined;
-
-    // Get BTC price and change
-    const btcPrice = priceService.getPrice();
-    const btcHistory = priceService.getPriceHistory(200);
-    const btcPriceHistory = btcHistory.slice(-20).map(p => p.price);
-    const btcPriceChange = btcHistory.length >= 2
-      ? (btcPrice - btcHistory[0].price) / btcHistory[0].price
-      : 0;
-
-    // Calculate BTC window open price - the BTC price when the market window opened
-    let btcWindowOpen = btcPrice; // default: current price
-    if (btcHistory.length > 0 && market.startTime) {
-      // Find the BTC price closest to the market start time
-      const windowOpenTime = market.startTime;
-      const closest = btcHistory.reduce((prev, curr) =>
-        Math.abs(curr.timestamp - windowOpenTime) < Math.abs(prev.timestamp - windowOpenTime)
-        ? curr : prev
-      );
-      btcWindowOpen = closest.price;
-    }
-
-    const context: StrategyContext = {
-      currentPrice: yesPrice,
-      startPrice: market.startPrice || 0.5,
-      priceHistory,
-      timeRemaining,
-      marketDuration: totalDuration,
-      marketPrice: { yesPrice, noPrice },
-      volatility,
-      momentum,
-      binanceSignal,
-      btcPrice,
-      btcPriceChange,
-      btcWindowOpen,
-      btcPriceHistory,
-    };
+    // Build context using extracted function
+    const context = buildStrategyContext({
+      id: market.id,
+      startTime: market.startTime,
+      endTime: market.endTime,
+      startPrice: market.startPrice,
+      outcomePrices: market.outcomePrices,
+      yesPriceHistory: market.yesPriceHistory,
+      tokens: market.tokens,
+      status: market.status,
+    });
 
     // Execute strategy with error handling to prevent silent failures
-    let decision: { action: import("../types").Outcome | null; confidence: number; reason?: string };
+    let decision: { action: Outcome | null; confidence: number; reason?: string };
     try {
       decision = strategy.execute(context);
     } catch (error) {
@@ -632,9 +496,8 @@ export class BotManager {
       // Only log occasionally to avoid spam (every 10th check)
       if (Math.random() < 0.1) {
         this.addLog(id, "DECISION", `No trade - ${decision.reason}`, {
-          yesPrice,
-          noPrice,
-          timeRemaining,
+          currentPrice: context.currentPrice,
+          timeRemaining: context.timeRemaining,
           confidence: decision.confidence,
         });
       }
@@ -643,86 +506,36 @@ export class BotManager {
 
     // At this point, decision.action is guaranteed to be non-null
     const action = decision.action;
+    const yesPrice = context.marketPrice.yesPrice;
+    const noPrice = context.marketPrice.noPrice;
 
     // Check if bot already has an open position on this market - one position per market
     const existingPositions = marketEngine.getOpenPositions(id);
     const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
     if (hasPositionOnMarket) {
-      // Already have a position on this market, skip
       return;
     }
 
     // Log the decision to trade
     this.addLog(id, "DECISION", `Trade decision: ${action} - ${decision.reason}`, {
-      action: action,
+      action,
       confidence: decision.confidence,
       reason: decision.reason,
       yesPrice,
       noPrice,
-      timeRemaining,
-      volatility: volatility.toFixed(4),
-      momentum: momentum.toFixed(4),
-      btcPriceChange: (btcPriceChange * 100).toFixed(3) + '%',
+      timeRemaining: context.timeRemaining,
+      volatility: context.volatility.toFixed(4),
+      momentum: context.momentum.toFixed(4),
+      btcPriceChange: (context.btcPriceChange * 100).toFixed(3) + '%',
     });
 
-    // Calculate bet size
-    let betSize = bot.betSize;
-
-    // Kelly criterion for position sizing
-    // f* = (p*b - q) / b where p=win prob, q=loss prob, b=net odds
-    // For prediction markets: if betting YES at price P, you win (1-P)/P per unit bet
-    if (bot.useKelly || bot.useKelly === undefined) {
-      const portfolio = marketEngine.getBotPortfolio(id);
-
-      // Use historical win rate if available, otherwise use price-based probability
-      const botStats = bot.stats;
-      const winProbability = botStats.trades >= 5
-        ? botStats.winRate
-        : (action === "YES" ? 1 - yesPrice : 1 - noPrice);
-
-      // Net odds: amount won per unit bet
-      // If YES at 0.60, you pay 0.60 to win 1.00, so net odds = (1-0.60)/0.60 = 0.67
-      // If NO at 0.40, you pay 0.40 to win 1.00, so net odds = (1-0.40)/0.40 = 1.5
-      const price = action === "YES" ? yesPrice : noPrice;
-      const netOdds = (1 - price) / price;
-
-      // Kelly formula: f* = (p*b - q) / b
-      // where p = winProbability, q = 1 - p, b = netOdds
-      const q = 1 - winProbability;
-      const kellyFraction = (winProbability * netOdds - q) / netOdds;
-
-      // Apply half-Kelly (more conservative) and user's kelly fraction
-      const halfKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5));
-
-      // Calculate bet size
-      const kellyBet = portfolio.balance * halfKelly;
-
-      // maxBet is now a PERCENTAGE of bankroll (e.g., 0.25 = 25% max)
-      const maxBetPercent = bot.maxBet || 0.25; // Default 25% of bankroll
-      const maxBetAmount = portfolio.balance * maxBetPercent;
-
-      // Cap at maxBet percentage of bankroll
-      betSize = Math.min(kellyBet, maxBetAmount);
-      betSize = Math.max(1, betSize); // Minimum $1 bet
-
-      // Log Kelly calculation for transparency
-      if (kellyBet > 0) {
-        console.log(`[BotManager] Kelly: ${bot.name} | WinProb: ${(winProbability * 100).toFixed(1)}% | Odds: ${netOdds.toFixed(2)} | Fraction: ${(halfKelly * 100).toFixed(1)}% | Balance: $${portfolio.balance.toFixed(2)} | MaxBet: $${maxBetAmount.toFixed(2)} | Bet: $${betSize.toFixed(2)}`);
-      }
-    } else {
-      // No Kelly - use percentage-based bet sizing
-      const portfolio = marketEngine.getBotPortfolio(id);
-      const maxBetPercent = bot.maxBet || 0.25;
-      const maxBetAmount = portfolio.balance * maxBetPercent;
-      betSize = Math.min(bot.betSize, maxBetAmount);
-      betSize = Math.max(1, betSize);
-    }
+    // Calculate bet size using extracted function
+    const portfolio = marketEngine.getBotPortfolio(id);
+    let betSize = calculateBetSize(bot, action, yesPrice, noPrice, portfolio.balance);
 
     // Adjust bet size based on confidence
     betSize = betSize * (0.5 + decision.confidence * 0.5);
     betSize = Math.max(1, betSize); // Minimum $1 bet (after confidence adjustment)
-
-    const portfolio = marketEngine.getBotPortfolio(id);
 
     // Risk check: Can open position?
     const riskCheck = riskManager.canOpenPosition(id, betSize, decision.confidence);
@@ -822,76 +635,12 @@ export class BotManager {
     botId: string,
     market: { id: string; tokens?: { token_id: string; outcome: string }[]; outcomePrices?: { yes: string; no: string } },
     action: Outcome,
-    confidence: number,
+    _confidence: number,
     betSize: number
   ): Promise<void> {
-    try {
-      // Get token ID for the outcome
-      let tokenId: string | undefined;
-      if (market.tokens && market.tokens.length > 0) {
-        const token = market.tokens.find(t =>
-          (action === "YES" && (t.outcome.toLowerCase() === "yes" || t.outcome.toLowerCase().includes("up"))) ||
-          (action === "NO" && (t.outcome.toLowerCase() === "no" || t.outcome.toLowerCase().includes("down")))
-        );
-        tokenId = token?.token_id;
-      }
-
-      if (!tokenId) {
-        this.addLog(botId, "ERROR", `Cannot find token for ${action} outcome in live mode`, {
-          action: action,
-          marketId: market.id,
-        });
-        return;
-      }
-
-      // Get current price
-      const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
-      const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
-      const price = action === "YES" ? yesPrice : noPrice;
-
-      // Calculate size (number of shares)
-      const size = betSize / price;
-
-      this.addLog(botId, "TRADE", `LIVE: Placing ${action} order for $${betSize.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`, {
-        action: action,
-        amount: betSize,
-        price,
-        size,
-        tokenId,
-        mode: "live",
-      });
-
-      // Place order on Polymarket
-      const result = await polymarketProvider.placeOrder({
-        tokenId,
-        side: "BUY",
-        price,
-        size,
-      });
-
-      if (result.success) {
-        this.addLog(botId, "TRADE", `✅ LIVE order placed: ${action} $${betSize.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`, {
-          orderId: result.orderId,
-          action: action,
-          amount: betSize,
-          price,
-          size,
-          mode: "live",
-        });
-      } else {
-        this.addLog(botId, "ERROR", `❌ LIVE order failed: ${result.error}`, {
-          error: result.error,
-          action: action,
-          amount: betSize,
-          mode: "live",
-        });
-      }
-    } catch (error) {
-      this.addLog(botId, "ERROR", `LIVE trade exception: ${error instanceof Error ? error.message : "Unknown error"}`, {
-        error: error instanceof Error ? error.message : "Unknown",
-        mode: "live",
-      });
-    }
+    await executeLiveTradeFn(botId, market, action, betSize, (type, message, details) => {
+      this.addLog(botId, type as BotLog["type"], message, details);
+    });
   }
 
   // updateBotStats removed — stats are now derived from portfolio settled positions
@@ -1023,127 +772,27 @@ export class BotManager {
       this.addLog("system", "RISK", "Competition automatically switched to demo mode (live mode not allowed)");
     }
 
-    // Stop any existing competition
-    if (this.competition.active) {
-      this.stopCompetition();
-    }
-
-    const minTrades = config?.minTrades ?? 50;
-    const startBalance = config?.startBalance ?? 10;
-
-    // Reset all bots to equal starting conditions
-    this.stopAllBots();
-
-    console.log(`[BotManager] Starting competition with ${this.bots.size} bots`);
-
-    for (const [id, bot] of this.bots) {
-      // Reset portfolio
-      marketEngine.initBotPortfolio(id);
-      const portfolio = marketEngine.getBotPortfolio(id);
-      portfolio.balance = startBalance;
-      portfolio.initialBalance = startBalance;
-
-      // Reset stats
-      bot.stats = {
-        trades: 0,
-        wins: 0,
-        losses: 0,
-        pnl: 0,
-        winRate: 0,
-        avgWin: 0,
-        avgLoss: 0,
-        profitFactor: 0,
-        maxConsecutiveWins: 0,
-        maxConsecutiveLosses: 0,
-      };
-      bot.enabled = true;
-      bot.portfolio = portfolio;
-      this.bots.set(id, bot);
-
-      // Start the bot
-      console.log(`[BotManager] Starting bot: ${bot.name} (${id})`);
-      this.startBot(id);
-    }
-
-    // Initialize competition state
-    this.competition = {
-      active: true,
-      startTime: Date.now(),
-      minTrades,
-      startBalance,
-      leaderboard: [],
-      winner: null,
-      completedAt: null,
-      config: {
-        minTrades,
-        duration: config?.duration ?? null,
-        startBalance,
-      },
-    };
-
-    this.addCompetitionLog("Competition started", {
-      minTrades,
-      startBalance,
-      bots: this.bots.size,
-    });
-
-    return this.getCompetitionState();
+    return this.competitionManager.start(
+      this.bots,
+      config,
+      (id) => this.startBot(id),
+      () => this.stopAllBots()
+    );
   }
 
   stopCompetition(): CompetitionState {
-    if (!this.competition.active) {
-      return this.getCompetitionState();
-    }
-
-    // Mark as inactive FIRST to prevent recursion from updateLeaderboard
-    this.competition.active = false;
-
-    // Stop all bots
-    this.stopAllBots();
-
-    // Calculate final leaderboard
-    this.updateLeaderboard();
-
-    // Determine winner (highest P&L with min trades)
-    const qualified = this.competition.leaderboard.filter(b => b.trades >= this.competition.minTrades);
-    if (qualified.length > 0) {
-      this.competition.winner = qualified[0].botId;
-    }
-
-    this.competition.completedAt = Date.now();
-
-    this.addCompetitionLog("Competition ended", {
-      winner: this.competition.winner,
-      leaderboard: this.competition.leaderboard.slice(0, 3),
-    });
-
-    return this.getCompetitionState();
+    return this.competitionManager.stop(
+      this.bots,
+      () => this.stopAllBots()
+    );
   }
 
   getCompetitionState(): CompetitionState {
-    if (this.competition.active) {
-      this.updateLeaderboard();
-    }
-    return { ...this.competition };
+    return this.competitionManager.getState();
   }
 
   clearCompetition(): CompetitionState {
-    // Reset competition to initial state
-    this.competition = {
-      active: false,
-      startTime: 0,
-      minTrades: 50,
-      startBalance: 10,
-      leaderboard: [],
-      winner: null,
-      completedAt: null,
-      config: {
-        minTrades: 50,
-        duration: null,
-        startBalance: 10,
-      },
-    };
-    return this.getCompetitionState();
+    return this.competitionManager.clear();
   }
 
   // === Trading Mode Management ===
@@ -1189,104 +838,6 @@ export class BotManager {
     // The actual balance check should be done via API before trading
     // For now, we return allowed but warn about balance
     return { allowed: true };
-  }
-
-  private updateLeaderboard(): void {
-    const entries: CompetitionState["leaderboard"] = [];
-
-    for (const [id, bot] of this.bots) {
-      const portfolio = marketEngine.getBotPortfolio(id);
-      const pnl = bot.stats.pnl || portfolio.totalPnL;
-      const trades = bot.stats.trades || portfolio.totalTrades;
-      const winRate = bot.stats.winRate || portfolio.winRate;
-
-      // Calculate Sharpe ratio (simplified)
-      const avgWin = bot.stats.avgWin || 0;
-      const avgLoss = bot.stats.avgLoss || 0;
-      const sharpeRatio = trades >= 5 ? (avgWin - avgLoss) / Math.max(0.01, (avgWin + avgLoss) / 2) : 0;
-
-      // Calculate profit factor
-      const profitFactor = bot.stats.profitFactor || (avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? 999 : 0);
-
-      // Calculate ROI
-      const roi = this.competition.startBalance > 0
-        ? ((portfolio.balance - this.competition.startBalance) / this.competition.startBalance) * 100
-        : 0;
-
-      entries.push({
-        botId: id,
-        botName: bot.name,
-        strategy: bot.strategy,
-        rank: 0,
-        trades,
-        winRate,
-        profitFactor: isFinite(profitFactor) ? profitFactor : 0,
-        sharpeRatio: isFinite(sharpeRatio) ? sharpeRatio : 0,
-        pnl,
-        roi,
-        balance: portfolio.balance,
-      });
-    }
-
-    // Sort by: trades qualified → P&L → win rate
-    entries.sort((a, b) => {
-      const aQualified = a.trades >= this.competition.minTrades;
-      const bQualified = b.trades >= this.competition.minTrades;
-
-      if (aQualified !== bQualified) {
-        return aQualified ? -1 : 1;
-      }
-
-      // Both qualified or not - sort by P&L
-      if (a.pnl !== b.pnl) {
-        return b.pnl - a.pnl;
-      }
-
-      // Tie-breaker: win rate
-      return b.winRate - a.winRate;
-    });
-
-    // Assign ranks
-    entries.forEach((entry, index) => {
-      entry.rank = index + 1;
-    });
-
-    this.competition.leaderboard = entries;
-
-    // Check if competition should auto-end
-    if (this.competition.active && this.competition.config.duration) {
-      const elapsed = Date.now() - this.competition.startTime;
-      if (elapsed >= this.competition.config.duration) {
-        this.stopCompetition();
-      }
-    }
-  }
-
-  private addCompetitionLog(message: string, details?: Record<string, unknown>): void {
-    const log: BotLog = {
-      id: generateId("log"),
-      botId: "competition",
-      botName: "Competition",
-      type: "COMPETITION",
-      message,
-      details,
-      timestamp: Date.now(),
-    };
-
-    this.logs.unshift(log);
-    if (this.logs.length > 100) {
-      this.logs.pop();
-    }
-
-    for (const listener of this.logListeners) {
-      try {
-        listener(log);
-      } catch (e) {
-        console.error("[BotManager] Log listener error:", e);
-      }
-    }
-
-    console.log(`[Competition] ${message}`);
   }
 
   dispose(): void {
