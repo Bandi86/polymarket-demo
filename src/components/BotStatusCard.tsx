@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Bot, Play, Square, Settings, Clock, TrendingDown, TrendingUp, AlertCircle, XCircle, Timer, Flame, Snowflake, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
@@ -36,52 +36,51 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
     return () => clearInterval(timer);
   }, [bot.enabled]);
 
-  const strategyColor = getStrategyColor(bot.strategy);
-  const strategyName = getStrategyName(bot.strategy);
+  // Memoized values for performance
+  const strategyColor = useMemo(() => getStrategyColor(bot.strategy), [bot.strategy]);
+  const strategyName = useMemo(() => getStrategyName(bot.strategy), [bot.strategy]);
 
-  const botPositions = positions.filter(p => p.botId === bot.id);
-  const positionsValue = botPositions.reduce((sum, p) => sum + p.stake, 0);
+  // Memoize bot positions filter
+  const botPositions = useMemo(() => positions.filter(p => p.botId === bot.id), [positions, bot.id]);
+  const positionsValue = useMemo(() => botPositions.reduce((sum, p) => sum + p.stake, 0), [botPositions]);
 
-  // BUG-001 FIX: Correct unrealized PnL calculation
-  // Formula: currentValue = amount * (currentOdds / entryOdds)
-  // unrealizedPnl = currentValue - amount - fee
-  const unrealizedPnl = botPositions.reduce((sum, pos) => {
+  // Memoize unrealized PnL calculation
+  const unrealizedPnl = useMemo(() => botPositions.reduce((sum, pos) => {
     const currentOdds = pos.outcome === "YES" ? yesPrice : (1 - yesPrice);
     const entryOdds = pos.odds;
     const currentValue = pos.amount * (currentOdds / entryOdds);
     return sum + (currentValue - pos.amount - (pos.fee || 0));
-  }, 0);
+  }, 0), [botPositions, yesPrice]);
 
-  // Calculate running time - FIX: use 'now' state for real-time updates
+  // Calculate running time
   const runningTime = bot.enabled && bot.runTime ? now - bot.runTime : 0;
 
-  // Extract trades data
-  const closedPositions = (bot.portfolio.closedPositions || []) as any[];
+  // Memoize closed positions data
+  const closedPositions = useMemo(() => (bot.portfolio.closedPositions || []) as any[], [bot.portfolio.closedPositions]);
 
-  // Recent trades dots (most recent 8 trades - closedPositions[0] is newest)
-  const recentTrades = closedPositions.slice(0, 8).map((p: any) => p.pnl || 0);
+  // Memoize equity curve calculation
+  const { recentTrades, lastTradePnl, initialBalance, growthPercent, equityCurvePlot, balanceGrowth } = useMemo(() => {
+    const recentTrades = closedPositions.slice(0, 8).map((p: any) => p.pnl || 0);
+    const lastTrade = closedPositions[0];
+    const lastTradePnl = lastTrade?.pnl || 0;
+    const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
+    const initialBalance = bot.portfolio.balance - totalClosedPnL;
+    const balanceGrowth = bot.portfolio.balance - initialBalance;
+    const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
 
-  // Last trade result
-  const lastTrade = closedPositions[0];
-  const lastTradePnl = lastTrade?.pnl || 0;
+    // Build equity curve
+    const equityCurvePlot = [initialBalance];
+    let currentBalance = initialBalance;
+    [...closedPositions].reverse().forEach((p: any) => {
+      currentBalance += (p.pnl || 0);
+      equityCurvePlot.push(currentBalance);
+    });
+    if (equityCurvePlot.length === 1) {
+      equityCurvePlot.push(initialBalance);
+    }
 
-  // Calculate initial balance and growth
-  const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
-  const initialBalance = bot.portfolio.balance - totalClosedPnL;
-  const balanceGrowth = bot.portfolio.balance - initialBalance;
-  const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
-
-  // Equity curve (need to reverse since closedPositions[0] is newest)
-  const equityCurvePlot = [initialBalance];
-  let currentBalance = initialBalance;
-  // Iterate in reverse order (oldest to newest) to build correct equity curve
-  [...closedPositions].reverse().forEach((p: any) => {
-    currentBalance += (p.pnl || 0);
-    equityCurvePlot.push(currentBalance);
-  });
-  if (equityCurvePlot.length === 1) {
-    equityCurvePlot.push(initialBalance);
-  }
+    return { recentTrades, lastTradePnl, initialBalance, growthPercent, equityCurvePlot, balanceGrowth };
+  }, [closedPositions, bot.portfolio.balance]);
 
   // Health status
   const getHealthStatus = () => {
