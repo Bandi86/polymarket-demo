@@ -1,11 +1,10 @@
-// Momentum Strategy - CRITICAL FIX
-// Issue: -$2.30 loss, 47% win rate
-// Fix: Higher threshold (0.07%), price limits
+// Momentum Strategy - RESTORED from working version
+// NO price limits, lower threshold (0.05%)
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
-import { checkPriceLimits, calculateDelta, noTrade, trade } from "../base";
+import { calculateDelta, noTrade, trade } from "../base";
 
 export const momentumStrategy: Strategy = {
   name: "BTC Momentum",
@@ -18,20 +17,20 @@ export const momentumStrategy: Strategy = {
       return noTrade("Túl közel a záráshoz");
     }
 
-    // BTC price change check
+    // BTC price change check - NO price limits, lower threshold (0.05%)
     if (ctx.btcPriceChange !== undefined && Math.abs(ctx.btcPriceChange) > 0.0005) {
       const pct = ctx.btcPriceChange * 100;
 
-      // CRITICAL FIX: Higher threshold (0.07%)
-      if (pct > (thresholds.minDelta ?? 0.07) && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
+      // RESTORED: minDelta 0.05 (NOT 0.07!)
+      if (pct > 0.05) {
         return trade("YES", Math.min(0.78, 0.50 + pct * 5), `BTC momentum +${pct.toFixed(3)}%`, { pct });
       }
-      if (pct < -(thresholds.minDelta ?? 0.07) && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
+      if (pct < -0.05) {
         return trade("NO", Math.min(0.78, 0.50 + (-pct) * 5), `BTC momentum ${pct.toFixed(3)}%`, { pct });
       }
     }
 
-    // Fallback: window delta
+    // Fallback: window delta - NO price limits
     if (!ctx.btcPrice) {
       return noTrade("Nincs BTC ár");
     }
@@ -39,14 +38,14 @@ export const momentumStrategy: Strategy = {
     const windowOpen = ctx.btcWindowOpen || ctx.btcPrice;
     const deltaPct = calculateDelta(ctx.btcPrice, windowOpen);
 
-    if (deltaPct > (thresholds.minDelta ?? 0.07) && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
+    if (deltaPct > 0.05) {
       return trade("YES", Math.min(0.70, 0.50 + deltaPct * 4), `Window momentum +${deltaPct.toFixed(3)}%`, { deltaPct });
     }
-    if (deltaPct < -(thresholds.minDelta ?? 0.07) && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
+    if (deltaPct < -0.05) {
       return trade("NO", Math.min(0.70, 0.50 + (-deltaPct) * 4), `Window momentum ${deltaPct.toFixed(3)}%`, { deltaPct });
     }
 
-    return noTrade("Nincs elég momentum vagy ár extrém");
+    return noTrade("Nincs elég momentum");
   },
 };
 

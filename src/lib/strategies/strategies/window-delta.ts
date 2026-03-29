@@ -1,11 +1,10 @@
-// Window Delta Strategy - BTC price vs window open price
-// Best performer in testing - optimized for more trades
+// Window Delta Strategy - RESTORED from working version
+// NO price limits - was best performer on 2026-03-20
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
 import {
-  checkPriceLimits,
   checkTimeRemaining,
   calculateDelta,
   noTrade,
@@ -26,13 +25,13 @@ export const windowDeltaStrategy: Strategy = {
     const windowOpen = ctx.btcWindowOpen || ctx.btcPrice;
     const deltaPct = calculateDelta(ctx.btcPrice, windowOpen);
 
-    // Time checks
+    // Time checks only - NO price limits
     if (!checkTimeRemaining(ctx.timeRemaining, thresholds)) {
       return noTrade(ctx.timeRemaining < 3000 ? "Túl késő" : "Ablak eleje");
     }
 
-    // Strong signal: delta > 0.12%
-    if (deltaPct > 0.12 && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
+    // Strong signal: delta > 0.12% (from config)
+    if (deltaPct > 0.12) {
       return trade(
         "YES",
         Math.min(0.92, 0.70 + (deltaPct - 0.12) * 3),
@@ -41,7 +40,7 @@ export const windowDeltaStrategy: Strategy = {
       );
     }
 
-    if (deltaPct < -0.12 && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
+    if (deltaPct < -0.12) {
       return trade(
         "NO",
         Math.min(0.92, 0.70 + (-deltaPct - 0.12) * 3),
@@ -50,20 +49,20 @@ export const windowDeltaStrategy: Strategy = {
       );
     }
 
-    // Medium signal: delta > 0.05% (lowered threshold for more trades)
-    if (deltaPct > 0.05 && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
+    // Medium signal: delta > 0.07% (RESTORED from config)
+    if (deltaPct > 0.07) {
       return trade(
         "YES",
-        Math.min(0.78, 0.55 + (deltaPct - 0.05) * 4),
+        Math.min(0.78, 0.55 + (deltaPct - 0.07) * 4),
         `UP delta: +${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );
     }
 
-    if (deltaPct < -0.05 && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
+    if (deltaPct < -0.07) {
       return trade(
         "NO",
-        Math.min(0.78, 0.55 + (-deltaPct - 0.05) * 4),
+        Math.min(0.78, 0.55 + (-deltaPct - 0.07) * 4),
         `DOWN delta: ${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );

@@ -1,13 +1,11 @@
-// Fair Value Strategy - CRITICAL FIX
-// Issue: -$5.49 loss, 36% win rate in 2h session
-// Fixes: delta confirmation, tighter price range (30-65¢), higher minEdge
+// Fair Value Strategy - RESTORED from working version
+// NO price limits, NO delta confirmation, lower edge threshold
+// This was profitable on 2026-03-20 session
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
 import {
-  checkPriceLimits,
-  calculateDelta,
   calculateEdge,
   calculateFairProb,
   noTrade,
@@ -16,11 +14,12 @@ import {
 
 export const fairValueStrategy: Strategy = {
   name: "Fair Value Arb",
-  description: "Piac félreárazást keres - delta megerősítéssel",
+  description: "Piac félreárazást keres - egyszerű edge alapján",
   category: "arbitrage",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const thresholds = strategyConfig.fair_value;
 
+    // Time check only
     if (ctx.timeRemaining < (thresholds.minTimeRemaining ?? 15000)) {
       return noTrade("Túl közel a záráshoz");
     }
@@ -29,14 +28,9 @@ export const fairValueStrategy: Strategy = {
       return noTrade("Nincs BTC ár");
     }
 
-    // CRITICAL FIX: Calculate BTC delta and require confirmation
+    // Calculate BTC delta for fair probability
     const windowOpen = ctx.btcWindowOpen || ctx.btcPrice;
-    const deltaPct = calculateDelta(ctx.btcPrice, windowOpen);
-
-    // CRITICAL FIX: Require minimum delta for confirmation
-    if (Math.abs(deltaPct) < (thresholds.minDelta ?? 0.04)) {
-      return noTrade(`Delta túl kicsi: ${deltaPct.toFixed(4)}% (min: ${thresholds.minDelta}%)`);
-    }
+    const deltaPct = (ctx.btcPrice - windowOpen) / windowOpen * 100;
 
     // Calculate fair probability based on delta
     const fairUpProb = calculateFairProb(deltaPct);
@@ -44,10 +38,11 @@ export const fairValueStrategy: Strategy = {
     const marketNo = ctx.marketPrice.noPrice;
     const edge = calculateEdge(fairUpProb, marketYes);
 
-    const minEdge = thresholds.minEdge ?? 0.10; // CRITICAL: Increased from 0.07
+    // RESTORED: minEdge 0.07 (NOT 0.10!)
+    const minEdge = thresholds.minEdge ?? 0.07;
 
-    // Buy YES if edge > minEdge AND price in range AND delta confirms UP
-    if (edge > minEdge && deltaPct > 0 && checkPriceLimits(marketYes, thresholds)) {
+    // Buy YES if edge > minEdge - NO price limits, NO delta confirmation
+    if (edge > minEdge) {
       return trade(
         "YES",
         Math.min(0.85, 0.5 + edge * 3),
@@ -56,9 +51,9 @@ export const fairValueStrategy: Strategy = {
       );
     }
 
-    // Buy NO if edge > minEdge AND price in range AND delta confirms DOWN
+    // Buy NO if edge > minEdge
     const noEdge = calculateEdge(1 - fairUpProb, marketNo);
-    if (noEdge > minEdge && deltaPct < 0 && checkPriceLimits(marketNo, thresholds)) {
+    if (noEdge > minEdge) {
       return trade(
         "NO",
         Math.min(0.85, 0.5 + noEdge * 3),
@@ -67,7 +62,7 @@ export const fairValueStrategy: Strategy = {
       );
     }
 
-    return noTrade(`Edge túl kicsi vagy delta nem egyértelmű`);
+    return noTrade(`Edge túl kicsi: ${Math.max(edge, noEdge).toFixed(3)}`);
   },
 };
 

@@ -1,12 +1,10 @@
-// Oracle Lag Strategy (Binance Signal) - CRITICAL FIX
-// Issue: 0 trades in 2h session - signal not working
-// Fixes: fallback to window delta, relaxed price limits (25-75¢)
+// Oracle Lag Strategy (Binance Signal) - RESTORED from working version
+// Signal freshness check only - NO strict price limits
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
 import {
-  checkPriceLimits,
   calculateDelta,
   isSignalFresh,
   signalAlignsWithDelta,
@@ -16,7 +14,7 @@ import {
 
 export const oracleLagStrategy: Strategy = {
   name: "Oracle Lag",
-  description: "Binance valós idejű BTC ár előnye - fallback to window delta",
+  description: "Binance valós idejű BTC ár előnye",
   category: "momentum",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const thresholds = strategyConfig.binance_signal;
@@ -36,24 +34,24 @@ export const oracleLagStrategy: Strategy = {
     const windowOpen = ctx.btcWindowOpen || ctx.btcPrice || 0;
     const deltaPct = ctx.btcPrice ? calculateDelta(ctx.btcPrice, windowOpen) : 0;
 
-    // CRITICAL FIX: Fallback to window delta if signal expired or missing
+    // Signal missing or expired - fallback to window delta
     if (!signalValid) {
       const signalAge = binanceSignal ? Math.floor((Date.now() - binanceSignal.timestamp) / 1000) : -1;
 
-      // Fallback: Use window delta logic if strong enough
-      if (deltaPct > 0.08 && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
+      // Fallback: Use window delta if strong enough (> 0.07%)
+      if (deltaPct > 0.07) {
         return trade(
           "YES",
           Math.min(0.70, 0.55 + deltaPct * 2),
-          `Fallback UP delta: +${deltaPct.toFixed(3)}% (signal ${binanceSignal ? 'lejárt' : 'nincs'})`,
+          `Fallback UP delta: +${deltaPct.toFixed(3)}%`,
           { deltaPct, signalAge, fallback: true }
         );
       }
-      if (deltaPct < -0.08 && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
+      if (deltaPct < -0.07) {
         return trade(
           "NO",
           Math.min(0.70, 0.55 + (-deltaPct) * 2),
-          `Fallback DOWN delta: ${deltaPct.toFixed(3)}% (signal ${binanceSignal ? 'lejárt' : 'nincs'})`,
+          `Fallback DOWN delta: ${deltaPct.toFixed(3)}%`,
           { deltaPct, signalAge, fallback: true }
         );
       }
@@ -61,22 +59,14 @@ export const oracleLagStrategy: Strategy = {
       return noTrade(`Signal ${binanceSignal ? `lejárt (${signalAge}s)` : 'nincs'}, delta gyenge`);
     }
 
-    // Signal is valid - use it
+    // Signal is valid - use it (NO price limits - just signal freshness)
     const action = binanceSignal!.type === "UP" ? "YES" : "NO";
-    const targetPrice = action === "YES" ? ctx.marketPrice.yesPrice : ctx.marketPrice.noPrice;
-
-    // CRITICAL FIX: Relaxed price limits (25-75¢) for oracle
-    if (targetPrice < 0.25 || targetPrice > 0.75) {
-      return noTrade(`Ár extrém: ${(targetPrice*100).toFixed(0)}¢`);
-    }
 
     let confidence = binanceSignal!.confidence;
 
     // Delta confirmation bonus
     if (signalAlignsWithDelta(binanceSignal!.type, deltaPct)) {
       confidence = Math.min(0.95, confidence + 0.10);
-    } else {
-      confidence = confidence * 0.7;
     }
 
     // Strong change bonus
@@ -84,7 +74,7 @@ export const oracleLagStrategy: Strategy = {
       confidence = Math.min(0.95, confidence + 0.08);
     }
 
-    if (confidence < (thresholds.minConfidence ?? 0.45)) {
+    if (confidence < 0.45) {
       return noTrade(`Konfidencia túl alacsony: ${(confidence*100).toFixed(0)}%`);
     }
 
