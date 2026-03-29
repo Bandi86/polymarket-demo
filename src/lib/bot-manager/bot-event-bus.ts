@@ -10,7 +10,10 @@ export type BotEventType =
   | "market_settled"
   | "order_filled"
   | "error"
-  | "risk_alert";
+  | "risk_alert"
+  | "trade_decision"      // NEW: When bot makes a decision
+  | "signal_received"     // NEW: When Binance signal arrives
+  | "market_created";     // NEW: When new market starts
 
 export interface BotEvent {
   type: BotEventType;
@@ -36,6 +39,34 @@ export interface PositionEvent {
   outcome: Outcome;
   amount: number;
   entryPrice: number;
+}
+
+// NEW: Trade decision event
+export interface TradeDecisionEvent {
+  botId: string;
+  botName: string;
+  strategy: string;
+  action: "YES" | "NO" | null;
+  confidence: number;
+  reason: string;
+  timestamp: number;
+}
+
+// NEW: Signal received event
+export interface SignalReceivedEvent {
+  source: "binance" | "oracle";
+  type: "UP" | "DOWN" | "NEUTRAL";
+  confidence: number;
+  changePercent: number;
+  timestamp: number;
+}
+
+// NEW: Market created event
+export interface MarketCreatedEvent {
+  marketId: string;
+  startTime: number;
+  endTime: number;
+  btcStartPrice: number;
 }
 
 type EventListener = (event: BotEvent) => void;
@@ -76,6 +107,9 @@ export class BotEventBus {
       "order_filled",
       "error",
       "risk_alert",
+      "trade_decision",
+      "signal_received",
+      "market_created",
     ];
 
     const unsubscribers = types.map((type) => this.on(type, listener));
@@ -189,6 +223,56 @@ export class BotEventBus {
       botId,
       timestamp: Date.now(),
       data: { alert, ...details },
+    });
+  }
+
+  /**
+   * Emit a trade decision event (NEW)
+   */
+  emitTradeDecision(data: TradeDecisionEvent): void {
+    this.emit({
+      type: "trade_decision",
+      botId: data.botId,
+      timestamp: data.timestamp,
+      data: {
+        botName: data.botName,
+        strategy: data.strategy,
+        action: data.action,
+        confidence: data.confidence,
+        reason: data.reason,
+      },
+    });
+  }
+
+  /**
+   * Emit a signal received event (NEW)
+   */
+  emitSignalReceived(data: SignalReceivedEvent): void {
+    this.emit({
+      type: "signal_received",
+      timestamp: data.timestamp,
+      data: {
+        source: data.source,
+        type: data.type,
+        confidence: data.confidence,
+        changePercent: data.changePercent,
+      },
+    });
+  }
+
+  /**
+   * Emit a market created event (NEW)
+   */
+  emitMarketCreated(data: MarketCreatedEvent): void {
+    this.emit({
+      type: "market_created",
+      timestamp: data.startTime,
+      data: {
+        marketId: data.marketId,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        btcStartPrice: data.btcStartPrice,
+      },
     });
   }
 
