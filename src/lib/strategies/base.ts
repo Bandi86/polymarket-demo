@@ -111,11 +111,13 @@ export function isSignalFresh(
 
 /**
  * Check if signal aligns with delta direction
+ * Returns false for NEUTRAL signals
  */
 export function signalAlignsWithDelta(
-  signalType: "UP" | "DOWN",
+  signalType: "UP" | "DOWN" | "NEUTRAL",
   deltaPct: number
 ): boolean {
+  if (signalType === "NEUTRAL") return false;
   return (signalType === "UP" && deltaPct > 0) ||
          (signalType === "DOWN" && deltaPct < 0);
 }
