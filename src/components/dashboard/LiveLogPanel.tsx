@@ -66,7 +66,7 @@ export function LiveLogPanel({ logs, maxItems = 20 }: LiveLogPanelProps) {
           </div>
         ) : (
           filteredLogs.map((log, i) => (
-            <LogItem key={log.timestamp + i} log={log} />
+            <LogItem key={`${log.timestamp}-${log.botId || 'sys'}-${i}`} log={log} />
           ))
         )}
       </div>
