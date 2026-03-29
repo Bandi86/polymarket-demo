@@ -102,7 +102,11 @@ export function useBotStatusState({ bot, yesPrice, positions }: UseBotStatusStat
     const lastTrade = closedPositions[0];
     const lastTradePnl = lastTrade?.pnl || 0;
     const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
-    const initialBalance = bot.portfolio.balance - totalClosedPnL;
+
+    // CRITICAL FIX: Use portfolio.initialBalance from backend (source of truth)
+    // Fallback to calculation only if initialBalance is not set
+    const initialBalance = bot.portfolio.initialBalance ?? (bot.portfolio.balance - totalClosedPnL);
+
     const balanceGrowth = bot.portfolio.balance - initialBalance;
     const growthPercent = initialBalance > 0 ? (balanceGrowth / initialBalance) * 100 : 0;
 

@@ -1,11 +1,12 @@
 // Dashboard constants and configuration
 
 import type { TabId } from "../TopDashboard";
-import { BarChart2, Activity, Shield, FlaskConical, Trophy, Settings } from "lucide-react";
+import { BarChart2, Activity, Shield, FlaskConical, Trophy, Settings, Zap } from "lucide-react";
 
 export const TABS: { id: TabId; label: string; icon: typeof BarChart2 }[] = [
   { id: 'trade', label: 'Manual Trade', icon: BarChart2 },
   { id: 'monitor', label: 'Monitor', icon: Activity },
+  { id: 'live', label: 'Live Mode', icon: Zap },
   { id: 'risk', label: 'Risk', icon: Shield },
   { id: 'backtest', label: 'Backtest', icon: FlaskConical },
   { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
