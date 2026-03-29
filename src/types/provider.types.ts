@@ -1,7 +1,5 @@
 // === Provider Types ===
 
-import type { Market } from "./market.types";
-
 // Full PolymarketEvent from Gamma API
 export interface PolymarketEvent {
   id: string;
@@ -66,4 +64,41 @@ export interface PolymarketPosition {
   avgPrice: string;
   currentPrice: string;
   pnl: string;
+}
+
+// API Response types
+export interface PolymarketBalanceResponse {
+  currency?: string;
+  asset?: string;
+  symbol?: string;
+  balance?: string;
+  amount?: string;
+  available?: string;
+  locked?: string;
+}
+
+export interface PolymarketPositionResponse {
+  market?: string;
+  condition_id?: string;
+  outcome?: string;
+  size?: string;
+  shares?: string;
+  avg_price?: string;
+  entryPrice?: string;
+  current_value?: string;
+}
+
+export interface PolymarketTradeResponse {
+  id?: string;
+  transaction_hash?: string;
+  market?: string;
+  condition_id?: string;
+  outcome?: string;
+  side?: string;
+  size?: string;
+  shares?: string;
+  price?: string;
+  avg_price?: string;
+  timestamp?: string;
+  created_at?: string;
 }

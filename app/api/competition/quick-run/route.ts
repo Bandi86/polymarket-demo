@@ -23,14 +23,19 @@ interface QuickRunBody {
  */
 export async function POST(request: NextRequest) {
   try {
+    console.log('[API] Quick-run endpoint called');
+
     // Initialize services if not already initialized
     if (!isInitialized()) {
+      console.log('[API] Initializing services...');
       await initializeServices();
     }
 
     const body = (await request.json().catch(() => ({}))) as QuickRunBody;
     const durationMinutes = body.durationMinutes || 60;
     const durationMs = durationMinutes * 60 * 1000;
+
+    console.log(`[API] Quick-run: ${durationMinutes} minutes (${durationMs}ms)`);
 
     const botManager = getBotManager();
     const riskManager = getRiskManager();
@@ -43,7 +48,11 @@ export async function POST(request: NextRequest) {
       marketEngine.setMode("simulated");
     }
 
+    // Clear any existing competition state first
+    botManager.clearCompetition();
+
     // Reset everything first
+    console.log('[API] Resetting bots and market...');
     botManager.resetAllBots();
     riskManager.resetAll();
     marketEngine.reset();
@@ -56,11 +65,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (!marketEngine.getCurrentMarket()) {
+      console.error('[API] Failed to get market data after 10s');
       return NextResponse.json({
         success: false,
         error: 'Failed to get market data. Please try again.',
       });
     }
+
+    console.log(`[API] Market ready: ${marketEngine.getCurrentMarket()?.id}`);
 
     // Start competition
     const competition = botManager.startCompetition({
@@ -68,6 +80,8 @@ export async function POST(request: NextRequest) {
       startBalance: 10,
       duration: durationMs,
     });
+
+    console.log(`[API] Competition started: active=${competition.active}, startBalance=${competition.startBalance}, startTime=${competition.startTime}`);
 
     // Broadcast competition state change
     broadcastToSSE('competition', competition);

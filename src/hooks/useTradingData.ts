@@ -87,6 +87,7 @@ export interface BotData {
   };
   portfolio: {
     balance: number;
+    initialBalance?: number;  // Start balance for accurate growth calculation
     totalPnL: number;
     totalTrades: number;
     winRate: number;
@@ -219,6 +220,11 @@ export function useTradingData() {
       setCompetition(competitionJson);
       if (botsJson && Array.isArray(botsJson)) {
         setBots(botsJson);
+      }
+
+      // Debug log
+      if (competitionJson?.active) {
+        console.log(`[useTradingData] Competition active: startTime=${competitionJson.startTime}, leaderboard=${competitionJson.leaderboard?.length} bots`);
       }
 
       // Update PnL history with memory limit

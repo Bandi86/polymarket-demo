@@ -2,6 +2,35 @@
 import { create } from 'zustand'
 import { devtools, subscribeWithSelector } from 'zustand/middleware'
 import type { Portfolio } from '@/types'
+import { MEMORY_CONFIG } from '@/lib/utils/memory-manager'
+
+// Competition state must match API response from bot-manager/competition-manager
+export interface CompetitionState {
+  active: boolean;
+  startTime: number;
+  minTrades: number;
+  startBalance: number;
+  leaderboard: Array<{
+    botId: string;
+    botName: string;
+    strategy: string;
+    rank: number;
+    trades: number;
+    winRate: number;
+    profitFactor: number;
+    sharpeRatio: number;
+    pnl: number;
+    roi: number;
+    balance: number;
+  }>;
+  winner: string | null;
+  completedAt: number | null;
+  config: {
+    minTrades: number;
+    duration: number | null;
+    startBalance: number;
+  };
+}
 
 interface TradingState {
   // Market data
@@ -19,12 +48,7 @@ interface TradingState {
   openPositionsValue: number
 
   // Competition
-  competition: {
-    active: boolean
-    completedAt?: number
-    duration?: number
-    startedAt?: number
-  } | null
+  competition: CompetitionState | null
 
   // Events
   events: unknown[]
@@ -34,11 +58,12 @@ interface TradingState {
   apiLatency: number
 
   // Actions
-  setMarketData: (data: Partial<Omit<TradingState, 'setMarketData' | 'setPortfolio' | 'setCompetition' | 'addEvent' | 'setLoading' | 'reset'>>) => void
+  setMarketData: (data: Partial<Omit<TradingState, 'setMarketData' | 'setPortfolio' | 'setCompetition' | 'addEvent' | 'setLoading' | 'reset' | 'trimEvents'>>) => void
   setPortfolio: (portfolio: TradingState['portfolio']) => void
   setCompetition: (competition: TradingState['competition']) => void
   addEvent: (event: unknown) => void
   setLoading: (loading: boolean) => void
+  trimEvents: () => void
   reset: () => void
 }
 
@@ -71,10 +96,14 @@ export const useTradingStore = create<TradingState>()(
       setCompetition: (competition) => set({ competition }),
 
       addEvent: (event) => set((state) => ({
-        events: [event, ...state.events].slice(0, 100)
+        events: [event, ...state.events].slice(0, MEMORY_CONFIG.MAX_EVENTS)
       })),
 
       setLoading: (loading) => set({ loading }),
+
+      trimEvents: () => set((state) => ({
+        events: state.events.slice(0, MEMORY_CONFIG.MAX_EVENTS)
+      })),
 
       reset: () => set(initialState),
     })),

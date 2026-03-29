@@ -1,7 +1,7 @@
 // Strategy Execution Logic
 // Handles context building, bet sizing, and trade execution for bots
 
-import type { BotConfig, StrategyContext, Outcome } from "../../types";
+import type { BotConfig, StrategyContext, Outcome, StrategyType } from "../../types";
 import { strategies } from "../strategies";
 import { marketEngine } from "../market-engine";
 import { priceService } from "../price";
@@ -19,6 +19,7 @@ export interface MarketInfo {
   yesPriceHistory?: Array<{ price: number; timestamp: number }>;
   tokens?: Array<{ token_id: string; outcome: string }>;
   status: string;
+  btcStartPrice?: number; // BTC price when market started - critical for delta calculation
 }
 
 export interface TradeDecision {
@@ -93,9 +94,15 @@ export function buildStrategyContext(market: MarketInfo): StrategyContext {
     ? (btcPrice - btcHistory[0].price) / btcHistory[0].price
     : 0;
 
-  // Calculate BTC window open price
+  // Calculate BTC window open price - use provided btcStartPrice if available
   let btcWindowOpen = btcPrice;
-  if (btcHistory.length > 0 && market.startTime) {
+
+  // CRITICAL: Use the btcStartPrice from market engine if available
+  // This is the BTC price when the market started, needed for accurate delta calculation
+  if (market.btcStartPrice && market.btcStartPrice > 0) {
+    btcWindowOpen = market.btcStartPrice;
+  } else if (btcHistory.length > 0 && market.startTime) {
+    // Fallback: try to find closest price in history (may not work if app started after market)
     const windowOpenTime = market.startTime;
     const closest = btcHistory.reduce((prev, curr) =>
       Math.abs(curr.timestamp - windowOpenTime) < Math.abs(prev.timestamp - windowOpenTime)
@@ -149,20 +156,23 @@ export function calculateBetSize(
     const kellyFraction = (winProbability * netOdds - q) / netOdds;
 
     // Apply half-Kelly and user's fraction
-    const halfKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5));
-    const kellyBet = balance * halfKelly;
+    const adjustedKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5));
+    const kellyBet = balance * adjustedKelly;
 
     // Cap at maxBet percentage
     const maxBetPercent = bot.maxBet || 0.25;
     const maxBetAmount = balance * maxBetPercent;
 
     betSize = Math.min(kellyBet, maxBetAmount);
+
+    // Minimum $1 bet
     betSize = Math.max(1, betSize);
   } else {
     // No Kelly - percentage-based
     const maxBetPercent = bot.maxBet || 0.25;
     const maxBetAmount = balance * maxBetPercent;
     betSize = Math.min(bot.betSize, maxBetAmount);
+    // Minimum $1 bet
     betSize = Math.max(1, betSize);
   }
 
@@ -173,7 +183,7 @@ export function calculateBetSize(
  * Execute a strategy and get a decision
  */
 export function executeStrategy(
-  botStrategy: string,
+  botStrategy: StrategyType,
   context: StrategyContext
 ): { action: Outcome | null; confidence: number; reason?: string } | null {
   const strategy = strategies[botStrategy];
@@ -298,7 +308,7 @@ export function checkCoordination(
   marketId: string,
   botId: string,
   botName: string,
-  strategy: string,
+  strategy: StrategyType,
   action: Outcome,
   confidence: number,
   betSize: number,

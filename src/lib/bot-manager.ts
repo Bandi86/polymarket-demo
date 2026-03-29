@@ -7,6 +7,7 @@ import type {
   StrategyType,
   Outcome,
   TradingMode,
+  Market,
 } from "../types";
 import { marketEngine } from "./market-engine";
 import { dbService } from "./database";
@@ -15,6 +16,7 @@ import { riskManager } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
 import { polymarketProvider } from "./providers/polymarket-provider";
+import { liveModeManager } from "./live-mode-manager";
 import { broadcastToSSE } from "./global";
 import { strategies } from "./strategies";
 import {
@@ -124,7 +126,7 @@ export class BotManager {
       // maxBet is a PERCENTAGE of bankroll (e.g., 0.20 = 20% max)
       // kellyFraction reduced to ~0.35 (quarter-Kelly approach for stability)
       { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 300, betSize: 1.0, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
+      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
       { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
       { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 0.12, useKelly: false, kellyFraction: 0.25 },
       { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
@@ -134,7 +136,6 @@ export class BotManager {
       { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
       { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
       { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
-      // grid_trading, market_making, random removed from defaults — not profitable on 5m
     ];
 
     for (const cfg of defaultConfigs) {
@@ -466,7 +467,8 @@ export class BotManager {
     const strategy = strategies[bot.strategy];
     if (!strategy) return;
 
-    // Build context using extracted function
+    // Build context using extracted function - include BTC start price for delta calculation
+    const btcStartPrice = marketEngine.getMarketStartBtcPrice();
     const context = buildStrategyContext({
       id: market.id,
       startTime: market.startTime,
@@ -476,6 +478,7 @@ export class BotManager {
       yesPriceHistory: market.yesPriceHistory,
       tokens: market.tokens,
       status: market.status,
+      btcStartPrice: btcStartPrice ?? undefined,
     });
 
     // Execute strategy with error handling to prevent silent failures
@@ -527,7 +530,7 @@ export class BotManager {
       timeRemaining: context.timeRemaining,
       volatility: context.volatility.toFixed(4),
       momentum: context.momentum.toFixed(4),
-      btcPriceChange: (context.btcPriceChange * 100).toFixed(3) + '%',
+      btcPriceChange: ((context.btcPriceChange ?? 0) * 100).toFixed(3) + '%',
     });
 
     // Calculate bet size using extracted function
@@ -536,7 +539,7 @@ export class BotManager {
 
     // Adjust bet size based on confidence
     betSize = betSize * (0.5 + decision.confidence * 0.5);
-    betSize = Math.max(1, betSize); // Minimum $1 bet (after confidence adjustment)
+    betSize = Math.max(1, betSize); // Minimum $1 bet
 
     // Risk check: Can open position?
     const riskCheck = riskManager.canOpenPosition(id, betSize, decision.confidence);
@@ -546,6 +549,29 @@ export class BotManager {
         confidence: decision.confidence,
       });
       return;
+    }
+
+    // Live mode specific checks
+    if (this.tradingMode === "live") {
+      const liveCheck = liveModeManager.canBotTrade(id, bot);
+      if (!liveCheck.allowed) {
+        this.addLog(id, "LIVE_RISK", `Live trade blocked: ${liveCheck.reason}`, {
+          betSize,
+          confidence: decision.confidence,
+          reason: liveCheck.reason,
+        });
+        return;
+      }
+
+      // Adjust bet size based on live mode constraints
+      const liveBetSize = liveModeManager.calculateLiveBetSize(id, decision.confidence);
+      if (liveBetSize < betSize) {
+        betSize = liveBetSize;
+        this.addLog(id, "LIVE_RISK", `Bet size reduced to $${betSize.toFixed(2)} for live mode`, {
+          originalBetSize: betSize,
+          adjustedBetSize: liveBetSize,
+        });
+      }
     }
 
     // Coordinator check: Prevent conflicting trades between bots
@@ -644,13 +670,23 @@ export class BotManager {
   /** Execute a live trade on Polymarket */
   private async executeLiveTrade(
     botId: string,
-    market: { id: string; tokens?: { token_id: string; outcome: string }[]; outcomePrices?: { yes: string; no: string } },
+    market: Market,
     action: Outcome,
-    _confidence: number,
+    confidence: number,
     betSize: number
   ): Promise<void> {
     await executeLiveTradeFn(botId, market, action, betSize, (type, message, details) => {
       this.addLog(botId, type as BotLog["type"], message, details);
+
+      // Record trade in live mode manager if it was a successful trade
+      if (type === "TRADE" && details) {
+        liveModeManager.recordLiveTrade(botId, {
+          outcome: action,
+          amount: betSize,
+          price: (details.fillPrice as number) || 0.5,
+          marketId: market.id,
+        });
+      }
     });
   }
 

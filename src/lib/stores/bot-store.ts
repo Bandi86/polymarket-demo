@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { BotStats, BotLog } from '@/types'
+import { MEMORY_CONFIG } from '@/lib/utils/memory-manager'
 
 interface BotData {
   id: string
@@ -36,6 +37,7 @@ interface BotState {
   updateBot: (id: string, updates: Partial<BotData>) => void
   addLog: (log: BotLog) => void
   clearLogs: () => void
+  trimLogs: () => void
 }
 
 export const useBotStore = create<BotState>()(
@@ -56,10 +58,14 @@ export const useBotStore = create<BotState>()(
       })),
 
       addLog: (log) => set((state) => ({
-        botLogs: [log, ...state.botLogs].slice(0, 50)
+        botLogs: [log, ...state.botLogs].slice(0, MEMORY_CONFIG.MAX_BOT_LOGS)
       })),
 
       clearLogs: () => set({ botLogs: [] }),
+
+      trimLogs: () => set((state) => ({
+        botLogs: state.botLogs.slice(0, MEMORY_CONFIG.MAX_BOT_LOGS)
+      })),
     }),
     { name: 'bot-store' }
   )

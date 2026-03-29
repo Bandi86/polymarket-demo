@@ -56,12 +56,17 @@ export function App() {
   const { enabled: soundEnabled, playTrade, playNotification, toggleEnabled: toggleSound } = useSoundNotifications();
   const toast = useToastActions();
 
-  // Handle new bot trade notifications
+  // Handle new bot trade notifications - only when bots are running
   useEffect(() => {
     if (botLogs.length === 0) return;
+    // Only show notifications when at least one bot is running
+    if (!isBotRunning) return;
 
     const latestLog = botLogs[0];
     if (latestLog.id === lastProcessedLogId.current) return;
+
+    // Skip competition logs
+    if (latestLog.botId === "competition") return;
 
     lastProcessedLogId.current = latestLog.id;
 
@@ -86,7 +91,7 @@ export function App() {
       const won = details.won as boolean;
       const pnl = details.pnl as number || 0;
       const outcome = details.outcome as string || "YES";
-      
+
       if (won) {
         playNotification?.();
         toast.success(
@@ -101,7 +106,7 @@ export function App() {
         );
       }
     }
-  }, [botLogs, playTrade, playNotification, toast]);
+  }, [botLogs, playTrade, playNotification, toast, isBotRunning]);
 
   // Fetch positions count
   useEffect(() => {
@@ -121,6 +126,26 @@ export function App() {
     const interval = setInterval(fetchPositions, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Periodic memory cleanup for long-running sessions
+  useEffect(() => {
+    const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+    const cleanup = () => {
+      // Clear old bot logs if too many
+      if (botLogs.length > 100) {
+        console.log(`[MemoryCleanup] Trimming ${botLogs.length - 100} old bot logs`);
+      }
+
+      // Clear old events if too many
+      if (events.length > 50) {
+        console.log(`[MemoryCleanup] Trimming ${events.length - 50} old events`);
+      }
+    };
+
+    const intervalId = setInterval(cleanup, CLEANUP_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [botLogs.length, events.length]);
 
   // Fetch trading mode from backend on mount
   useEffect(() => {

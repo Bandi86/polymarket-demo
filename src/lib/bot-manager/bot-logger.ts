@@ -7,7 +7,7 @@ export interface BotLog {
   id: string;
   botId: string;
   botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED";
+  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED" | "LIVE_RISK";
   message: string;
   details?: Record<string, unknown>;
   timestamp: number;

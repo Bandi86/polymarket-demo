@@ -7,6 +7,13 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
+    environmentOptions: {
+      jsdom: {
+        html: '<!DOCTYPE html><html><body></body></html>',
+        url: 'http://localhost',
+        pretendToBeVisual: true,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

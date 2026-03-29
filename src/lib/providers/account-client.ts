@@ -2,6 +2,7 @@
 // Handles authentication, balance, positions, and trades
 
 import { privateKeyToAccount } from "viem/accounts";
+import type { PolymarketBalanceResponse, PolymarketPositionResponse, PolymarketTradeResponse } from "../../types/provider.types";
 
 const CLOB_API = "https://clob.polymarket.com";
 
@@ -134,13 +135,13 @@ export async function fetchAccountBalance(privateKey: string): Promise<BalanceRe
     let locked = 0;
 
     if (Array.isArray(data)) {
-      const usdcBalance = data.find((b: any) =>
+      const usdcBalance = (data as PolymarketBalanceResponse[]).find((b) =>
         b.currency === "USDC" || b.asset === "USDC" || b.symbol === "USDC"
       );
       if (usdcBalance) {
-        balance = parseFloat(usdcBalance.balance || usdcBalance.amount || 0) / 1e6;
-        available = parseFloat(usdcBalance.available || balance) / 1e6;
-        locked = parseFloat(usdcBalance.locked || 0) / 1e6;
+        balance = parseFloat(usdcBalance.balance ?? usdcBalance.amount ?? "0") / 1e6;
+        available = parseFloat(usdcBalance.available ?? String(balance)) / 1e6;
+        locked = parseFloat(usdcBalance.locked ?? "0") / 1e6;
       }
     } else if (data.balance !== undefined) {
       balance = parseFloat(data.balance);
@@ -194,12 +195,12 @@ export async function fetchPositions(privateKey: string): Promise<{
 
     const data = await response.json();
 
-    const positions = (data || []).map((p: any) => ({
-      market: p.market || p.condition_id || "Unknown",
-      outcome: p.outcome || "Unknown",
-      shares: parseFloat(p.size || p.shares || 0),
-      avgPrice: parseFloat(p.avg_price || p.entryPrice || 0),
-      currentValue: parseFloat(p.current_value || 0),
+    const positions = ((data as PolymarketPositionResponse[]) || []).map((p) => ({
+      market: p.market ?? p.condition_id ?? "Unknown",
+      outcome: p.outcome ?? "Unknown",
+      shares: parseFloat(p.size ?? p.shares ?? "0"),
+      avgPrice: parseFloat(p.avg_price ?? p.entryPrice ?? "0"),
+      currentValue: parseFloat(p.current_value ?? "0"),
     }));
 
     return { positions, success: true };
@@ -239,14 +240,16 @@ export async function fetchTrades(privateKey: string): Promise<{
 
     const data = await response.json();
 
-    const trades = (data || []).map((t: any) => ({
-      id: t.id || t.transaction_hash || "",
-      market: t.market || t.condition_id || "Unknown",
-      outcome: t.outcome || "Unknown",
-      side: t.side || "BUY",
-      size: parseFloat(t.size || t.shares || 0),
-      price: parseFloat(t.price || t.avg_price || 0),
-      timestamp: t.timestamp || t.created_at || Date.now(),
+    const trades = ((data as PolymarketTradeResponse[]) || []).map((t) => ({
+      id: t.id ?? t.transaction_hash ?? "",
+      market: t.market ?? t.condition_id ?? "Unknown",
+      outcome: t.outcome ?? "Unknown",
+      side: t.side ?? "BUY",
+      size: parseFloat(t.size ?? t.shares ?? "0"),
+      price: parseFloat(t.price ?? t.avg_price ?? "0"),
+      timestamp: typeof t.timestamp === 'string' ? parseInt(t.timestamp, 10)
+        : typeof t.created_at === 'string' ? parseInt(t.created_at, 10)
+        : Date.now(),
     }));
 
     return { trades, success: true };

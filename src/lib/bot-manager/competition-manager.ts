@@ -40,7 +40,7 @@ export interface BotLog {
   id: string;
   botId: string;
   botName: string;
-  type: string;
+  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED" | "LIVE_RISK";
   message: string;
   details?: Record<string, unknown>;
   timestamp: number;
@@ -76,7 +76,7 @@ export class CompetitionManager {
 
   getState(): CompetitionState {
     if (this.competition.active) {
-      this.updateLeaderboard([]);
+      this.updateLeaderboard(new Map());
     }
     return { ...this.competition };
   }

@@ -15,7 +15,7 @@ import {
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
 import type { Portfolio } from "@/types";
 
-export type TabId = 'trade' | 'monitor' | 'backtest' | 'leaderboard' | 'config' | 'risk';
+export type TabId = 'trade' | 'monitor' | 'live' | 'backtest' | 'leaderboard' | 'config' | 'risk';
 
 interface TopDashboardProps {
   // Global

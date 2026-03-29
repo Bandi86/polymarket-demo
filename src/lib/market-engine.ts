@@ -512,6 +512,11 @@ export class MarketEngine {
     return this.currentMarket;
   }
 
+  /** Get BTC price when current market started - critical for strategy delta calculation */
+  getMarketStartBtcPrice(): number | null {
+    return this.marketStartBtcPrice;
+  }
+
   getAvailableMarkets(): Market[] {
     return this.availableMarkets;
   }

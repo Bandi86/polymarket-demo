@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Trophy, Play, Square, Clock, Zap, Download, RotateCcw, RefreshCw } from "lucide-react";
 import { formatCurrency, formatPercentage, formatDuration } from "@/lib/utils";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
+import { DiagnosticsPanel } from "@/components/dashboard/DiagnosticsPanel";
+import { LiveLogPanel } from "@/components/dashboard/LiveLogPanel";
+import { useTradingStore } from "@/lib/stores/trading-store";
+import { useBotStore } from "@/lib/stores/bot-store";
 import type { BotData, CompetitionState } from "@/hooks/useTradingData";
 
 interface CompetitionTabProps {
@@ -25,6 +29,16 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
   const [error, setError] = useState<string | null>(null);
   const [resetingBot, setResetingBot] = useState<string | null>(null);
 
+  // Get diagnostics data from stores
+  const yesPrice = useTradingStore((s) => s.yesPrice);
+  const noPrice = useTradingStore((s) => s.noPrice);
+  const btcPrice = useTradingStore((s) => s.btcPrice);
+  const timeRemaining = useTradingStore((s) => s.timeRemaining);
+  const botLogs = useBotStore((s) => s.botLogs);
+
+  // Market price
+  const marketPrice = { yesPrice, noPrice };
+
   // Config state
   const [config, setConfig] = useState({
     minTrades: 50,
@@ -36,13 +50,13 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
     setLoading(true);
     setError(null);
     try {
-      const durationMs = config.durationMinutes > 0 ? config.durationMinutes * 60 * 1000 : null;
       const res = await fetch("/api/competition/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...config,
-          duration: durationMs,
+          minTrades: config.minTrades,
+          startBalance: config.startBalance,
+          durationMinutes: config.durationMinutes,
         }),
       });
       const data = await res.json();
@@ -82,18 +96,23 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
     setLoading(true);
     setError(null);
     try {
+      console.log(`[CompetitionTab] Starting ${durationMinutes}min quick run...`);
       const res = await fetch("/api/competition/quick-run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ durationMinutes }),
       });
       const data = await res.json();
+      console.log(`[CompetitionTab] Quick run response:`, data);
       if (data.success) {
         await onRefreshData();
       } else {
-        setError(data.error || "Failed to start run");
+        const errorMsg = data.error || "Failed to start run";
+        console.error(`[CompetitionTab] Error:`, errorMsg);
+        setError(errorMsg);
       }
     } catch (err) {
+      console.error(`[CompetitionTab] Exception:`, err);
       setError("Failed to start run");
     } finally {
       setLoading(false);
@@ -415,6 +434,18 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
             <span style={{ color: "var(--text-muted)" }}>Start Balance:</span>
             <span style={{ fontFamily: "ui-monospace, monospace" }}>${competition.startBalance}</span>
           </div>
+        </div>
+      )}
+
+      {/* Diagnostics & Live Log */}
+      {competition?.active && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          <DiagnosticsPanel
+            btcPrice={btcPrice}
+            marketPrice={marketPrice}
+            timeRemaining={timeRemaining}
+          />
+          <LiveLogPanel logs={botLogs.slice(0, 50)} maxItems={30} />
         </div>
       )}
 

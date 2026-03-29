@@ -11,6 +11,7 @@ import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
+import LiveModeDashboard from "@/components/LiveModeDashboard";
 import { useTradingData } from "@/hooks/useTradingData";
 
 export function BotTabsContent({ activeTab }: { activeTab: string }) {
@@ -105,6 +106,10 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
           totalBalance={bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)}
           initialBalance={bots.length * 10}
         />
+      )}
+
+      {activeTab === 'live' && (
+        <LiveModeDashboard />
       )}
     </div>
   );

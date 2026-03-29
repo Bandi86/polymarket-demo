@@ -2,6 +2,51 @@
 // Implements order creation, signing, and execution via CLOB API
 
 import type { Outcome } from "../types";
+import type { PolymarketToken } from "../types/provider.types";
+
+// Internal types for API responses
+interface ClobPositionResponse {
+  id?: string;
+  market?: string;
+  outcome?: string;
+  size?: number;
+  avgCost?: number;
+  currentValue?: number;
+  unrealizedPnl?: number;
+}
+
+interface ClobBaseResponse {
+  error?: string;
+}
+
+interface ClobUserResponse extends ClobBaseResponse {
+  address?: string;
+}
+
+interface ClobBalanceResponse extends ClobBaseResponse {
+  usdc?: number;
+  positionValue?: number;
+  totalPnL?: number;
+}
+
+interface ClobPositionsResponse extends ClobBaseResponse {
+  positions?: ClobPositionResponse[];
+}
+
+interface ClobOrderResponse extends ClobBaseResponse {
+  orderID?: string;
+  transactionHash?: string;
+}
+
+interface GammaMarketResponse {
+  conditionId?: string;
+  id?: string;
+  question?: string;
+  outcomes?: string[];
+  tokens?: PolymarketToken[];
+  active?: boolean;
+  endDate?: number;
+}
 
 export interface PolymarketConfig {
   apiKey: string;
@@ -76,7 +121,7 @@ export class PolymarketClient {
       this.config = config;
 
       // Verify credentials by fetching user info
-      const response = await this.clobRequest("/user", "GET");
+      const response = await this.clobRequest<ClobUserResponse>("/user", "GET");
 
       if (response.error) {
         console.error("[PolymarketClient] Auth failed:", response.error);
@@ -84,7 +129,7 @@ export class PolymarketClient {
       }
 
       this.connected = true;
-      this.walletAddress = response.address || null;
+      this.walletAddress = response.address ?? null;
       console.log("[PolymarketClient] Connected successfully");
 
       return true;
@@ -118,12 +163,12 @@ export class PolymarketClient {
     }
 
     try {
-      const response = await this.clobRequest("/balance", "GET");
+      const response = await this.clobRequest<ClobBalanceResponse>("/balance", "GET");
 
       return {
-        usdcBalance: response.usdc || 0,
-        totalPositionValue: response.positionValue || 0,
-        totalPnL: response.totalPnL || 0,
+        usdcBalance: response.usdc ?? 0,
+        totalPositionValue: response.positionValue ?? 0,
+        totalPnL: response.totalPnL ?? 0,
       };
     } catch (error) {
       console.error("[PolymarketClient] Balance fetch error:", error);
@@ -140,16 +185,16 @@ export class PolymarketClient {
     }
 
     try {
-      const response = await this.clobRequest("/positions", "GET");
+      const response = await this.clobRequest<ClobPositionsResponse>("/positions", "GET");
 
-      return (response.positions || []).map((p: any) => ({
-        id: p.id,
-        marketId: p.market,
+      return (response.positions ?? []).map((p) => ({
+        id: p.id ?? "",
+        marketId: p.market ?? "",
         outcome: p.outcome === "YES" ? "YES" : "NO",
-        tokens: p.size,
-        avgPrice: p.avgCost,
-        currentValue: p.currentValue,
-        unrealizedPnl: p.unrealizedPnl,
+        tokens: p.size ?? 0,
+        avgPrice: p.avgCost ?? 0,
+        currentValue: p.currentValue ?? 0,
+        unrealizedPnl: p.unrealizedPnl ?? 0,
       }));
     } catch (error) {
       console.error("[PolymarketClient] Positions fetch error:", error);
@@ -192,7 +237,7 @@ export class PolymarketClient {
       };
 
       // Sign and post the order
-      const response = await this.clobRequest("/order", "POST", orderPayload);
+      const response = await this.clobRequest<ClobOrderResponse>("/order", "POST", orderPayload);
 
       if (response.error) {
         return { success: false, error: response.error };
@@ -235,16 +280,16 @@ export class PolymarketClient {
   async getMarketInfo(marketId: string): Promise<MarketInfo | null> {
     try {
       const response = await fetch(`${GAMMA_API_URL}/markets/${marketId}`);
-      const data = await response.json();
+      const data: GammaMarketResponse = await response.json();
 
       return {
-        id: data.conditionId || data.id,
-        question: data.question,
-        outcomes: data.outcomes || ["YES", "NO"],
-        yesTokenId: data.tokens?.find((t: any) => t.outcome === "Yes")?.token_id || "",
-        noTokenId: data.tokens?.find((t: any) => t.outcome === "No")?.token_id || "",
-        active: data.active,
-        endDate: data.endDate || Date.now() + 300000,
+        id: data.conditionId ?? data.id ?? "",
+        question: data.question ?? "",
+        outcomes: data.outcomes ?? ["YES", "NO"],
+        yesTokenId: data.tokens?.find((t) => t.outcome === "Yes")?.token_id ?? "",
+        noTokenId: data.tokens?.find((t) => t.outcome === "No")?.token_id ?? "",
+        active: data.active ?? false,
+        endDate: data.endDate ?? Date.now() + 300000,
       };
     } catch (error) {
       console.error("[PolymarketClient] Market info error:", error);
@@ -260,16 +305,16 @@ export class PolymarketClient {
       const response = await fetch(
         `${GAMMA_API_URL}/markets?_s=${encodeURIComponent(query)}&_l=${limit}&closed=false`
       );
-      const data = await response.json();
+      const data: GammaMarketResponse[] = await response.json();
 
-      return data.map((m: any) => ({
-        id: m.conditionId || m.id,
-        question: m.question,
-        outcomes: m.outcomes || ["YES", "NO"],
-        yesTokenId: m.tokens?.find((t: any) => t.outcome === "Yes")?.token_id || "",
-        noTokenId: m.tokens?.find((t: any) => t.outcome === "No")?.token_id || "",
-        active: m.active,
-        endDate: m.endDate || Date.now() + 300000,
+      return data.map((m) => ({
+        id: m.conditionId ?? m.id ?? "",
+        question: m.question ?? "",
+        outcomes: m.outcomes ?? ["YES", "NO"],
+        yesTokenId: m.tokens?.find((t) => t.outcome === "Yes")?.token_id ?? "",
+        noTokenId: m.tokens?.find((t) => t.outcome === "No")?.token_id ?? "",
+        active: m.active ?? false,
+        endDate: m.endDate ?? Date.now() + 300000,
       }));
     } catch (error) {
       console.error("[PolymarketClient] Market search error:", error);
@@ -280,13 +325,13 @@ export class PolymarketClient {
   /**
    * Make a CLOB API request
    */
-  private async clobRequest(
+  private async clobRequest<T extends ClobBaseResponse>(
     endpoint: string,
     method: "GET" | "POST" | "DELETE",
-    body?: any
-  ): Promise<any> {
+    body?: unknown
+  ): Promise<T> {
     if (!this.config) {
-      return { error: "Not configured" };
+      return { error: "Not configured" } as T;
     }
 
     const url = `${CLOB_API_URL}${endpoint}`;
@@ -314,7 +359,7 @@ export class PolymarketClient {
     const response = await fetch(url, options);
     const data = await response.json();
 
-    return data;
+    return data as T;
   }
 
   /**
@@ -324,7 +369,7 @@ export class PolymarketClient {
   private async generateSignature(
     endpoint: string,
     method: string,
-    body?: any
+    body?: unknown
   ): Promise<string> {
     // This is a placeholder - real implementation would sign with private key
     // using ethers.js or web3
