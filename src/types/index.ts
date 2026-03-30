@@ -27,7 +27,7 @@ export type {
 } from "./bot.types";
 
 // Session Types
-export type { BotLog, BotSession } from "./session.types";
+export type { BotLog, BotSession, DecisionContext, RiskMetrics, SessionLog } from "./session.types";
 
 // Event Types
 export type { EventType, TradeEvent } from "./event.types";
