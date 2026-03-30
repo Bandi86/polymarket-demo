@@ -2,6 +2,7 @@
 // Implements per-bot and portfolio-level risk management
 
 import { marketEngine } from "./market-engine";
+import type { RiskMetrics } from "../types";
 
 export interface RiskSettings {
   // Per-bot limits
@@ -537,6 +538,142 @@ export class RiskManager {
     if (this.warnings.length > 100) {
       this.warnings.pop();
     }
+  }
+}
+
+/**
+ * Risk Metrics Calculator
+ * Calculates trading metrics like drawdown, Sharpe ratio, win/loss streaks
+ */
+export class RiskMetricsCalculator {
+  private balanceHistory: number[] = [];
+  private peakBalance: number = 0;
+  private tradePnls: number[] = [];
+  private currentWinStreak: number = 0;
+  private currentLossStreak: number = 0;
+  private longestWinStreak: number = 0;
+  private longestLossStreak: number = 0;
+  private bestTrade: number = 0;
+  private worstTrade: number = 0;
+
+  /**
+   * Record balance snapshot for drawdown calculation
+   */
+  recordBalance(balance: number): void {
+    this.balanceHistory.push(balance);
+
+    // Update peak for drawdown calculation
+    if (balance > this.peakBalance) {
+      this.peakBalance = balance;
+    }
+  }
+
+  /**
+   * Record trade P&L for Sharpe and profit factor
+   */
+  recordTradePnl(pnl: number): void {
+    this.tradePnls.push(pnl);
+
+    // Track best/worst
+    if (pnl > this.bestTrade) {
+      this.bestTrade = pnl;
+    }
+    if (pnl < this.worstTrade) {
+      this.worstTrade = pnl;
+    }
+  }
+
+  /**
+   * Record trade result for streak tracking
+   */
+  recordTradeResult(won: boolean): void {
+    if (won) {
+      this.currentWinStreak++;
+      this.currentLossStreak = 0;
+      this.longestWinStreak = Math.max(this.longestWinStreak, this.currentWinStreak);
+    } else {
+      this.currentLossStreak++;
+      this.currentWinStreak = 0;
+      this.longestLossStreak = Math.max(this.longestLossStreak, this.currentLossStreak);
+    }
+  }
+
+  /**
+   * Calculate maximum drawdown percentage
+   */
+  calculateMaxDrawdown(): number {
+    if (this.peakBalance === 0 || this.balanceHistory.length === 0) return 0;
+
+    let maxDrawdown = 0;
+    for (const balance of this.balanceHistory) {
+      const drawdown = ((this.peakBalance - balance) / this.peakBalance) * 100;
+      maxDrawdown = Math.max(maxDrawdown, drawdown);
+    }
+    return maxDrawdown;
+  }
+
+  /**
+   * Calculate Sharpe ratio (simplified: avg_pnl / std_dev)
+   */
+  calculateSharpeRatio(): number {
+    if (this.tradePnls.length < 5) return 0;
+
+    const avg = this.tradePnls.reduce((a, b) => a + b, 0) / this.tradePnls.length;
+    const variance = this.tradePnls.reduce((sum, pnl) => sum + Math.pow(pnl - avg, 2), 0) / this.tradePnls.length;
+    const stdDev = Math.sqrt(variance);
+
+    if (stdDev === 0) return avg > 0 ? 999 : 0;
+    return avg / stdDev;
+  }
+
+  /**
+   * Calculate profit factor (gross profit / gross loss)
+   */
+  calculateProfitFactor(): number {
+    const wins = this.tradePnls.filter(p => p > 0);
+    const losses = this.tradePnls.filter(p => p < 0);
+
+    const grossProfit = wins.reduce((a, b) => a + b, 0);
+    const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
+
+    if (grossLoss === 0) return grossProfit > 0 ? 999 : 0;
+    return grossProfit / grossLoss;
+  }
+
+  /**
+   * Get all calculated metrics
+   */
+  getMetrics(): RiskMetrics {
+    const wins = this.tradePnls.filter(p => p > 0);
+    const losses = this.tradePnls.filter(p => p < 0);
+
+    return {
+      maxDrawdown: this.calculateMaxDrawdown(),
+      sharpeRatio: this.calculateSharpeRatio(),
+      winRate: this.tradePnls.length > 0 ? wins.length / this.tradePnls.length : 0,
+      profitFactor: this.calculateProfitFactor(),
+      avgWin: wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0,
+      avgLoss: losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b, 0) / losses.length) : 0,
+      bestTrade: this.bestTrade,
+      worstTrade: this.worstTrade,
+      longestWinStreak: this.longestWinStreak,
+      longestLossStreak: this.longestLossStreak,
+    };
+  }
+
+  /**
+   * Reset calculator for new session
+   */
+  reset(): void {
+    this.balanceHistory = [];
+    this.peakBalance = 0;
+    this.tradePnls = [];
+    this.currentWinStreak = 0;
+    this.currentLossStreak = 0;
+    this.longestWinStreak = 0;
+    this.longestLossStreak = 0;
+    this.bestTrade = 0;
+    this.worstTrade = 0;
   }
 }
 
