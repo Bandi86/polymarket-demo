@@ -1,9 +1,10 @@
 // Arbitrage Strategy - BTC delta vs market price difference
+// NO strict price limits - confidence scoring handles risk
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
-import { checkPriceLimits, calculateDelta, calculateEdge, noTrade, trade } from "../base";
+import { calculateDelta, calculateEdge, noTrade, trade } from "../base";
 
 export const arbitrageStrategy: Strategy = {
   name: "Arbitrage",
@@ -30,17 +31,24 @@ export const arbitrageStrategy: Strategy = {
 
     const minEdge = thresholds.minEdge ?? 0.08;
 
-    // Only trade in reasonable price range (30-65 cents)
-    if (edge > minEdge && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
-      return trade("YES", Math.min(0.78, 0.5 + edge * 3), `Arb: fair=${(fairProb*100).toFixed(0)}% vs ${(ctx.marketPrice.yesPrice*100).toFixed(0)}¢`, { fairProb, edge, deltaPct });
+    // Buy YES if edge > minEdge - NO price limits, adjust confidence
+    if (edge > minEdge) {
+      let confidence = Math.min(0.78, 0.5 + edge * 3);
+      if (ctx.marketPrice.yesPrice > 0.80) confidence *= 0.85;
+      else if (ctx.marketPrice.yesPrice < 0.25) confidence *= 0.70;
+      return trade("YES", confidence, `Arb: fair=${(fairProb*100).toFixed(0)}% vs ${(ctx.marketPrice.yesPrice*100).toFixed(0)}¢`, { fairProb, edge, deltaPct });
     }
 
+    // Buy NO if edge > minEdge - NO price limits
     const noEdge = calculateEdge(1 - fairProb, ctx.marketPrice.noPrice);
-    if (noEdge > minEdge && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
-      return trade("NO", Math.min(0.78, 0.5 + noEdge * 3), `Arb DOWN=${((1-fairProb)*100).toFixed(0)}% vs ${(ctx.marketPrice.noPrice*100).toFixed(0)}¢`, { fairProb, noEdge, deltaPct });
+    if (noEdge > minEdge) {
+      let confidence = Math.min(0.78, 0.5 + noEdge * 3);
+      if (ctx.marketPrice.noPrice > 0.80) confidence *= 0.85;
+      else if (ctx.marketPrice.noPrice < 0.25) confidence *= 0.70;
+      return trade("NO", confidence, `Arb DOWN=${((1-fairProb)*100).toFixed(0)}% vs ${(ctx.marketPrice.noPrice*100).toFixed(0)}¢`, { fairProb, noEdge, deltaPct });
     }
 
-    return noTrade("Nincs elegendő edge vagy ár extrém");
+    return noTrade("Nincs elegendő edge");
   },
 };
 

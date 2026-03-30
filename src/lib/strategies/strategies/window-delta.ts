@@ -1,4 +1,4 @@
-// Window Delta Strategy - RESTORED from working version
+// Window Delta Strategy - Uses configurable thresholds
 // NO price limits - was best performer on 2026-03-20
 
 import type { Strategy, StrategyContext } from "../../../types";
@@ -17,6 +17,7 @@ export const windowDeltaStrategy: Strategy = {
   category: "momentum",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const thresholds = strategyConfig.window_delta;
+    const minDelta = thresholds.minDelta ?? 0.02;
 
     if (!ctx.btcPrice) {
       return noTrade("Nincs BTC ár");
@@ -30,39 +31,39 @@ export const windowDeltaStrategy: Strategy = {
       return noTrade(ctx.timeRemaining < 3000 ? "Túl késő" : "Ablak eleje");
     }
 
-    // Strong signal: delta > 0.12% (from config)
-    if (deltaPct > 0.12) {
+    // Strong signal: delta > minDelta * 2 (configurable)
+    if (deltaPct > minDelta * 2) {
       return trade(
         "YES",
-        Math.min(0.92, 0.70 + (deltaPct - 0.12) * 3),
+        Math.min(0.92, 0.70 + (deltaPct - minDelta * 2) * 3),
         `Erős UP delta: +${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );
     }
 
-    if (deltaPct < -0.12) {
+    if (deltaPct < -minDelta * 2) {
       return trade(
         "NO",
-        Math.min(0.92, 0.70 + (-deltaPct - 0.12) * 3),
+        Math.min(0.92, 0.70 + (-deltaPct - minDelta * 2) * 3),
         `Erős DOWN delta: ${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );
     }
 
-    // Medium signal: delta > 0.07% (RESTORED from config)
-    if (deltaPct > 0.07) {
+    // Medium signal: delta > minDelta (from config)
+    if (deltaPct > minDelta) {
       return trade(
         "YES",
-        Math.min(0.78, 0.55 + (deltaPct - 0.07) * 4),
+        Math.min(0.78, 0.55 + (deltaPct - minDelta) * 4),
         `UP delta: +${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );
     }
 
-    if (deltaPct < -0.07) {
+    if (deltaPct < -minDelta) {
       return trade(
         "NO",
-        Math.min(0.78, 0.55 + (-deltaPct - 0.07) * 4),
+        Math.min(0.78, 0.55 + (-deltaPct - minDelta) * 4),
         `DOWN delta: ${deltaPct.toFixed(3)}%`,
         { deltaPct, windowOpen }
       );

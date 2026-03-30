@@ -1,5 +1,5 @@
-// Fair Value Strategy - RESTORED from working version
-// NO price limits, NO delta confirmation, lower edge threshold
+// Fair Value Strategy - Uses configurable thresholds
+// NO price limits, NO delta confirmation, configurable edge threshold
 // This was profitable on 2026-03-20 session
 
 import type { Strategy, StrategyContext } from "../../../types";
@@ -18,6 +18,7 @@ export const fairValueStrategy: Strategy = {
   category: "arbitrage",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const thresholds = strategyConfig.fair_value;
+    const minEdge = thresholds.minEdge ?? 0.02;
 
     // Time check only
     if (ctx.timeRemaining < (thresholds.minTimeRemaining ?? 15000)) {
@@ -37,9 +38,6 @@ export const fairValueStrategy: Strategy = {
     const marketYes = ctx.marketPrice.yesPrice;
     const marketNo = ctx.marketPrice.noPrice;
     const edge = calculateEdge(fairUpProb, marketYes);
-
-    // RESTORED: minEdge 0.07 (NOT 0.10!)
-    const minEdge = thresholds.minEdge ?? 0.07;
 
     // Buy YES if edge > minEdge - NO price limits, NO delta confirmation
     if (edge > minEdge) {

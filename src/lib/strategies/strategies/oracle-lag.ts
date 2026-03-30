@@ -38,8 +38,9 @@ export const oracleLagStrategy: Strategy = {
     if (!signalValid) {
       const signalAge = binanceSignal ? Math.floor((Date.now() - binanceSignal.timestamp) / 1000) : -1;
 
-      // Fallback: Use window delta if strong enough (> 0.07%)
-      if (deltaPct > 0.07) {
+      // Fallback: Use window delta if strong enough (> minDelta from config, default 0.02%)
+      const minDeltaForFallback = thresholds.minDelta ?? 0.02;
+      if (deltaPct > minDeltaForFallback) {
         return trade(
           "YES",
           Math.min(0.70, 0.55 + deltaPct * 2),
@@ -47,7 +48,7 @@ export const oracleLagStrategy: Strategy = {
           { deltaPct, signalAge, fallback: true }
         );
       }
-      if (deltaPct < -0.07) {
+      if (deltaPct < -minDeltaForFallback) {
         return trade(
           "NO",
           Math.min(0.70, 0.55 + (-deltaPct) * 2),

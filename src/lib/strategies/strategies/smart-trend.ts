@@ -1,9 +1,10 @@
 // Smart Trend Strategy - Multi-timeframe trend + BTC confirmation
+// NO strict price limits - confidence scoring handles risk
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
-import { checkPriceLimits, calculateDelta, noTrade, trade } from "../base";
+import { calculateDelta, noTrade, trade } from "../base";
 
 export const smartTrendStrategy: Strategy = {
   name: "Smart Trend",
@@ -33,14 +34,23 @@ export const smartTrendStrategy: Strategy = {
     const btcConfirmsUp = deltaPct > (thresholds.minDelta ?? 0.03);
     const btcConfirmsDown = deltaPct < -(thresholds.minDelta ?? 0.03);
 
-    if (shortTrendUp && mediumTrendUp && btcConfirmsUp && checkPriceLimits(ctx.marketPrice.yesPrice, thresholds)) {
-      return trade("YES", thresholds.minConfidence ?? 0.72, "Trend UP + BTC megerősítve", { shortAvg, mediumAvg, deltaPct });
+    // NO PRICE LIMITS - just confidence adjustment
+    let confidence = thresholds.minConfidence ?? 0.72;
+
+    if (shortTrendUp && mediumTrendUp && btcConfirmsUp) {
+      // Adjust confidence based on price (not blocking)
+      if (ctx.marketPrice.yesPrice > 0.80) confidence *= 0.85;
+      else if (ctx.marketPrice.yesPrice < 0.25) confidence *= 0.70;
+      return trade("YES", confidence, "Trend UP + BTC megerősítve", { shortAvg, mediumAvg, deltaPct });
     }
-    if (!shortTrendUp && !mediumTrendUp && btcConfirmsDown && checkPriceLimits(ctx.marketPrice.noPrice, thresholds)) {
-      return trade("NO", thresholds.minConfidence ?? 0.72, "Trend DOWN + BTC megerősítve", { shortAvg, mediumAvg, deltaPct });
+    if (!shortTrendUp && !mediumTrendUp && btcConfirmsDown) {
+      // Adjust confidence based on price (not blocking)
+      if (ctx.marketPrice.noPrice > 0.80) confidence *= 0.85;
+      else if (ctx.marketPrice.noPrice < 0.25) confidence *= 0.70;
+      return trade("NO", confidence, "Trend DOWN + BTC megerősítve", { shortAvg, mediumAvg, deltaPct });
     }
 
-    return noTrade("Vegyes jelzések vagy ár extrém");
+    return noTrade("Vegyes jelzések");
   },
 };
 

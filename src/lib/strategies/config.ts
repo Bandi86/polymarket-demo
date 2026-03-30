@@ -12,6 +12,8 @@ import type { StrategyThresholds } from "./types";
  * - Don't block trades by odds alone
  * - Let strategies decide based on delta, signals, timing
  * - Confidence scoring handles the risk
+ *
+ * TEMPORARY: Lower thresholds for testing
  */
 export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
@@ -19,7 +21,7 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
 
   window_delta: {
-    minDelta: 0.07,        // 0.07% minimum delta
+    minDelta: 0.02,        // 0.02% minimum delta (lowered for testing)
     minTimeRemaining: 3000,
     maxTimeRemaining: 270000,
   },
@@ -30,20 +32,20 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   last_seconds_scalp: {
-    minDelta: 0.04,
+    minDelta: 0.02,        // 0.02% minimum (lowered)
     minTimeRemaining: 4000,
     maxTimeRemaining: 30000,
   },
 
   monte_carlo: {
-    minDelta: 0.04,
-    minEdge: 0.08,
+    minDelta: 0.02,        // 0.02% minimum (lowered)
+    minEdge: 0.03,         // 3% edge (lowered)
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
   },
 
   fair_value: {
-    minEdge: 0.05,
+    minEdge: 0.02,         // 2% edge (lowered)
     minTimeRemaining: 15000,
   },
 
@@ -52,22 +54,23 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
 
   momentum: {
-    minDelta: 0.05,
+    minDelta: 0.02,        // 0.02% minimum (lowered)
     minTimeRemaining: 30000,
   },
 
   smart_trend: {
     minTimeRemaining: 30000,
+    minDelta: 0.02,        // Added minimum
   },
 
   contrarian: {
-    minDelta: 0.05,
+    minDelta: 0.02,        // 0.02% minimum (lowered)
     minTimeRemaining: 30000,
   },
 
   arbitrage: {
-    minDelta: 0.04,
-    minEdge: 0.05,
+    minDelta: 0.02,        // 0.02% minimum (lowered)
+    minEdge: 0.03,         // 3% edge (lowered)
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
   },

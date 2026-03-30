@@ -1,9 +1,10 @@
 // T-10 Sniper Strategy - Last 10-30 seconds scalp
+// NO strict price limits - confidence scoring handles risk
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
-import { checkPriceLimits, calculateDelta, signalAlignsWithDelta, noTrade, trade } from "../base";
+import { calculateDelta, signalAlignsWithDelta, noTrade, trade } from "../base";
 
 export const t10SniperStrategy: Strategy = {
   name: "T-10 Sniper",
@@ -32,12 +33,17 @@ export const t10SniperStrategy: Strategy = {
     const action = deltaPct > 0 ? "YES" : "NO";
     const targetPrice = action === "YES" ? ctx.marketPrice.yesPrice : ctx.marketPrice.noPrice;
 
-    // Price limits: 25-75¢
-    if (!checkPriceLimits(targetPrice, { minPrice: 0.25, maxPrice: 0.75 })) {
-      return noTrade(`Ár extrém: ${(targetPrice*100).toFixed(0)}¢`);
-    }
-
+    // NO PRICE LIMITS - confidence adjusts based on price instead
+    // High prices (>80¢): reduce confidence
+    // Low prices (<25¢): reduce confidence (lottery zone)
     let confidence = 0.60 + Math.min(0.25, Math.abs(deltaPct) * 3);
+
+    // Price-based confidence adjustment (not blocking)
+    if (targetPrice > 0.80) {
+      confidence *= 0.85; // Reduce but don't block
+    } else if (targetPrice < 0.25) {
+      confidence *= 0.70; // Lottery zone - reduce more
+    }
 
     // Binance confirmation
     if (ctx.binanceSignal && ctx.binanceSignal.type !== "NEUTRAL") {

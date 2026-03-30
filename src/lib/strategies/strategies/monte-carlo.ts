@@ -1,9 +1,10 @@
 // Monte Carlo Strategy - BTC delta based probability estimation
+// NO strict price limits - confidence scoring handles risk
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
 import { strategyConfig } from "../config";
-import { checkPriceLimits, calculateDelta, calculateEdge, noTrade, trade } from "../base";
+import { calculateDelta, calculateEdge, noTrade, trade } from "../base";
 
 export const monteCarloStrategy: Strategy = {
   name: "Monte Carlo",
@@ -43,18 +44,26 @@ export const monteCarloStrategy: Strategy = {
 
     const minEdge = thresholds.minEdge ?? 0.10;
 
-    // Buy YES if edge > minEdge AND price in range
-    if (edge > minEdge && checkPriceLimits(yesPrice, thresholds)) {
-      return trade("YES", Math.min(0.75, 0.5 + edge * 3), `MC: P(UP)=${(upProb*100).toFixed(0)}% vs ${(yesPrice*100).toFixed(0)}¢`, { upProb, edge, deltaPct });
+    // Buy YES if edge > minEdge - NO price limits, use confidence adjustment
+    if (edge > minEdge) {
+      let confidence = Math.min(0.75, 0.5 + edge * 3);
+      // Adjust confidence based on price (not blocking)
+      if (yesPrice > 0.80) confidence *= 0.85;
+      else if (yesPrice < 0.25) confidence *= 0.70;
+      return trade("YES", confidence, `MC: P(UP)=${(upProb*100).toFixed(0)}% vs ${(yesPrice*100).toFixed(0)}¢`, { upProb, edge, deltaPct });
     }
 
-    // Buy NO if edge > minEdge AND price in range
+    // Buy NO if edge > minEdge - NO price limits
     const noEdge = calculateEdge(1 - upProb, noPrice);
-    if (noEdge > minEdge && checkPriceLimits(noPrice, thresholds)) {
-      return trade("NO", Math.min(0.75, 0.5 + noEdge * 3), `MC: P(DOWN)=${((1-upProb)*100).toFixed(0)}% vs ${(noPrice*100).toFixed(0)}¢`, { upProb, noEdge, deltaPct });
+    if (noEdge > minEdge) {
+      let confidence = Math.min(0.75, 0.5 + noEdge * 3);
+      // Adjust confidence based on price (not blocking)
+      if (noPrice > 0.80) confidence *= 0.85;
+      else if (noPrice < 0.25) confidence *= 0.70;
+      return trade("NO", confidence, `MC: P(DOWN)=${((1-upProb)*100).toFixed(0)}% vs ${(noPrice*100).toFixed(0)}¢`, { upProb, noEdge, deltaPct });
     }
 
-    return noTrade(`MC: edge túl kicsi vagy ár extrém`);
+    return noTrade(`MC: edge túl kicsi`);
   },
 };
 
