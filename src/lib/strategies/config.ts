@@ -1,105 +1,86 @@
-// Strategy Configuration - BALANCED for trading frequency
-// Key finding: 40-60¢ zone is a loss leader, but we can't block ALL trades
-// Solution: Only block the very middle (45-55¢), allow strategies to trade at extremes
+// Strategy Configuration - NO HARD ODDS FILTERS
+// Let strategies decide based on signals, not arbitrary odds limits
+// The key is confidence scoring, not blocking trades
 
 import type { StrategyType } from "../../types";
 import type { StrategyThresholds } from "./types";
 
 /**
- * Strategy thresholds - BALANCED FOR ACTIVITY
+ * Strategy thresholds - SIGNALS OVER FILTERS
  *
- * ODDS FILTER STRATEGY:
- * - Block only 45-55¢ zone (very close to 50¢)
- * - Allow 35-45¢ and 55-65¢ for directional trades
- * - Allow <35¢ and >65¢ for high-conviction trades
+ * Philosophy:
+ * - Don't block trades by odds alone
+ * - Let strategies decide based on delta, signals, timing
+ * - Confidence scoring handles the risk
  */
 export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
-  // PRIMARY STRATEGIES - Relaxed odds for more trades
+  // PRIMARY STRATEGIES
   // ═══════════════════════════════════════════════════════════════
 
-  // #1 Window Delta - Trade when direction is clear
   window_delta: {
-    minDelta: 0.07,
+    minDelta: 0.07,        // 0.07% minimum delta
     minTimeRemaining: 3000,
     maxTimeRemaining: 270000,
-    // Allow all odds except very middle
-    avoidMiddle: true,  // Blocks 45-55¢
   },
 
-  // #2 Oracle Lag (Binance Signal) - Follow signals
   binance_signal: {
-    signalMaxAge: 8000,
+    signalMaxAge: 8000,    // Signal must be fresh
     minTimeRemaining: 3000,
-    avoidMiddle: true,
   },
 
-  // #3 T-10 Sniper - Last 10-30 seconds
   last_seconds_scalp: {
     minDelta: 0.04,
     minTimeRemaining: 4000,
     maxTimeRemaining: 30000,
-    avoidMiddle: true,
   },
 
-  // #4 Monte Carlo
   monte_carlo: {
     minDelta: 0.04,
     minEdge: 0.08,
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
-    avoidMiddle: true,
   },
 
-  // #5 Fair Value Arb - Allow all extremes
   fair_value: {
-    minEdge: 0.05,  // Lowered from 0.07
+    minEdge: 0.05,
     minTimeRemaining: 15000,
-    avoidMiddle: true,
   },
 
   // ═══════════════════════════════════════════════════════════════
   // SECONDARY STRATEGIES
   // ═══════════════════════════════════════════════════════════════
 
-  // #6 BTC Momentum
   momentum: {
     minDelta: 0.05,
     minTimeRemaining: 30000,
-    avoidMiddle: true,
   },
 
-  // #7 Smart Trend
   smart_trend: {
     minTimeRemaining: 30000,
-    avoidMiddle: true,
   },
 
-  // #8 Contrarian - Buy cheap when market overreacts
   contrarian: {
     minDelta: 0.05,
     minTimeRemaining: 30000,
-    avoidMiddle: true,
   },
 
-  // #9 Arbitrage
   arbitrage: {
     minDelta: 0.04,
-    minEdge: 0.05,  // Lowered from 0.06
+    minEdge: 0.05,
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
-    avoidMiddle: true,
   },
 
   // ═══════════════════════════════════════════════════════════════
-  // LEGACY/DISABLED STRATEGIES
+  // LEGACY/DISABLED
   // ═══════════════════════════════════════════════════════════════
-  mean_reversion: { avoidMiddle: true },
-  trend: { avoidMiddle: true },
-  volatility: { avoidMiddle: true },
-  anomaly: { avoidMiddle: true },
-  momentum_burst: { avoidMiddle: true },
-  grid_trading: { avoidMiddle: true },
-  market_making: { avoidMiddle: true },
-  random: { avoidMiddle: true },
+  mean_reversion: {},
+  trend: {},
+  volatility: {},
+  anomaly: {},
+  momentum_burst: {},
+  grid_trading: {},
+  market_making: {},
+  random: {},
 };

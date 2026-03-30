@@ -19,21 +19,13 @@ export function checkPriceLimits(
 
 /**
  * Check if odds are within acceptable range for the strategy
- * CRITICAL: Avoid 45-55¢ "very fair" zone which is lowest edge
- * But allow 35-45¢ and 55-65¢ for directional trades
+ * Currently disabled - let strategies decide based on signals
  */
 export function checkOddsRange(
   odds: number,
   thresholds: StrategyThresholds
 ): { valid: boolean; reason?: string } {
-  // Avoid very middle zone (45-55¢) if configured - this is where edge is lowest
-  if (thresholds.avoidMiddle !== false) {  // Default to true
-    if (odds >= 0.45 && odds <= 0.55) {
-      return { valid: false, reason: `Odds too close to 50¢ (${(odds * 100).toFixed(0)}¢)` };
-    }
-  }
-
-  // Check min/max odds if specified
+  // Check min/max odds if specified (for specific strategies only)
   const minOdds = thresholds.minOdds;
   const maxOdds = thresholds.maxOdds;
 
