@@ -118,6 +118,9 @@ export class CompetitionManager {
 
     // Reset and start all bots
     for (const [id, bot] of bots) {
+      // Clear old positions first!
+      marketEngine.clearBotPositions(id);
+
       // Reset portfolio
       marketEngine.initBotPortfolio(id);
       const portfolio = marketEngine.getBotPortfolio(id);
