@@ -1,0 +1,160 @@
+<h2>Stratégia & UI Megközelítés Tervek</h2>
+<p class="subtitle">Két párhuzamos munkafolyamat - stratégia optimalizálás + UI javítás</p>
+
+<div class="section">
+<h3>🔴 STRATÉGIA PROBLÉMÁK (Prioritás)</h3>
+
+<div class="cards">
+<div class="card" data-choice="fair-value" onclick="toggleSelect(this)">
+<div class="card-body">
+<h4>Fair Value Arb</h4>
+<p class="label">KRITIKUS - $5.49 veszteség</p>
+<ul>
+<li>22 trade, 36% win rate (elfogadható minimum: 50%)</li>
+<li>Probléma: túl sok trade extrém árakon</li>
+<li><strong>Javítás:</strong> Szigorúbb ár filterek (30-60¢), nagyobb edge threshold</li>
+</ul>
+</div>
+</div>
+
+<div class="card" data-choice="oracle-lag" onclick="toggleSelect(this)">
+<div class="card-body">
+<h4>Oracle Lag (Binance Signal)</h4>
+<p class="label">KRITIKUS - 0 trade!</p>
+<ul>
+<li>A bot nem tradel egyáltalán</li>
+<li>Probléma: Binance signal nem érkezik vagy elutasítva</li>
+<li><strong>Javítás:</strong> Debug logolás, signal source check, threshold reset</li>
+</ul>
+</div>
+</div>
+
+<div class="card" data-choice="momentum" onclick="toggleSelect(this)">
+<div class="card-body">
+<h4>BTC Momentum</h4>
+<p class="label">MODERATE - $2.30 veszteség</p>
+<ul>
+<li>17 trade, 47% win rate</li>
+<li>Probléma: momentum threshold túl alacsony</li>
+<li><strong>Javítás:</strong> Magasabb threshold (0.07%), price limits</li>
+</ul>
+</div>
+</div>
+
+<div class="card" data-choice="window-delta" onclick="toggleSelect(this)">
+<div class="card-body">
+<h4>Window Delta</h4>
+<p class="label">MODERATE - csak 2 trade</p>
+<ul>
+<li>Előző session: 11 trade, +885% ROI</li>
+<li>Most: 2 trade, passzív</li>
+<li>Probléma: delta threshold túl magas vagy timing</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>🔵 UI JAVÍTÁS TERVEK</h3>
+
+<div class="split">
+<div class="mockup">
+<div class="mockup-header">Jelenlegi Bot Card</div>
+<div class="mockup-body" style="padding: 15px;">
+<div style="background: #1a1a2e; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
+<div style="color: #888; font-size: 12px;">Window Delta</div>
+<div style="color: #4ade80; font-size: 18px; font-weight: bold;">$9.43</div>
+<div style="color: #666; font-size: 11px;">2 trades | 50% win</div>
+</div>
+<p style="color: #ef4444; font-size: 12px; margin-top: 10px;">❌ Nincs aktivitás info, nincs reason</p>
+</div>
+</div>
+
+<div class="mockup">
+<div class="mockup-header">Javasolt Új Bot Card</div>
+<div class="mockup-body" style="padding: 15px;">
+<div style="background: #1a1a2e; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div style="color: #888; font-size: 12px;">Window Delta</div>
+<div style="color: #4ade80; font-size: 18px; font-weight: bold;">$9.43</div>
+</div>
+<div style="border-top: 1px solid #333; margin-top: 8px; padding-top: 8px;">
+<div style="color: #fbbf24; font-size: 10px;">⏱️ Last: 3m ago</div>
+<div style="color: #666; font-size: 11px;">2 trades | 50% win | Δ +0.05%</div>
+</div>
+<div style="background: #0a0a1a; padding: 6px; border-radius: 4px; margin-top: 8px;">
+<div style="color: #888; font-size: 10px;">Last action:</div>
+<div style="color: #aaa; font-size: 11px;">"Delta túl kicsi: 0.04%"</div>
+</div>
+<div style="display: flex; gap: 4px; margin-top: 8px;">
+<div style="background: #ef4444; padding: 2px 6px; border-radius: 3px; font-size: 9px; color: white;">PASSIVE</div>
+<div style="background: #333; padding: 2px 6px; border-radius: 3px; font-size: 9px; color: #888;">interval: 2s</div>
+</div>
+</div>
+<p style="color: #4ade80; font-size: 12px; margin-top: 10px;">✅ Aktivitás, reason, badge-ek, delta info</p>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>📊 Javasolt Dashboard Bővítés</h3>
+<div class="mockup">
+<div class="mockup-header">Új Status Panel</div>
+<div class="mockup-body" style="padding: 10px;">
+<div style="display: flex; gap: 10px;">
+<div style="flex: 1; background: #1a1a2e; padding: 8px; border-radius: 6px;">
+<div style="color: #888; font-size: 10px;">BTC Delta</div>
+<div style="color: #fbbf24; font-size: 16px;">+0.08%</div>
+</div>
+<div style="flex: 1; background: #1a1a2e; padding: 8px; border-radius: 6px;">
+<div style="color: #888; font-size: 10px;">Binance Signal</div>
+<div style="color: #4ade80; font-size: 16px;">UP ✓</div>
+</div>
+<div style="flex: 1; background: #1a1a2e; padding: 8px; border-radius: 6px;">
+<div style="color: #888; font-size: 10px;">Market Price</div>
+<div style="color: #aaa; font-size: 16px;">YES 52¢</div>
+</div>
+</div>
+<div style="background: #0a0a1a; padding: 8px; border-radius: 4px; margin-top: 10px;">
+<div style="color: #888; font-size: 10px;">Active Trades (Live Log)</div>
+<div style="color: #ef4444; font-size: 11px;">Fair Value: NO @ 35¢ - WAITING...</div>
+<div style="color: #4ade80; font-size: 11px;">Contrarian: YES @ 48¢ - FILLED</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="options" data-multiselect>
+<div class="option" data-choice="strategy-first" onclick="toggleSelect(this)">
+<div class="letter">A</div>
+<div class="content">
+<h3>Stratégia előbb</h3>
+<p>Fair Value + Oracle Lag javítás → teszt → UI ha működik</p>
+</div>
+</div>
+<div class="option" data-choice="ui-first" onclick="toggleSelect(this)">
+<div class="letter">B</div>
+<div class="content">
+<h3>UI előbb</h3>
+<p>Jobb diagnosztika → könnyebb stratégia debug → optimalizálás</p>
+</div>
+</div>
+<div class="option" data-choice="parallel" onclick="toggleSelect(this)">
+<div class="letter">C</div>
+<div class="content">
+<h3>Párhuzamos</h3>
+<p>UI javítás + stratégia fix egyszerre (2 dev agent)</p>
+</div>
+</div>
+<div class="option" data-choice="full-refactor" onclick="toggleSelect(this)">
+<div class="letter">D</div>
+<div class="content">
+<h3>Teljes refactor</h3>
+<p>Stratégia logika extract + új UI components + event system</p>
+</div>
+</div>
+</div>
+
+<p style="color: #666; font-size: 12px; margin-top: 20px;">💡 Válassz egy vagy több megközelítést, vagy írd le sajátodat</p>

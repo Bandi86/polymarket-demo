@@ -1,0 +1,76 @@
+<h2>Teljes Refactor - Scope Prioritizálás</h2>
+<p class="subtitle">Melyik elemeket refactoráljuk elsőként?</p>
+
+<div class="mockup">
+<div class="mockup-header">Jelenlegi Kódstruktúra</div>
+<div class="mockup-body">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+<div style="background: #1a1a2e; padding: 10px; border-radius: 6px;">
+<div style="color: #fbbf24; font-size: 12px;">📁 strategies/all-strategies.ts</div>
+<div style="color: #ef4444; font-size: 14px; font-weight: bold;">674 lines</div>
+<div style="color: #666; font-size: 11px;">9 strategies inline</div>
+</div>
+<div style="background: #1a1a2e; padding: 10px; border-radius: 6px;">
+<div style="color: #4ade80; font-size: 12px;">📁 bot-manager.ts</div>
+<div style="color: #4ade80; font-size: 14px; font-weight: bold;">864 lines</div>
+<div style="color: #666; font-size: 11px;">Already modular ✓</div>
+</div>
+<div style="background: #1a1a2e; padding: 10px; border-radius: 6px;">
+<div style="color: #fbbf24; font-size: 12px;">📁 BotStatusCard.tsx</div>
+<div style="color: #888; font-size: 14px;">~150 lines</div>
+<div style="color: #666; font-size: 11px;">Split into sub-components ✓</div>
+</div>
+<div style="background: #1a1a2e; padding: 10px; border-radius: 6px;">
+<div style="color: #fbbf24; font-size: 12px;">📁 CompetitionTab.tsx</div>
+<div style="color: #888; font-size: 14px;">~200 lines</div>
+<div style="color: #666; font-size: 11px;">Main dashboard view</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="options" data-multiselect>
+<div class="option" data-choice="strategy-split" onclick="toggleSelect(this)">
+<div class="letter">1</div>
+<div class="content">
+<h3>Stratégia Split</h3>
+<p>Minden stratégia külön fájl → könnyebb debug és tuning</p>
+<p style="color: #666; font-size: 11px;">Priority: HIGH (Fair Value, Oracle Lag fix)</p>
+</div>
+</div>
+<div class="option" data-choice="ui-extend" onclick="toggleSelect(this)">
+<div class="letter">2</div>
+<div class="content">
+<h3>UI Extend</h3>
+<p>BotCard bővítés + Live Log panel + Diagnostics</p>
+<p style="color: #666; font-size: 11px;">Priority: HIGH (láthatóság javítása)</p>
+</div>
+</div>
+<div class="option" data-choice="event-system" onclick="toggleSelect(this)">
+<div class="letter">3</div>
+<div class="content">
+<h3>Event System</h3>
+<p>Central EventBus → Trade events → Real-time UI update</p>
+<p style="color: #666; font-size: 11px;">Priority: MEDIUM (architectural foundation)</p>
+</div>
+</div>
+<div class="option" data-choice="config-system" onclick="toggleSelect(this)">
+<div class="letter">4</div>
+<div class="content">
+<h3>Config System</h3>
+<p>Stratégia threshold-ok konfigurálható → runtime tuning</p>
+<p style="color: #666; font-size: 11px;">Priority: LOW (nice to have)</p>
+</div>
+</div>
+</div>
+
+<div class="section" style="margin-top: 20px;">
+<h3>📝 Prioritási Sorrend Példák</h3>
+<div style="background: #0a0a1a; padding: 10px; border-radius: 6px;">
+<p style="color: #888; font-size: 12px;">Példa A (Gyors fix): 1 → 2 (stratégia split + UI extend)</p>
+<p style="color: #888; font-size: 12px;">Példa B (Holistic): 1 → 3 → 2 → 4 (teljes architektúra)</p>
+<p style="color: #888; font-size: 12px;">Példa C (UI-first): 2 → 1 → 3 (láthatóság → stratégia → event)</p>
+</div>
+</div>
+
+<p style="color: #fbbf24; font-size: 14px; margin-top: 20px;">⌨️ Írd be a prioritási sorrendet (pl. "1,2,3" vagy "2,1") vagy válassz multiple</p>
