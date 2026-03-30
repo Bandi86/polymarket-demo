@@ -16,6 +16,10 @@ export interface StrategyThresholds {
   minTimeRemaining?: number; // Min time before market close (ms)
   maxTimeRemaining?: number; // Max time from market start (ms)
   signalMaxAge?: number;    // Max signal age for oracle strategies (ms)
+  // Odds range filters - CRITICAL for profitability
+  minOdds?: number;         // Minimum odds to enter trade (0-1 scale)
+  maxOdds?: number;         // Maximum odds to enter trade (0-1 scale)
+  avoidMiddle?: boolean;    // Avoid 40-60¢ "fair value" zone (default: true)
 }
 
 /**

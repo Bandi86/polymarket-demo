@@ -13,6 +13,8 @@ export {
   confirmExecution,
   cancelDecision,
   buildDecisionContext,
+  calculate7FactorConfidence,
+  checkStrategyOdds,
   type MarketInfo,
   type TradeDecision,
   type StrategyExecutionResult,

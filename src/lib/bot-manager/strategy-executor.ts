@@ -6,10 +6,12 @@ import { strategies } from "../strategies";
 import { marketEngine } from "../market-engine";
 import { priceService } from "../price";
 import { binanceKlineProvider } from "../providers/binance-kline-provider";
+import { tickTrendAnalyzer } from "../providers/tick-trend-analyzer";
 import { riskManager } from "../risk-manager";
 import { strategyCoordinator } from "../strategy-coordinator";
 import { polymarketProvider } from "../providers/polymarket-provider";
 import { strategyConfig } from "../strategies/config";
+import { checkOddsRange } from "../strategies/base";
 
 export interface MarketInfo {
   id: string;
@@ -54,6 +56,9 @@ export function buildStrategyContext(market: MarketInfo): StrategyContext {
   const priceHistory = yesPriceHistory.map((p) => p.price);
   const timeRemaining = market.endTime - Date.now();
   const totalDuration = market.endTime - market.startTime;
+
+  // Update tick trend analyzer with current price
+  tickTrendAnalyzer.addTick(yesPrice);
 
   // Calculate volatility from YES price changes
   let volatility = 0;
@@ -130,7 +135,9 @@ export function buildStrategyContext(market: MarketInfo): StrategyContext {
 }
 
 /**
- * Calculate bet size using Kelly criterion
+ * Calculate bet size using Kelly criterion with odds-aware adjustments
+ * Key insight: Higher odds (60-80¢) have higher win rate, can afford larger bets
+ * Lower odds (0-20¢) are lottery tickets, smaller bets
  */
 export function calculateBetSize(
   bot: BotConfig,
@@ -140,6 +147,22 @@ export function calculateBetSize(
   balance: number
 ): number {
   let betSize = bot.betSize;
+
+  // Get the odds we're buying at
+  const odds = action === "YES" ? yesPrice : noPrice;
+
+  // Odds-aware multiplier
+  // At 60-80¢: 1.2x (higher win rate, can bet more)
+  // At 80-95¢: 0.8x (still high win rate but less upside)
+  // At 5-40¢: 0.5x (lottery tickets, bet less)
+  let oddsMultiplier = 1.0;
+  if (odds >= 0.60 && odds <= 0.80) {
+    oddsMultiplier = 1.2; // Sweet spot - boost bet size
+  } else if (odds > 0.80) {
+    oddsMultiplier = 0.8; // Expensive - reduce bet
+  } else if (odds < 0.40) {
+    oddsMultiplier = 0.5; // Cheap/lottery - reduce bet significantly
+  }
 
   if (bot.useKelly || bot.useKelly === undefined) {
     // Use historical win rate if available
@@ -156,8 +179,8 @@ export function calculateBetSize(
     const q = 1 - winProbability;
     const kellyFraction = (winProbability * netOdds - q) / netOdds;
 
-    // Apply half-Kelly and user's fraction
-    const adjustedKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5));
+    // Apply half-Kelly and user's fraction, plus odds multiplier
+    const adjustedKelly = Math.max(0, kellyFraction * 0.5 * (bot.kellyFraction || 0.5) * oddsMultiplier);
     const kellyBet = balance * adjustedKelly;
 
     // Cap at maxBet percentage
@@ -169,10 +192,10 @@ export function calculateBetSize(
     // Minimum $1 bet
     betSize = Math.max(1, betSize);
   } else {
-    // No Kelly - percentage-based
+    // No Kelly - percentage-based with odds multiplier
     const maxBetPercent = bot.maxBet || 0.25;
     const maxBetAmount = balance * maxBetPercent;
-    betSize = Math.min(bot.betSize, maxBetAmount);
+    betSize = Math.min(bot.betSize * oddsMultiplier, maxBetAmount);
     // Minimum $1 bet
     betSize = Math.max(1, betSize);
   }
@@ -416,4 +439,129 @@ export function buildDecisionContext(
     finalBetSize,
     balanceAtDecision: bot.portfolio?.balance || 0,
   };
+}
+
+/**
+ * Calculate 7-factor confidence score
+ * Normalizes multiple signals into a single confidence value
+ */
+export function calculate7FactorConfidence(
+  context: StrategyContext,
+  action: Outcome,
+  thresholds: Record<string, unknown>
+): { score: number; factors: Record<string, number> } {
+  let score = 0;
+  let totalWeight = 0;
+  const factors: Record<string, number> = {};
+
+  // 1. Window Delta (weight: 5)
+  const btcPrice = context.btcPrice ?? 0;
+  const btcWindowOpen = context.btcWindowOpen ?? btcPrice;
+  const btcDelta = btcWindowOpen > 0
+    ? Math.abs(((btcPrice - btcWindowOpen) / btcWindowOpen) * 100)
+    : 0;
+  const deltaMatches = (action === "YES" && btcPrice > btcWindowOpen) ||
+                       (action === "NO" && btcPrice < btcWindowOpen);
+  let deltaScore = 0;
+  if (deltaMatches) {
+    if (btcDelta > 0.10) deltaScore = 5;
+    else if (btcDelta > 0.07) deltaScore = 4;
+    else if (btcDelta > 0.04) deltaScore = 3;
+    else if (btcDelta > 0) deltaScore = 2;
+  }
+  factors.windowDelta = deltaScore / 5;
+  score += deltaScore;
+  totalWeight += 5;
+
+  // 2. Binance Signal (weight: 4)
+  let binanceScore = 0;
+  if (context.binanceSignal && context.binanceSignal.type !== "NEUTRAL") {
+    const signalMatches = (context.binanceSignal.type === "UP" && action === "YES") ||
+                          (context.binanceSignal.type === "DOWN" && action === "NO");
+    if (signalMatches) {
+      binanceScore = 4 * context.binanceSignal.confidence;
+    }
+  }
+  factors.binanceSignal = binanceScore / 4;
+  score += binanceScore;
+  totalWeight += 4;
+
+  // 3. Tick Trend (weight: 3)
+  const tickTrend = tickTrendAnalyzer.getTrend();
+  let tickScore = 0;
+  if (tickTrend.direction !== "NEUTRAL") {
+    const trendMatches = (tickTrend.direction === "UP" && action === "YES") ||
+                         (tickTrend.direction === "DOWN" && action === "NO");
+    if (trendMatches && tickTrend.consistency >= 0.6) {
+      tickScore = 3 * tickTrend.consistency;
+    }
+  }
+  factors.tickTrend = tickScore / 3;
+  score += tickScore;
+  totalWeight += 3;
+
+  // 4. Time Remaining (weight: 2)
+  let timeScore = 0;
+  if (context.timeRemaining < 30000 && context.timeRemaining > 5000) {
+    timeScore = 2; // Sweet spot for T-10 strategies
+  } else if (context.timeRemaining > 60000) {
+    timeScore = 1; // Early in market
+  }
+  factors.timeRemaining = timeScore / 2;
+  score += timeScore;
+  totalWeight += 2;
+
+  // 5. Odds Position (weight: 2)
+  const odds = action === "YES" ? context.marketPrice.yesPrice : context.marketPrice.noPrice;
+  let oddsScore = 0;
+  // Reward extreme odds (avoiding middle)
+  if (odds > 0.70 || odds < 0.30) {
+    oddsScore = 2;
+  } else if (odds > 0.60 || odds < 0.40) {
+    oddsScore = 1;
+  }
+  factors.oddsPosition = oddsScore / 2;
+  score += oddsScore;
+  totalWeight += 2;
+
+  // 6. Momentum (weight: 1)
+  let momentumScore = 0;
+  if (Math.abs(context.momentum) > 0.01) {
+    const momentumMatches = (context.momentum > 0 && action === "YES") ||
+                            (context.momentum < 0 && action === "NO");
+    if (momentumMatches) momentumScore = 1;
+  }
+  factors.momentum = momentumScore;
+  score += momentumScore;
+  totalWeight += 1;
+
+  // 7. Volatility (weight: 1)
+  let volatilityScore = 0;
+  if (context.volatility < 0.02) {
+    volatilityScore = 1; // Prefer low volatility
+  }
+  factors.volatility = volatilityScore;
+  score += volatilityScore;
+  totalWeight += 1;
+
+  // Normalize to 0-1
+  const normalizedScore = totalWeight > 0 ? score / totalWeight : 0;
+
+  return { score: normalizedScore, factors };
+}
+
+/**
+ * Check if odds are in acceptable range for strategy
+ */
+export function checkStrategyOdds(
+  action: Outcome,
+  yesPrice: number,
+  noPrice: number,
+  strategy: StrategyType
+): { valid: boolean; reason?: string; odds: number } {
+  const odds = action === "YES" ? yesPrice : noPrice;
+  const thresholds = strategyConfig[strategy];
+
+  const result = checkOddsRange(odds, thresholds);
+  return { ...result, odds };
 }

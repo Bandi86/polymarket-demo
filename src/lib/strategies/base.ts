@@ -18,6 +18,35 @@ export function checkPriceLimits(
 }
 
 /**
+ * Check if odds are within acceptable range for the strategy
+ * CRITICAL: Avoid 40-60¢ "fair value" zone which is a loss leader
+ */
+export function checkOddsRange(
+  odds: number,
+  thresholds: StrategyThresholds
+): { valid: boolean; reason?: string } {
+  // Avoid middle zone (40-60¢) if configured
+  if (thresholds.avoidMiddle !== false) {  // Default to true
+    if (odds >= 0.40 && odds <= 0.60) {
+      return { valid: false, reason: `Odds in loss zone (${(odds * 100).toFixed(0)}¢)` };
+    }
+  }
+
+  // Check min/max odds
+  const minOdds = thresholds.minOdds ?? 0;
+  const maxOdds = thresholds.maxOdds ?? 1;
+
+  if (odds < minOdds) {
+    return { valid: false, reason: `Odds too low (${(odds * 100).toFixed(0)}¢ < ${(minOdds * 100).toFixed(0)}¢)` };
+  }
+  if (odds > maxOdds) {
+    return { valid: false, reason: `Odds too high (${(odds * 100).toFixed(0)}¢ > ${(maxOdds * 100).toFixed(0)}¢)` };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Check if time remaining is within acceptable range
  * Returns true if time is between min and max time remaining
  */

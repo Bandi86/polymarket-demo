@@ -31,6 +31,8 @@ import {
   executeLiveTrade as executeLiveTradeFn,
   botEventBus,
   buildDecisionContext,
+  calculate7FactorConfidence,
+  checkStrategyOdds,
 } from "./bot-manager/index";
 
 // Re-export TradingMode type for backward compatibility
@@ -569,13 +571,33 @@ export class BotManager {
       return;
     }
 
+    // CRITICAL: Check odds range - avoid 40-60¢ loss zone
+    const oddsCheck = checkStrategyOdds(action, yesPrice, noPrice, bot.strategy);
+    if (!oddsCheck.valid) {
+      this.addLog(id, "ODDS", `Odds blocked: ${oddsCheck.reason}`, {
+        action,
+        odds: oddsCheck.odds,
+        yesPrice,
+        noPrice,
+        reason: oddsCheck.reason,
+      });
+      return;
+    }
+
+    // Calculate 7-factor confidence for enhanced scoring
+    const confidenceResult = calculate7FactorConfidence(context, action, { ...strategyConfig[bot.strategy] });
+    const enhancedConfidence = (decision.confidence + confidenceResult.score) / 2;
+
     // Log the decision to trade
     this.addLog(id, "DECISION", `Trade decision: ${action} - ${decision.reason}`, {
       action,
       confidence: decision.confidence,
+      enhancedConfidence,
+      factors: confidenceResult.factors,
       reason: decision.reason,
       yesPrice,
       noPrice,
+      odds: oddsCheck.odds,
       timeRemaining: context.timeRemaining,
       volatility: context.volatility.toFixed(4),
       momentum: context.momentum.toFixed(4),
@@ -586,12 +608,12 @@ export class BotManager {
     const portfolio = marketEngine.getBotPortfolio(id);
     let betSize = calculateBetSize(bot, action, yesPrice, noPrice, portfolio.balance);
 
-    // Adjust bet size based on confidence
-    betSize = betSize * (0.5 + decision.confidence * 0.5);
+    // Adjust bet size based on ENHANCED confidence (not original)
+    betSize = betSize * (0.5 + enhancedConfidence * 0.5);
     betSize = Math.max(1, betSize); // Minimum $1 bet
 
     // Risk check: Can open position?
-    const riskCheck = riskManager.canOpenPosition(id, betSize, decision.confidence);
+    const riskCheck = riskManager.canOpenPosition(id, betSize, enhancedConfidence);
     if (!riskCheck.allowed) {
       this.addLog(id, "RISK", `Trade blocked: ${riskCheck.reason}`, {
         betSize,

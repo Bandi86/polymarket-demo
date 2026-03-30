@@ -2,16 +2,10 @@
 // Handles logging for bot activities
 
 import { generateId } from "../utils";
+import type { BotLog as BotLogType } from "../../types/session.types";
 
-export interface BotLog {
-  id: string;
-  botId: string;
-  botName: string;
-  type: "START" | "STOP" | "TRADE" | "DECISION" | "ERROR" | "RISK" | "COMPETITION" | "COORD" | "SETTLED" | "LIVE_RISK";
-  message: string;
-  details?: Record<string, unknown>;
-  timestamp: number;
-}
+// Re-export the type for backward compatibility
+export type BotLog = BotLogType;
 
 export class BotLogger {
   private logs: BotLog[] = [];
