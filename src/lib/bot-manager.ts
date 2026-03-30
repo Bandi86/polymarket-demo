@@ -680,6 +680,24 @@ export class BotManager {
           riskCheck
         );
 
+        // Ensure market exists in DB before saving position (required for foreign key constraint)
+        dbService.saveMarket({
+          id: market.id,
+          question: market.question || "BTC Prediction Market",
+          description: market.description || "",
+          startTime: market.startTime,
+          endTime: market.endTime,
+          startPrice: market.startPrice || 0.5,
+          endPrice: null,
+          status: "active",
+          result: null,
+          outcomeYes: parseFloat(market.outcomePrices?.yes || "0.5"),
+          outcomeNo: parseFloat(market.outcomePrices?.no || "0.5"),
+          volume: 0,
+          liquidity: 0,
+          category: "Crypto",
+        }).catch(e => console.error("[BotManager] DB market save error:", e));
+
         // Save position with decision context to DB
         dbService.savePosition({
           id: position.id,
