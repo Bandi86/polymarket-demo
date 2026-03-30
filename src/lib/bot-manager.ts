@@ -775,7 +775,7 @@ export class BotManager {
     botId: string,
     market: Market,
     action: Outcome,
-    confidence: number,
+    _confidence: number, // Reserved for future use (Kelly sizing in live mode)
     betSize: number
   ): Promise<void> {
     await executeLiveTradeFn(botId, market, action, betSize, (type, message, details) => {
