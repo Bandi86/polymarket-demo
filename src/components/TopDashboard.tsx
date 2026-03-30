@@ -37,6 +37,9 @@ interface TopDashboardProps {
   // Positions
   openPositionsCount: number;
   openPositionsValue: number;
+  openPositions?: Array<{ outcome: string; stake: number }>;
+  // Bot logs for historical trade tracking
+  botLogs?: Array<{ type: string; details?: { outcome?: string; action?: string; amount?: number; stake?: number } }>;
   // Tabs
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
@@ -52,6 +55,9 @@ interface TopDashboardProps {
   // Live balance from Polymarket
   liveBalance?: LiveBalance;
   onRefreshLiveBalance?: () => Promise<void>;
+  // BTC data for enhanced stats
+  btcPrice?: number;
+  btcWindowOpen?: number;
 }
 
 export function TopDashboard({
@@ -70,6 +76,8 @@ export function TopDashboard({
   competition,
   openPositionsCount,
   openPositionsValue,
+  openPositions,
+  botLogs,
   activeTab,
   onTabChange,
   selectedAsset,
@@ -81,6 +89,8 @@ export function TopDashboard({
   setTradingMode,
   liveBalance,
   onRefreshLiveBalance,
+  btcPrice,
+  btcWindowOpen,
 }: TopDashboardProps) {
 
   // Deposit modal state
@@ -97,6 +107,10 @@ export function TopDashboard({
     tradingMode,
     liveBalance,
     setTradingMode,
+    openPositions,
+    botLogs,
+    btcPrice,
+    btcWindowOpen,
   });
 
   // Use local timer for smooth countdown
@@ -203,6 +217,11 @@ export function TopDashboard({
           onQuickRun={handleQuickRun}
           tradingMode={tradingMode}
           setTradingMode={setTradingMode}
+          totalStake={state.totalStake}
+          yesTrades={state.yesTrades}
+          noTrades={state.noTrades}
+          btcPrice={btcPrice}
+          btcDelta={state.btcDelta}
         />
 
         {/* ROW 3: Tab Navigation */}

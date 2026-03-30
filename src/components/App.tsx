@@ -349,6 +349,8 @@ export function App() {
         competition={competition}
         openPositionsCount={openPositionsCount}
         openPositionsValue={openPositionsValue}
+        openPositions={portfolio?.positions?.filter(p => p.status === 'open').map(p => ({ outcome: p.outcome, stake: p.stake || 0 }))}
+        botLogs={botLogs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         selectedAsset={selectedAsset}
@@ -360,6 +362,8 @@ export function App() {
         setTradingMode={setTradingMode}
         liveBalance={liveBalance}
         onRefreshLiveBalance={fetchLiveBalance}
+        btcPrice={marketData?.spotPrice}
+        btcWindowOpen={marketData?.priceToBeat}
       />
 
       <div style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "1.5rem", position: "relative", flex: 1 }}>

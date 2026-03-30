@@ -2,7 +2,7 @@ import { Clock, Play, Square } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { CircularTimer, BotRunTimer } from "@/components/ui/CircularTimer";
 import { QUICK_RUN_OPTIONS } from "@/components/dashboard";
-import { formatTimeRemaining, formatDurationMs } from "./useTopDashboardState";
+import { formatTimeRemaining } from "./useTopDashboardState";
 import type { MarketData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
 import { RefreshCw } from "lucide-react";
 
@@ -34,11 +34,18 @@ interface MarketInfoPanelProps {
   onQuickRun: (durationMinutes: number) => Promise<void>;
   tradingMode: "demo" | "live";
   setTradingMode?: (mode: "demo" | "live") => void;
+  // New props for enhanced stats
+  totalStake?: number;
+  yesTrades?: number;
+  noTrades?: number;
+  btcPrice?: number;
+  btcDelta?: number;
 }
 
 interface BotData {
   id: string;
   name: string;
+  strategy: string;
   enabled: boolean;
   portfolio: {
     balance: number;
@@ -77,6 +84,11 @@ export function MarketInfoPanel({
   onRunAll,
   onStopAll,
   onQuickRun,
+  totalStake = 0,
+  yesTrades = 0,
+  noTrades = 0,
+  btcPrice,
+  btcDelta,
 }: MarketInfoPanelProps) {
   if (!marketData?.market) return null;
 
@@ -261,40 +273,95 @@ export function MarketInfoPanel({
             </div>
           </div>
 
-          {/* Exposure */}
-          {totalExposure > 0 && (
-            <>
-              <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
-              <div>
-                <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exposure</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: "var(--warning)" }}>
-                    {formatCurrency(totalExposure)}
-                  </span>
-                  <span style={{ fontSize: "0.625rem", padding: "0.125rem 0.375rem", borderRadius: 4, background: exposureRatio > 50 ? "rgba(239, 68, 68, 0.15)" : exposureRatio > 25 ? "rgba(245, 158, 11, 0.15)" : "rgba(34, 197, 94, 0.15)", color: exposureRatio > 50 ? "#ef4444" : exposureRatio > 25 ? "#f59e0b" : "#22c55e" }}>
-                    {exposureRatio.toFixed(0)}%
-                  </span>
+          {/* YES/NO Trade Breakdown - Always visible */}
+          <>
+            <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
+            <div>
+              <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Trade Split</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: "#22c55e" }} />
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#22c55e" }}>{yesTrades}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: "#ef4444" }} />
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#ef4444" }}>{noTrades}</span>
+                </div>
+                {/* Visual bar - shows proportion */}
+                <div style={{ width: 60, height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden", display: "flex" }}>
+                  <div style={{ width: `${(yesTrades / Math.max(1, yesTrades + noTrades)) * 100}%`, background: "#22c55e", height: "100%" }} />
+                  <div style={{ width: `${(noTrades / Math.max(1, yesTrades + noTrades)) * 100}%`, background: "#ef4444", height: "100%" }} />
                 </div>
               </div>
-            </>
-          )}
+            </div>
+          </>
 
-          {/* Open Positions */}
-          {openPositionsCount > 0 && (
-            <>
-              <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
-              <div>
-                <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Positions</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: "var(--primary)" }}>{openPositionsCount}</span>
+          {/* Total Stake - Always visible */}
+          <>
+            <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
+            <div>
+              <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Stake</span>
+              <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: totalStake > 0 ? "var(--primary)" : "var(--text-muted)" }}>
+                {formatCurrency(totalStake)}
+              </span>
+            </div>
+          </>
+
+          {/* BTC Delta Indicator - Always visible */}
+          <>
+            <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
+            <div>
+              <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>BTC Delta</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: btcDelta && btcDelta !== 0 ? (btcDelta > 0 ? "#22c55e" : "#ef4444") : "var(--text-muted)" }}>
+                  {btcDelta ? `${btcDelta > 0 ? "+" : ""}${btcDelta.toFixed(3)}%` : "0.000%"}
+                </span>
+                <div style={{
+                  padding: "0.125rem 0.375rem",
+                  borderRadius: 4,
+                  background: btcDelta && btcDelta > 0.05 ? "rgba(34, 197, 94, 0.15)" : btcDelta && btcDelta < -0.05 ? "rgba(239, 68, 68, 0.15)" : "rgba(255,255,255,0.05)",
+                  color: btcDelta && btcDelta > 0.05 ? "#22c55e" : btcDelta && btcDelta < -0.05 ? "#ef4444" : "var(--text-muted)",
+                  fontSize: "0.625rem",
+                  fontWeight: 600
+                }}>
+                  {btcDelta && btcDelta > 0.05 ? "BULL" : btcDelta && btcDelta < -0.05 ? "BEAR" : "FLAT"}
+                </div>
+              </div>
+            </div>
+          </>
+
+          {/* Exposure - Always visible */}
+          <>
+            <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
+            <div>
+              <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exposure</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: totalExposure > 0 ? "var(--warning)" : "var(--text-muted)" }}>
+                  {formatCurrency(totalExposure)}
+                </span>
+                <span style={{ fontSize: "0.625rem", padding: "0.125rem 0.375rem", borderRadius: 4, background: exposureRatio > 50 ? "rgba(239, 68, 68, 0.15)" : exposureRatio > 25 ? "rgba(245, 158, 11, 0.15)" : "rgba(34, 197, 94, 0.15)", color: exposureRatio > 50 ? "#ef4444" : exposureRatio > 25 ? "#f59e0b" : "#22c55e" }}>
+                  {exposureRatio.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          </>
+
+          {/* Open Positions - Always visible */}
+          <>
+            <div style={{ width: 1, background: "var(--border)", height: 32, alignSelf: "center", opacity: 0.5 }} />
+            <div>
+              <span style={{ fontSize: "0.625rem", color: "var(--text-muted)", display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>Positions</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <span style={{ fontSize: "1.25rem", fontWeight: 700, fontFamily: "ui-monospace, monospace", color: openPositionsCount > 0 ? "var(--primary)" : "var(--text-muted)" }}>{openPositionsCount}</span>
+                {openPositionsCount > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}>
                     <span style={{ fontSize: "0.625rem", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.25rem" }}>↑ +${potentialWin.toFixed(0)}</span>
                     <span style={{ fontSize: "0.625rem", color: "#ef4444", display: "flex", alignItems: "center", gap: "0.25rem" }}>↓ -${potentialLoss.toFixed(0)}</span>
                   </div>
-                </div>
+                )}
               </div>
-            </>
-          )}
+            </div>
+          </>
         </div>
 
         {/* Control Buttons */}

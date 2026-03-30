@@ -12,6 +12,12 @@ export interface UseTopDashboardStateProps {
   tradingMode: "demo" | "live";
   liveBalance?: LiveBalance;
   setTradingMode?: (mode: "demo" | "live") => void;
+  // Bot logs for historical trade tracking (contains TRADE entries with outcome)
+  botLogs?: Array<{ type: string; details?: { outcome?: string; action?: string; amount?: number; stake?: number } }>;
+  // Current open positions
+  openPositions?: Array<{ outcome: string; stake: number }>;
+  btcPrice?: number;
+  btcWindowOpen?: number;
 }
 
 export interface TopDashboardState {
@@ -42,6 +48,12 @@ export interface TopDashboardState {
 
   // Market progress
   marketProgress: number;
+
+  // Enhanced stats
+  totalStake: number;
+  yesTrades: number;
+  noTrades: number;
+  btcDelta: number;
 }
 
 export function useTopDashboardState({
@@ -51,6 +63,10 @@ export function useTopDashboardState({
   openPositionsCount,
   openPositionsValue,
   isBotRunning,
+  openPositions = [],
+  botLogs = [],
+  btcPrice,
+  btcWindowOpen,
 }: UseTopDashboardStateProps): TopDashboardState {
   // Bot stats
   const activeBots = bots.filter(b => b.enabled).length;
@@ -109,6 +125,38 @@ export function useTopDashboardState({
     return Math.min(100, Math.max(0, (elapsed / marketData.marketDuration) * 100));
   }, [marketData]);
 
+  // Enhanced stats - computed from bot logs (TRADE entries) and open positions
+  const totalStake = useMemo(() => {
+    // Sum of all TRADE log amounts (historical bot trades)
+    const fromBotLogs = botLogs
+      .filter(log => log.type === "TRADE")
+      .reduce((sum, log) => sum + (log.details?.amount || log.details?.stake || 0), 0);
+    // Plus current open positions stake
+    const fromOpenPositions = openPositions.reduce((sum, p) => sum + (p.stake || 0), 0);
+    return fromBotLogs + fromOpenPositions;
+  }, [botLogs, openPositions]);
+
+  const { yesTrades, noTrades } = useMemo(() => {
+    // Count from bot logs (TRADE entries)
+    const yesFromLogs = botLogs.filter(log =>
+      log.type === "TRADE" &&
+      (log.details?.outcome === "YES" || log.details?.outcome === "UP" || log.details?.action === "YES" || log.details?.action === "UP")
+    ).length;
+    const noFromLogs = botLogs.filter(log =>
+      log.type === "TRADE" &&
+      (log.details?.outcome === "NO" || log.details?.outcome === "DOWN" || log.details?.action === "NO" || log.details?.action === "DOWN")
+    ).length;
+    // Plus current open positions
+    const yesFromOpen = openPositions.filter(p => p.outcome === "YES").length;
+    const noFromOpen = openPositions.filter(p => p.outcome === "NO").length;
+    return { yesTrades: yesFromLogs + yesFromOpen, noTrades: noFromLogs + noFromOpen };
+  }, [botLogs, openPositions]);
+
+  const btcDelta = useMemo(() => {
+    if (!btcPrice || !btcWindowOpen || btcWindowOpen <= 0) return 0;
+    return ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100;
+  }, [btcPrice, btcWindowOpen]);
+
   return {
     activeBots,
     totalBotsBalance,
@@ -126,6 +174,10 @@ export function useTopDashboardState({
     bestTrade,
     runTimeRemaining,
     marketProgress,
+    totalStake,
+    yesTrades,
+    noTrades,
+    btcDelta,
   };
 }
 

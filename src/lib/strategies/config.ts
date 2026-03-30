@@ -6,13 +6,13 @@ import type { StrategyType } from "../../types";
 import type { StrategyThresholds } from "./types";
 
 /**
- * Strategy thresholds - SIGNALS OVER FILTERS
+ * Strategy thresholds - QUALITY OVER QUANTITY
  *
- * Philosophy:
- * - Don't block trades by odds alone
- * - Let strategies decide based on delta, signals, timing
- * - Confidence scoring handles the risk
- * - Higher thresholds = fewer but better quality trades
+ * Lessons from 2-hour test (119 min):
+ * - Winners (Monte Carlo +$5.45, Arbitrage +$1.65): 19 trades, higher thresholds
+ * - Losers (BTC Momentum -$10, etc.): 24 trades, too low thresholds
+ *
+ * Rule: More selective = better win rate = profit
  */
 export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
@@ -20,32 +20,32 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
 
   window_delta: {
-    minDelta: 0.02,        // 0.02% minimum delta
+    minDelta: 0.05,        // Raised from 0.02 - was losing
     minTimeRemaining: 3000,
     maxTimeRemaining: 270000,
   },
 
   binance_signal: {
-    signalMaxAge: 8000,    // Signal must be fresh
+    signalMaxAge: 8000,
     minTimeRemaining: 3000,
-    minDelta: 0.05,        // Fallback delta threshold (raised from 0.02)
+    minDelta: 0.05,        // Fallback delta threshold
   },
 
   last_seconds_scalp: {
-    minDelta: 0.02,        // 0.02% minimum
+    minDelta: 0.05,        // Raised from 0.02
     minTimeRemaining: 4000,
     maxTimeRemaining: 30000,
   },
 
   monte_carlo: {
-    minDelta: 0.02,        // 0.02% minimum
-    minEdge: 0.03,         // 3% edge
+    minDelta: 0.02,        // Winner - keep as is
+    minEdge: 0.03,         // Winner - keep as is
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
   },
 
   fair_value: {
-    minEdge: 0.05,         // 5% edge (raised from 0.02 - was losing)
+    minEdge: 0.07,         // Raised from 0.05 - still losing
     minTimeRemaining: 15000,
   },
 
@@ -54,23 +54,23 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
 
   momentum: {
-    minDelta: 0.02,        // 0.02% minimum
+    minDelta: 0.07,        // Raised from 0.02 - was WORST at -$10
     minTimeRemaining: 30000,
   },
 
   smart_trend: {
     minTimeRemaining: 30000,
-    minDelta: 0.02,        // Added minimum
+    minDelta: 0.05,        // Raised from 0.02
   },
 
   contrarian: {
-    minDelta: 0.05,        // 0.05% minimum (raised from 0.02 - was losing)
+    minDelta: 0.05,        // Keep at 0.05
     minTimeRemaining: 30000,
   },
 
   arbitrage: {
-    minDelta: 0.02,        // 0.02% minimum
-    minEdge: 0.03,         // 3% edge
+    minDelta: 0.02,        // Winner - keep as is
+    minEdge: 0.03,         // Winner - keep as is
     minTimeRemaining: 30000,
     maxTimeRemaining: 240000,
   },
