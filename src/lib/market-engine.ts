@@ -190,7 +190,7 @@ export class MarketEngine {
           status: pos.status,
           pnl: pos.pnl,
           botId: pos.botId || null,
-          botName: pos.botId ? `bot-${pos.botId}` : null,
+          botName: pos.botId || null,
         });
       }
     } catch (error) {
