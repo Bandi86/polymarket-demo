@@ -44,6 +44,19 @@ export interface PositionRow {
   pnl: number | null;
   bot_id: string | null;
   bot_name: string | null;
+  decision_context: string | null;
+  btc_price: number | null;
+  time_remaining: number | null;
+}
+
+export interface SessionLogRow {
+  id: string;
+  session_id: string;
+  bot_id: string;
+  type: string;
+  message: string;
+  details: string | null;
+  timestamp: number;
 }
 
 export interface BotSessionRow {
@@ -62,6 +75,9 @@ export interface BotSessionRow {
   status: string;
   max_drawdown: number;
   sharpe_ratio: number;
+  strategy_config: string | null;
+  bot_config: string | null;
+  session_notes: string | null;
 }
 
 export interface TradeRow {
@@ -212,6 +228,45 @@ export class DatabaseService {
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_positions_bot ON positions(bot_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_bot ON bot_sessions(bot_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id)`);
+
+    // Extend bot_sessions table with new columns (SQLite ALTER TABLE is limited)
+    try {
+      this.db.exec(`ALTER TABLE bot_sessions ADD COLUMN strategy_config TEXT`);
+    } catch { /* column already exists */ }
+    try {
+      this.db.exec(`ALTER TABLE bot_sessions ADD COLUMN bot_config TEXT`);
+    } catch { /* column already exists */ }
+    try {
+      this.db.exec(`ALTER TABLE bot_sessions ADD COLUMN session_notes TEXT`);
+    } catch { /* column already exists */ }
+
+    // Extend positions table with new columns
+    try {
+      this.db.exec(`ALTER TABLE positions ADD COLUMN decision_context TEXT`);
+    } catch { /* column already exists */ }
+    try {
+      this.db.exec(`ALTER TABLE positions ADD COLUMN btc_price REAL`);
+    } catch { /* column already exists */ }
+    try {
+      this.db.exec(`ALTER TABLE positions ADD COLUMN time_remaining INTEGER`);
+    } catch { /* column already exists */ }
+
+    // Create session_logs table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS session_logs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        bot_id TEXT,
+        type TEXT,
+        message TEXT,
+        details TEXT,
+        timestamp INTEGER,
+        FOREIGN KEY (session_id) REFERENCES bot_sessions(id)
+      )
+    `);
+
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_session_logs_session ON session_logs(session_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_session_logs_bot ON session_logs(bot_id)`);
   }
 
   // === Market Operations ===
@@ -290,13 +345,17 @@ export class DatabaseService {
     pnl: number | null;
     botId?: string | null;
     botName?: string | null;
+    decisionContext?: Record<string, unknown>;
+    btcPrice?: number;
+    timeRemaining?: number;
   }): Promise<void> {
     if (!this.db) return;
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO positions
-      (id, market_id, outcome, amount, odds, stake, fee, timestamp, status, pnl, bot_id, bot_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, market_id, outcome, amount, odds, stake, fee, timestamp, status,
+       pnl, bot_id, bot_name, decision_context, btc_price, time_remaining)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -311,7 +370,10 @@ export class DatabaseService {
       position.status,
       position.pnl,
       position.botId || null,
-      position.botName || null
+      position.botName || null,
+      position.decisionContext ? JSON.stringify(position.decisionContext) : null,
+      position.btcPrice ?? null,
+      position.timeRemaining ?? null
     );
   }
 
@@ -358,14 +420,18 @@ export class DatabaseService {
     status: "running" | "completed" | "paused";
     maxDrawdown?: number;
     sharpeRatio?: number;
+    strategyConfig?: Record<string, unknown>;
+    botConfig?: Record<string, unknown>;
+    sessionNotes?: string;
   }): Promise<void> {
     if (!this.db) return;
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO bot_sessions
       (id, bot_id, bot_name, strategy, start_time, end_time, start_balance,
-       end_balance, total_trades, winning_trades, losing_trades, total_pnl, status, max_drawdown, sharpe_ratio)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       end_balance, total_trades, winning_trades, losing_trades, total_pnl,
+       status, max_drawdown, sharpe_ratio, strategy_config, bot_config, session_notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -383,7 +449,10 @@ export class DatabaseService {
       session.totalPnL,
       session.status,
       session.maxDrawdown ?? 0,
-      session.sharpeRatio ?? 0
+      session.sharpeRatio ?? 0,
+      session.strategyConfig ? JSON.stringify(session.strategyConfig) : null,
+      session.botConfig ? JSON.stringify(session.botConfig) : null,
+      session.sessionNotes ?? null
     );
   }
 
@@ -410,6 +479,54 @@ export class DatabaseService {
       "SELECT * FROM bot_sessions ORDER BY start_time DESC LIMIT ?"
     );
     return stmt.all(limit) as BotSessionRow[];
+  }
+
+  // === Session Logs Operations ===
+
+  async saveSessionLog(log: {
+    id: string;
+    sessionId: string;
+    botId: string;
+    type: string;
+    message: string;
+    details?: Record<string, unknown>;
+    timestamp: number;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO session_logs
+      (id, session_id, bot_id, type, message, details, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      log.id,
+      log.sessionId,
+      log.botId,
+      log.type,
+      log.message,
+      log.details ? JSON.stringify(log.details) : null,
+      log.timestamp
+    );
+  }
+
+  async getSessionLogs(sessionId: string): Promise<SessionLogRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM session_logs WHERE session_id = ? ORDER BY timestamp"
+    );
+    return stmt.all(sessionId) as SessionLogRow[];
+  }
+
+  async getBotSessionLogs(botId: string, limit: number = 100): Promise<SessionLogRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM session_logs WHERE bot_id = ? ORDER BY timestamp DESC LIMIT ?"
+    );
+    return stmt.all(botId, limit) as SessionLogRow[];
   }
 
   // === Trade Operations ===
