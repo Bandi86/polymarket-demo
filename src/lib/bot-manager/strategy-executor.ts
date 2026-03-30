@@ -1,7 +1,7 @@
 // Strategy Execution Logic
 // Handles context building, bet sizing, and trade execution for bots
 
-import type { BotConfig, StrategyContext, Outcome, StrategyType } from "../../types";
+import type { BotConfig, StrategyContext, Outcome, StrategyType, DecisionContext } from "../../types";
 import { strategies } from "../strategies";
 import { marketEngine } from "../market-engine";
 import { priceService } from "../price";
@@ -9,6 +9,7 @@ import { binanceKlineProvider } from "../providers/binance-kline-provider";
 import { riskManager } from "../risk-manager";
 import { strategyCoordinator } from "../strategy-coordinator";
 import { polymarketProvider } from "../providers/polymarket-provider";
+import { strategyConfig } from "../strategies/config";
 
 export interface MarketInfo {
   id: string;
@@ -342,4 +343,77 @@ export function confirmExecution(marketId: string, botId: string, action: Outcom
  */
 export function cancelDecision(marketId: string, botId: string): void {
   strategyCoordinator.cancelDecision(marketId, botId);
+}
+
+/**
+ * Build full decision context for logging
+ */
+export function buildDecisionContext(
+  bot: BotConfig,
+  context: StrategyContext,
+  decision: { action: Outcome; confidence: number; reason?: string },
+  rawBetSize: number,
+  finalBetSize: number,
+  riskCheck: { allowed: boolean; reason?: string }
+): DecisionContext {
+  // Get thresholds used for this strategy
+  const thresholds = strategyConfig[bot.strategy] || {};
+  const thresholdsUsed: Record<string, number> = {};
+  for (const [key, value] of Object.entries(thresholds)) {
+    if (typeof value === "number") {
+      thresholdsUsed[key] = value;
+    }
+  }
+
+  // Calculate BTC delta
+  const btcPrice = context.btcPrice ?? 0;
+  const btcWindowOpen = context.btcWindowOpen ?? btcPrice;
+  const btcDelta = btcWindowOpen > 0
+    ? ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100
+    : 0;
+
+  // Map binanceSignal type
+  let binanceSignalMapped: DecisionContext["binanceSignal"] = undefined;
+  if (context.binanceSignal) {
+    const signalType = context.binanceSignal.type === "UP" ? "bullish" as const :
+                       context.binanceSignal.type === "DOWN" ? "bearish" as const : undefined;
+    if (signalType) {
+      binanceSignalMapped = {
+        type: signalType,
+        changePercent: context.binanceSignal.changePercent,
+        confidence: context.binanceSignal.confidence,
+        age: Date.now() - context.binanceSignal.timestamp,
+      };
+    }
+  }
+
+  // Build decision context
+  return {
+    strategy: bot.strategy,
+    action: decision.action,
+    confidence: decision.confidence,
+    reason: decision.reason || "No reason provided",
+
+    yesPrice: context.marketPrice.yesPrice,
+    noPrice: context.marketPrice.noPrice,
+    btcPrice,
+    btcDelta,
+    timeRemaining: context.timeRemaining,
+    marketDuration: context.marketDuration,
+
+    // Strategy-specific signals
+    binanceSignal: binanceSignalMapped,
+
+    windowDelta: bot.strategy === "window_delta" ? btcDelta : undefined,
+    edge: thresholdsUsed.minEdge || undefined,
+
+    thresholdsUsed,
+
+    riskChecksPassed: riskCheck.allowed,
+    kellyFractionUsed: bot.useKelly ? bot.kellyFraction : undefined,
+
+    rawBetSize,
+    finalBetSize,
+    balanceAtDecision: bot.portfolio?.balance || 0,
+  };
 }

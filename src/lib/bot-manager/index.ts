@@ -12,6 +12,7 @@ export {
   checkCoordination,
   confirmExecution,
   cancelDecision,
+  buildDecisionContext,
   type MarketInfo,
   type TradeDecision,
   type StrategyExecutionResult,
