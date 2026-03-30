@@ -19,27 +19,28 @@ export function checkPriceLimits(
 
 /**
  * Check if odds are within acceptable range for the strategy
- * CRITICAL: Avoid 40-60¢ "fair value" zone which is a loss leader
+ * CRITICAL: Avoid 45-55¢ "very fair" zone which is lowest edge
+ * But allow 35-45¢ and 55-65¢ for directional trades
  */
 export function checkOddsRange(
   odds: number,
   thresholds: StrategyThresholds
 ): { valid: boolean; reason?: string } {
-  // Avoid middle zone (40-60¢) if configured
+  // Avoid very middle zone (45-55¢) if configured - this is where edge is lowest
   if (thresholds.avoidMiddle !== false) {  // Default to true
-    if (odds >= 0.40 && odds <= 0.60) {
-      return { valid: false, reason: `Odds in loss zone (${(odds * 100).toFixed(0)}¢)` };
+    if (odds >= 0.45 && odds <= 0.55) {
+      return { valid: false, reason: `Odds too close to 50¢ (${(odds * 100).toFixed(0)}¢)` };
     }
   }
 
-  // Check min/max odds
-  const minOdds = thresholds.minOdds ?? 0;
-  const maxOdds = thresholds.maxOdds ?? 1;
+  // Check min/max odds if specified
+  const minOdds = thresholds.minOdds;
+  const maxOdds = thresholds.maxOdds;
 
-  if (odds < minOdds) {
+  if (minOdds !== undefined && odds < minOdds) {
     return { valid: false, reason: `Odds too low (${(odds * 100).toFixed(0)}¢ < ${(minOdds * 100).toFixed(0)}¢)` };
   }
-  if (odds > maxOdds) {
+  if (maxOdds !== undefined && odds > maxOdds) {
     return { valid: false, reason: `Odds too high (${(odds * 100).toFixed(0)}¢ > ${(maxOdds * 100).toFixed(0)}¢)` };
   }
 
