@@ -11,6 +11,7 @@ import { strategyCoordinator, CoordinatorConfig } from "./strategy-coordinator";
 import { analyticsService } from "./analytics";
 import { binanceKlineProvider, BinanceKlineProvider, KlineProviderConfig } from "./providers/binance-kline-provider";
 import { polymarketProvider, PolymarketProvider } from "./providers/polymarket-provider";
+import { sessionSummaryGenerator, SessionSummaryGenerator } from "./session-summary-generator";
 
 // Note: StrategyCoordinator class is not exported, only the singleton
 // AnalyticsService is not a class, just an object with functions
@@ -63,6 +64,10 @@ export function getBinanceKlineProvider(): BinanceKlineProvider {
 
 export function getPolymarketProvider(): PolymarketProvider {
   return polymarketProvider;
+}
+
+export function getSessionSummaryGenerator(): SessionSummaryGenerator {
+  return sessionSummaryGenerator;
 }
 
 // === SSE Broadcasting ===
@@ -224,4 +229,5 @@ export {
   analyticsService,
   binanceKlineProvider,
   polymarketProvider,
+  sessionSummaryGenerator,
 };
