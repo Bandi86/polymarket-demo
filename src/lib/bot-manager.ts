@@ -8,17 +8,19 @@ import type {
   Outcome,
   TradingMode,
   Market,
+  RiskMetrics,
 } from "../types";
 import { marketEngine } from "./market-engine";
 import { dbService } from "./database";
 import { generateId, clamp } from "./utils";
-import { riskManager } from "./risk-manager";
+import { riskManager, RiskMetricsCalculator } from "./risk-manager";
 import { strategyCoordinator } from "./strategy-coordinator";
 import { parameterOptimizer } from "./parameter-optimizer";
 import { polymarketProvider } from "./providers/polymarket-provider";
 import { liveModeManager } from "./live-mode-manager";
 import { broadcastToSSE } from "./global";
 import { strategies } from "./strategies";
+import { strategyConfig } from "./strategies/config";
 import {
   BotLogger,
   type BotLog,
@@ -28,6 +30,7 @@ import {
   calculateBetSize,
   executeLiveTrade as executeLiveTradeFn,
   botEventBus,
+  buildDecisionContext,
 } from "./bot-manager/index";
 
 // Re-export TradingMode type for backward compatibility
@@ -50,6 +53,7 @@ export class BotManager {
   private logger: BotLogger;
   private competitionManager: CompetitionManager;
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
+  private metricsCalculators: Map<string, RiskMetricsCalculator> = new Map();
 
   // Trading mode: demo (simulated) or live (real Polymarket trades)
   private tradingMode: TradingMode = "demo";
@@ -335,6 +339,9 @@ export class BotManager {
     };
     this.currentSessions.set(id, session);
 
+    // Initialize metrics calculator for this session
+    this.metricsCalculators.set(id, new RiskMetricsCalculator());
+
     // Log bot start
     this.addLog(id, "START", `Bot started - Strategy: ${bot.strategy}, Interval: ${bot.interval}ms`, {
       strategy: bot.strategy,
@@ -420,6 +427,9 @@ export class BotManager {
       }
     }
 
+    // Clean up metrics calculator
+    this.metricsCalculators.delete(id);
+
     // Only clear runTime - do NOT clear enabled flag as it may be set by caller
     const bot = this.bots.get(id);
     if (bot) {
@@ -428,7 +438,34 @@ export class BotManager {
     }
   }
 
-  private saveBotSessionToDB(session: BotSession, _bot?: BotConfig | null): void {
+  private saveBotSessionToDB(session: BotSession, bot?: BotConfig | null): void {
+    // Get risk metrics
+    const metricsCalc = this.metricsCalculators.get(session.botId);
+    const metrics: RiskMetrics = metricsCalc ? metricsCalc.getMetrics() : {
+      maxDrawdown: 0,
+      sharpeRatio: 0,
+      winRate: 0,
+      profitFactor: 0,
+      avgWin: 0,
+      avgLoss: 0,
+      bestTrade: 0,
+      worstTrade: 0,
+      longestWinStreak: 0,
+      longestLossStreak: 0,
+    };
+
+    // Get strategy config
+    const strategyConf: Record<string, unknown> = bot ? { ...strategyConfig[bot.strategy] } : {};
+
+    // Get bot config
+    const botConf = bot ? {
+      betSize: bot.betSize,
+      maxBet: bot.maxBet,
+      useKelly: bot.useKelly,
+      kellyFraction: bot.kellyFraction,
+      interval: bot.interval,
+    } : {};
+
     dbService.saveBotSession({
       id: session.id,
       botId: session.botId,
@@ -443,8 +480,10 @@ export class BotManager {
       losingTrades: session.losingTrades,
       totalPnL: session.totalPnL,
       status: session.status,
-      maxDrawdown: 0,
-      sharpeRatio: 0,
+      maxDrawdown: metrics.maxDrawdown,
+      sharpeRatio: metrics.sharpeRatio,
+      strategyConfig: strategyConf,
+      botConfig: botConf,
     }).catch((e) => console.error("[BotManager] DB save error:", e));
   }
 
@@ -624,6 +663,42 @@ export class BotManager {
       // DEMO MODE: Use simulated market engine
       const position = marketEngine.placeTrade(action, finalBetSize, id);
       if (position) {
+        // Record balance for drawdown tracking
+        const metricsCalc = this.metricsCalculators.get(id);
+        if (metricsCalc) {
+          const newBalance = portfolio.balance - finalBetSize - adjustedFee;
+          metricsCalc.recordBalance(newBalance);
+        }
+
+        // Build and save decision context
+        const decisionContext = buildDecisionContext(
+          bot,
+          context,
+          { action, confidence: decision.confidence, reason: decision.reason },
+          betSize,
+          finalBetSize,
+          riskCheck
+        );
+
+        // Save position with decision context to DB
+        dbService.savePosition({
+          id: position.id,
+          marketId: market.id,
+          outcome: position.outcome,
+          amount: position.amount,
+          odds: position.odds,
+          stake: position.stake,
+          fee: position.fee,
+          timestamp: position.timestamp,
+          status: "open",
+          pnl: null,
+          botId: id,
+          botName: bot.name,
+          decisionContext: decisionContext as unknown as Record<string, unknown>,
+          btcPrice: context.btcPrice,
+          timeRemaining: context.timeRemaining,
+        }).catch(e => console.error("[BotManager] DB save error:", e));
+
         // Confirm execution with coordinator
         strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
 
