@@ -173,6 +173,11 @@ export async function initializeServices(): Promise<void> {
         marketResult: data.marketResult,
       });
 
+      // Record settlement for metrics tracking
+      if (data.position.botId) {
+        botManager.recordSettlement(data.position.botId, data.won, data.pnl);
+      }
+
       // Add bot log for SETTLED event (triggers notifications in frontend)
       if (data.position.botId) {
         botManager.addLog(

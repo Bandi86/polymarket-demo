@@ -25,6 +25,14 @@ export interface PriceProvider {
   destroy?(): void;
 }
 
+export interface BinanceSignal {
+  type: "UP" | "DOWN" | "NEUTRAL";
+  changePercent: number;
+  confidence: number;
+  timestamp: number;
+  predictedOutcome?: "YES" | "NO" | null;
+}
+
 export interface StrategyContext {
   currentPrice: number;
   startPrice: number;
@@ -39,13 +47,7 @@ export interface StrategyContext {
   momentum: number;
   orderBook?: OrderBook;
   // Binance signal data for predictive strategies
-  binanceSignal?: {
-    type: "UP" | "DOWN" | "NEUTRAL";
-    changePercent: number;
-    confidence: number;
-    timestamp: number;
-    predictedOutcome?: "YES" | "NO" | null;
-  };
+  binanceSignal?: BinanceSignal;
   btcPrice?: number;
   btcPriceChange?: number;
   // BTC window open price - the BTC price when the 5-min market window opened

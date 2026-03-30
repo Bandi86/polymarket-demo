@@ -124,6 +124,16 @@ export class BotManager {
     this.logger.clear();
   }
 
+  /** Record settlement result for metrics tracking */
+  recordSettlement(botId: string, won: boolean, pnl: number): void {
+    const metricsCalc = this.metricsCalculators.get(botId);
+    if (metricsCalc) {
+      metricsCalc.recordTradePnl(pnl);
+      metricsCalc.recordTradeResult(won);
+      console.log(`[BotManager] Recorded settlement for ${botId}: ${won ? 'WIN' : 'LOSS'} PnL=$${pnl.toFixed(2)}`);
+    }
+  }
+
   private initDefaultBots(): void {
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
       // === PRIMARY BOTS - These are the winners based on research ===

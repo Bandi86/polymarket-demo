@@ -16,6 +16,7 @@ export type {
   PriceUpdate,
   PriceProvider,
   StrategyContext,
+  BinanceSignal,
 } from "./price.types";
 
 // Bot Types

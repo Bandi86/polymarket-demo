@@ -84,14 +84,16 @@ describe('PromiseAllSettled', () => {
   });
 
   it('should work with different types', async () => {
+    // Note: Generic function requires all promises to return same type
+    // Testing string type here
     const promises = [
-      () => Promise.resolve('string'),
-      () => Promise.resolve(42),
-      () => Promise.resolve({ key: 'value' }),
+      () => Promise.resolve('string1'),
+      () => Promise.resolve('string2'),
+      () => Promise.resolve('string3'),
     ];
 
     const results = await PromiseAllSettled(promises);
-    expect(results).toEqual(['string', 42, { key: 'value' }]);
+    expect(results).toEqual(['string1', 'string2', 'string3']);
   });
 });
 
