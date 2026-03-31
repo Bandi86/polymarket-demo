@@ -222,6 +222,7 @@ export function TopDashboard({
           noTrades={state.noTrades}
           btcPrice={btcPrice}
           btcDelta={state.btcDelta}
+          priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
         />
 
         {/* ROW 3: Tab Navigation */}

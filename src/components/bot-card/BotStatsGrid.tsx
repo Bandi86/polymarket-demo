@@ -1,4 +1,4 @@
-import { Flame, Snowflake } from "lucide-react";
+import { Flame, Snowflake, Zap } from "lucide-react";
 
 interface BotStatsGridProps {
   winRate: number;
@@ -8,6 +8,8 @@ interface BotStatsGridProps {
   currentStreak: { type: "win" | "loss" | "none"; count: number };
   avgTrade: number;
   pnl: number;
+  avgWin?: number;
+  avgLoss?: number;
 }
 
 export function BotStatsGrid({
@@ -18,9 +20,18 @@ export function BotStatsGrid({
   currentStreak,
   avgTrade,
   pnl,
+  avgWin = 0,
+  avgLoss = 0,
 }: BotStatsGridProps) {
-  const avgTradeValue = trades > 0 ? pnl / trades : 0;
-  const isWinning = avgTradeValue >= 0;
+  // Expected Value: EV = (winRate * avgWin) - ((1 - winRate) * avgLoss)
+  const winRateDecimal = winRate / 100;
+  const ev = trades > 0
+    ? (winRateDecimal * avgWin) - ((1 - winRateDecimal) * avgLoss)
+    : 0;
+  const evPositive = ev >= 0;
+
+  // Hot streak gradient border
+  const isHotStreak = currentStreak.type === "win" && currentStreak.count >= 3;
 
   return (
     <div style={{
@@ -32,9 +43,12 @@ export function BotStatsGrid({
       {/* Win Rate */}
       <div style={{
         padding: "0.625rem",
-        background: "rgba(0,0,0,0.2)",
+        background: isHotStreak
+          ? "linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05))"
+          : "rgba(0,0,0,0.2)",
         borderRadius: 8,
         textAlign: "center",
+        border: isHotStreak ? "1px solid rgba(34, 197, 94, 0.3)" : "none",
       }}>
         <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Win Rate</div>
         <div style={{
@@ -68,9 +82,14 @@ export function BotStatsGrid({
       {/* Streak */}
       <div style={{
         padding: "0.625rem",
-        background: "rgba(0,0,0,0.2)",
+        background: currentStreak.type === "win" && currentStreak.count >= 3
+          ? "linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05))"
+          : "rgba(0,0,0,0.2)",
         borderRadius: 8,
         textAlign: "center",
+        border: currentStreak.type === "win" && currentStreak.count >= 3
+          ? "1px solid rgba(245, 158, 11, 0.3)"
+          : "none",
       }}>
         <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Streak</div>
         <div style={{
@@ -89,21 +108,43 @@ export function BotStatsGrid({
         </div>
       </div>
 
-      {/* Avg Trade */}
+      {/* Expected Value (EV) */}
       <div style={{
         padding: "0.625rem",
-        background: "rgba(0,0,0,0.2)",
+        background: trades > 0
+          ? evPositive
+            ? "linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.03))"
+            : "linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.03))"
+          : "rgba(0,0,0,0.2)",
         borderRadius: 8,
         textAlign: "center",
+        border: trades > 0
+          ? evPositive
+            ? "1px solid rgba(34, 197, 94, 0.2)"
+            : "1px solid rgba(239, 68, 68, 0.2)"
+          : "none",
       }}>
-        <div style={{ fontSize: "0.625rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Avg Trade</div>
+        <div style={{
+          fontSize: "0.625rem",
+          color: "var(--text-muted)",
+          marginBottom: "0.25rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.2rem",
+        }}>
+          <Zap style={{ width: 10, height: 10 }} />
+          EV
+        </div>
         <div style={{
           fontWeight: 700,
           fontFamily: "ui-monospace, monospace",
           fontSize: "0.875rem",
-          color: trades > 0 ? (isWinning ? "#22c55e" : "#ef4444") : "var(--text-muted)",
+          color: trades > 0
+            ? evPositive ? "#22c55e" : "#ef4444"
+            : "var(--text-muted)",
         }}>
-          {trades > 0 ? `$${avgTradeValue.toFixed(2)}` : "-"}
+          {trades > 0 ? `${evPositive ? "+" : ""}$${ev.toFixed(2)}` : "-"}
         </div>
       </div>
     </div>

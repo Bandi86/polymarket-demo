@@ -78,6 +78,8 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
         currentStreak={state.currentStreak}
         avgTrade={bot.stats.pnl / Math.max(1, bot.stats.trades)}
         pnl={bot.stats.pnl}
+        avgWin={bot.stats.avgWin}
+        avgLoss={bot.stats.avgLoss}
       />
 
       {/* Open Positions */}
