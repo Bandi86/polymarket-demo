@@ -48,9 +48,11 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
 
   // Open positions stats
   const openPositions = positions.filter(p => p.botId);
-  const openPositionsValue = openPositions.reduce((sum, p) => sum + p.stake, 0);
+  // FIX: openPositionsValue should be total dollars at risk (amount + fee), NOT stake (shares)
+  const openPositionsValue = openPositions.reduce((sum, p) => sum + p.amount + (p.fee || 0), 0);
   const yesPositions = openPositions.filter(p => p.outcome === "YES");
   const noPositions = openPositions.filter(p => p.outcome === "NO");
+  // stake = shares (payout if wins), amount = dollars invested
   const yesStake = yesPositions.reduce((sum, p) => sum + p.stake, 0);
   const noStake = noPositions.reduce((sum, p) => sum + p.stake, 0);
   const yesAmount = yesPositions.reduce((sum, p) => sum + p.amount, 0);

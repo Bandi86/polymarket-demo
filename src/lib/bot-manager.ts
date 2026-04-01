@@ -768,10 +768,13 @@ export class BotManager {
           : parseFloat(market.outcomePrices?.no || "0.5");
 
         this.addLog(id, "TRADE", `Bought ${action} $${finalBetSize.toFixed(2)} @ ${(marketPrice * 100).toFixed(1)}¢`, {
-          action: action,
+          outcome: action, // Use 'outcome' for consistency with ActivityLog/LiveMonitorTab display
+          action: action, // Keep 'action' for backward compatibility
           amount: finalBetSize,
           marketPrice,
           fillPrice: position.odds,
+          odds: position.odds, // Add 'odds' for ActivityLog display
+          price: marketPrice, // Add 'price' for ActivityLog fallback
           slippage: position.odds - marketPrice,
           fee: position.fee,
           positionId: position.id,

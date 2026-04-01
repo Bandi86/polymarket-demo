@@ -83,7 +83,9 @@ export function useBotStatusState({ bot, yesPrice, positions }: UseBotStatusStat
 
   // Bot positions
   const botPositions = useMemo(() => positions.filter(p => p.botId === bot.id), [positions, bot.id]);
-  const positionsValue = useMemo(() => botPositions.reduce((sum, p) => sum + p.stake, 0), [botPositions]);
+  // FIX: positionsValue should be amount at risk (dollars bet), NOT stake (shares)
+  // amount = dollars invested, stake = shares received (amount/odds)
+  const positionsValue = useMemo(() => botPositions.reduce((sum, p) => sum + p.amount + (p.fee || 0), 0), [botPositions]);
 
   // Unrealized PnL
   const unrealizedPnl = useMemo(() => botPositions.reduce((sum, pos) => {
