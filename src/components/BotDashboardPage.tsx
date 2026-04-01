@@ -10,6 +10,7 @@ import { RiskDashboard } from "@/components/RiskDashboard";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettlementStats } from "@/components/SettlementStats";
 import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
 import LiveModeDashboard from "@/components/LiveModeDashboard";
 import { useTradingData } from "@/hooks/useTradingData";
@@ -108,6 +109,7 @@ export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab
 
       {activeTab === 'config' && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <SettlementStats />
           <RiskPanel />
           <TradingModeToggle />
           <SettingsPanel />

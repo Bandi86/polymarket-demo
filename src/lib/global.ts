@@ -12,6 +12,13 @@ import { analyticsService } from "./analytics";
 import { binanceKlineProvider, BinanceKlineProvider, KlineProviderConfig } from "./providers/binance-kline-provider";
 import { polymarketProvider, PolymarketProvider } from "./providers/polymarket-provider";
 import { sessionSummaryGenerator, SessionSummaryGenerator } from "./session-summary-generator";
+import {
+  validateSettlement,
+  recordSettlementValidation,
+  getSettlementStats,
+  type SettlementValidation,
+  type SettlementStats,
+} from "./settlement-validator";
 
 // Note: StrategyCoordinator class is not exported, only the singleton
 // AnalyticsService is not a class, just an object with functions
@@ -252,4 +259,7 @@ export {
   binanceKlineProvider,
   polymarketProvider,
   sessionSummaryGenerator,
+  validateSettlement,
+  recordSettlementValidation,
+  getSettlementStats,
 };

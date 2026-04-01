@@ -5,6 +5,11 @@ import type { Market, Position, Portfolio, MarketHistory, Trade } from "../types
 import { priceService } from "./price";
 import { dbService, type PositionRow } from "./database";
 import { polymarketProvider } from "./providers/polymarket-provider";
+import {
+  validateSettlement,
+  recordSettlementValidation,
+  type SettlementValidation,
+} from "./settlement-validator";
 
 const FEE_RATE = 0.02; // 2%
 const MARKET_PRICE_UPDATE_INTERVAL = 200; // 200ms - faster updates for real-time feel
@@ -560,6 +565,19 @@ export class MarketEngine {
     this.saveToDatabase(market, marketPositions).catch((e) =>
       console.error("[MarketEngine] DB save error:", e)
     );
+
+    // Validate settlement against Polymarket official result (async)
+    validateSettlement(market, btcStartPrice, currentBtcPrice, marketPositions)
+      .then((validation) => {
+        recordSettlementValidation(validation);
+
+        // If there's a discrepancy, we might want to correct the positions
+        if (!validation.matches && validation.positionsAffected.length > 0) {
+          console.warn(`[MarketEngine] Settlement discrepancy detected. Consider implementing correction logic.`);
+          // Future: Implement position correction for live mode
+        }
+      })
+      .catch((e) => console.error("[MarketEngine] Settlement validation error:", e));
 
     // Clear cache to ensure fresh markets are fetched
     polymarketProvider.clearCache();
