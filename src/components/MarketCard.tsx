@@ -139,17 +139,15 @@ export function MarketCard({
           </div>
         </div>
         
-        {priceToBeat && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/20 border border-white/5">
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/20 border border-white/5">
             <div className="flex items-center gap-2 opacity-80">
               <Activity className="w-3.5 h-3.5 text-muted-foreground" />
               <span className="text-[0.7rem] text-muted-foreground">Target to Beat</span>
             </div>
             <span className="font-mono text-[0.85rem] text-muted-foreground font-medium">
-              ${formatPrice(priceToBeat)}
+              ${priceToBeat ? formatPrice(priceToBeat) : "—"}
             </span>
           </div>
-        )}
       </div>
 
       {/* UP/DOWN Buttons - Polymarket style */}

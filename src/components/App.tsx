@@ -14,6 +14,7 @@ import { QuickActions } from "@/components/quick-actions";
 import { OrderBook } from "@/components/OrderBook";
 import { SessionSummaryModal } from "@/components/SessionSummaryModal";
 import { useToastActions } from "@/components/ui/toast";
+import { TradeNotification, SettlementNotification, SessionCompleteNotification } from "@/components/ui/notification-components";
 
 const ASSETS = [
   { id: "BTC", name: "Bitcoin", color: "#f7931a" },
@@ -73,42 +74,57 @@ export function App() {
     // Notify on TRADE (position opened) and SETTLED (position closed/won/lost)
     if (latestLog.type === "TRADE") {
       const details = latestLog.details || {};
-      const outcome = details.outcome as string || details.action as string || "YES";
+      const outcome = (details.outcome as "YES" | "NO") || "YES";
       const amount = details.amount as number || details.stake as number || 0;
-      // Try multiple price fields: odds, price, avgPrice, marketPrice, fillPrice
       const price = details.odds as number || details.price as number || details.avgPrice as number || details.marketPrice as number || details.fillPrice as number || 0;
 
-      const isYes = outcome === "YES" || outcome === "UP";
       playTrade();
 
-      toast.success(
-        `🤖 ${latestLog.botName}`,
-        `${isYes ? "📈" : "📉"} ${isYes ? "Bought UP" : "Bought DOWN"} $${amount.toFixed(2)} @ ${(price * 100).toFixed(1)}¢`
+      // Find bot for additional info
+      const bot = bots.find(b => b.id === latestLog.botId);
+
+      toast.custom(
+        <TradeNotification
+          botName={latestLog.botName}
+          outcome={outcome}
+          amount={amount}
+          price={price}
+          balance={bot?.portfolio?.balance}
+          strategy={bot?.strategy}
+        />,
+        { duration: 4000 }
       );
     } else if (latestLog.type === "SETTLED") {
-      // Notification when a position is settled (won or lost)
       const details = latestLog.details || {};
       const won = details.won as boolean;
       const pnl = details.pnl as number || 0;
       const outcome = details.outcome as string || "YES";
 
-      if (won) {
-        playNotification?.();
-        toast.success(
-          `🎉 ${latestLog.botName} WON!`,
-          `+$${pnl.toFixed(2)} | ${outcome} position settled`
-        );
-      } else {
-        playNotification?.();
-        toast.error(
-          `💔 ${latestLog.botName} LOST`,
-          `${pnl.toFixed(2)} | ${outcome} position settled`
-        );
-      }
-    }
-  }, [botLogs, playTrade, playNotification, toast, isBotRunning]);
+      playNotification?.();
 
-  // Fetch positions count
+      // Find bot for additional stats
+      const bot = bots.find(b => b.id === latestLog.botId);
+
+      toast.custom(
+        <SettlementNotification
+          botName={latestLog.botName}
+          won={won}
+          pnl={pnl}
+          outcome={outcome}
+          trades={bot?.stats?.trades}
+          winRate={bot?.stats?.winRate}
+          strategy={bot?.strategy}
+        />,
+        { duration: 5000 }
+      );
+    }
+  }, [botLogs, playTrade, playNotification, toast, isBotRunning, bots]);
+
+  const [botPositions, setBotPositions] = useState<Array<{
+    id: string; botId?: string; outcome: "YES" | "NO";
+    amount: number; stake: number; odds: number; fee?: number;
+  }>>([]);
+
   useEffect(() => {
     const fetchPositions = async () => {
       try {
@@ -117,6 +133,7 @@ export function App() {
         const openPositions = data.open || [];
         setOpenPositionsCount(openPositions.length);
         setOpenPositionsValue(openPositions.reduce((sum: number, p: { amount: number; odds?: number; stake?: number }) => sum + (p.amount || p.stake || 0), 0));
+        setBotPositions(openPositions);
       } catch (err) {
         console.error("Failed to fetch positions:", err);
       }
@@ -151,11 +168,10 @@ export function App() {
   useEffect(() => {
     const fetchTradingMode = async () => {
       try {
-        const res = await fetch("/api/account/mode");
+        const res = await fetch("/api/account");
         const data = await res.json();
         if (data.mode && (data.mode === "demo" || data.mode === "live")) {
           setTradingMode(data.mode);
-          console.log("[App] Loaded trading mode from backend:", data.mode);
         }
       } catch (err) {
         console.error("Failed to fetch trading mode:", err);
@@ -167,25 +183,39 @@ export function App() {
   // Show session summary when competition ends
   useEffect(() => {
     if (prevCompetitionActive.current && !competition?.active && competition?.completedAt) {
-      // Competition just ended
       setShowSessionSummary(true);
+
+      // Show session complete notification
+      const totalPnl = bots.reduce((sum, b) => sum + (b.stats?.pnl || 0), 0);
+      const totalTrades = bots.reduce((sum, b) => sum + (b.stats?.trades || 0), 0);
+      const totalWins = bots.reduce((sum, b) => sum + (b.stats?.wins || 0), 0);
+      const totalLosses = bots.reduce((sum, b) => sum + (b.stats?.losses || 0), 0);
+      const winRate = totalTrades > 0 ? totalWins / totalTrades : 0;
+      const duration = competition.completedAt - competition.startTime;
+
+      // Find best and worst bots
+      const sortedBots = [...bots].sort((a, b) => (b.stats?.pnl || 0) - (a.stats?.pnl || 0));
+      const bestBot = sortedBots[0] ? { name: sortedBots[0].name, pnl: sortedBots[0].stats?.pnl || 0 } : undefined;
+      const worstBot = sortedBots[sortedBots.length - 1] ? { name: sortedBots[sortedBots.length - 1].name, pnl: sortedBots[sortedBots.length - 1].stats?.pnl || 0 } : undefined;
+
+      playNotification?.();
+
+      toast.custom(
+        <SessionCompleteNotification
+          totalPnl={totalPnl}
+          totalTrades={totalTrades}
+          totalWins={totalWins}
+          totalLosses={totalLosses}
+          winRate={winRate}
+          duration={duration}
+          bestBot={bestBot}
+          worstBot={worstBot}
+        />,
+        { duration: 10000 }
+      );
     }
     prevCompetitionActive.current = competition?.active ?? false;
-  }, [competition?.active, competition?.completedAt]);
-
-  // Fetch trading mode on mount
-  useEffect(() => {
-    const fetchTradingMode = async () => {
-      try {
-        const res = await fetch("/api/account");
-        const data = await res.json();
-        setTradingMode(data.mode || "demo");
-      } catch (err) {
-        console.error("Failed to fetch trading mode:", err);
-      }
-    };
-    fetchTradingMode();
-  }, []);
+  }, [competition?.active, competition?.completedAt, bots, playNotification, toast]);
 
   // Sync timeframe and asset to backend
   useEffect(() => {
@@ -215,12 +245,8 @@ export function App() {
     }
   }, [selectedTimeframe, selectedAsset, fetchData]);
 
-  // Auto-switch to monitor tab when bots are running and we are not on a bot tab
-  useEffect(() => {
-    if (isBotRunning && activeTab === 'trade') {
-      setActiveTab('monitor');
-    }
-  }, [isBotRunning]);
+  // Note: Removed auto-switch to monitor tab when bots start running
+  // Users should be free to navigate tabs without being forced to a different view
 
   const activeAsset = ASSETS.find(a => a.id === selectedAsset);
   const coinColor = activeAsset?.color || "#f7931a";
@@ -349,7 +375,7 @@ export function App() {
         competition={competition}
         openPositionsCount={openPositionsCount}
         openPositionsValue={openPositionsValue}
-        openPositions={portfolio?.positions?.filter(p => p.status === 'open').map(p => ({ outcome: p.outcome, stake: p.stake || 0 }))}
+        openPositions={botPositions}
         botLogs={botLogs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -450,7 +476,7 @@ export function App() {
         ) : (
           /* Bot Management Tabs (Monitor, Backtest, etc) */
           <div className="animate-slide-in">
-            <BotTabsContent activeTab={activeTab} />
+            <BotTabsContent activeTab={activeTab} marketData={marketData} coinColor={coinColor} />
           </div>
         )}
       </div>

@@ -19,6 +19,6 @@ export async function GET() {
     totalDuration,
     marketDuration: totalDuration,
     startedAt: market?.startTime || Date.now(),
-    priceToBeat: market?.priceToBeat,
+    priceToBeat: marketEngine.getMarketStartBtcPrice() || market?.priceToBeat,
   });
 }

@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTradingStore } from "@/lib/stores/trading-store";
 import { useBotStore } from "@/lib/stores/bot-store";
-import type { Market, Portfolio, BotLog } from "../types";
+import type { Market } from "../types";
 
 // Re-export types for consumers
 export type { Portfolio, Market, BotLog } from "../types";
@@ -151,6 +151,8 @@ export function useTradingData() {
   const noPrice = useTradingStore(s => s.noPrice);
   const priceDirection = useTradingStore(s => s.priceDirection);
   const timeRemaining = useTradingStore(s => s.timeRemaining);
+  const btcPrice = useTradingStore(s => s.btcPrice);
+  const priceToBeat = useTradingStore(s => s.priceToBeat);
   const events = useTradingStore(s => s.events);
   const addEvent = useTradingStore(s => s.addEvent);
 
@@ -178,6 +180,26 @@ export function useTradingData() {
   const [pnlHistory, setPnLHistory] = useState<{ time: number; pnl: number }[]>([]);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [apiLatency, setApiLatency] = useState(0);
+
+  // Sync SSE-updated store values into marketData
+  // Only overwrite priceToBeat if the new value is actually set (not null)
+  // This prevents race conditions where SSE null overwrites valid HTTP-fetched values
+  useEffect(() => {
+    setMarketData(prev => {
+      if (!prev) return null;
+      let changed = false;
+      const next = { ...prev };
+      if (btcPrice !== undefined && btcPrice > 0 && btcPrice !== prev.spotPrice) {
+        next.spotPrice = btcPrice;
+        changed = true;
+      }
+      if (priceToBeat != null && priceToBeat > 0 && priceToBeat !== prev.priceToBeat) {
+        next.priceToBeat = priceToBeat;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [btcPrice, priceToBeat]);
 
   // Use ref to track if initial fetch happened
   const hasFetchedRef = useRef(false);
@@ -291,11 +313,11 @@ export function useTradingData() {
     return () => clearTimeout(timeout);
   }, [fetchData, fetchLiveBalance, setLoading]);
 
-  // Fallback polling every 10 seconds (reduced from 5)
+  // Fallback polling every 30 seconds (reduced from 10s - SSE handles real-time updates)
   useEffect(() => {
     const pollInterval = setInterval(() => {
       fetchData();
-    }, 10000);
+    }, 30000);
 
     return () => clearInterval(pollInterval);
   }, [fetchData]);

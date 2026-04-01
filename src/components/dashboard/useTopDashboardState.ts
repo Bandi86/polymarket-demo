@@ -15,9 +15,11 @@ export interface UseTopDashboardStateProps {
   // Bot logs for historical trade tracking (contains TRADE entries with outcome)
   botLogs?: Array<{ type: string; details?: { outcome?: string; action?: string; amount?: number; stake?: number } }>;
   // Current open positions
-  openPositions?: Array<{ outcome: string; stake: number }>;
+  openPositions?: Array<{ outcome: string; stake: number; odds?: number; botId?: string; amount?: number }>;
   btcPrice?: number;
   btcWindowOpen?: number;
+  // Current yes price for potential calculations
+  yesPrice?: number;
 }
 
 export interface TopDashboardState {
@@ -54,6 +56,14 @@ export interface TopDashboardState {
   yesTrades: number;
   noTrades: number;
   btcDelta: number;
+
+  // Position distribution
+  yesPositions: number;
+  noPositions: number;
+  yesStake: number;
+  noStake: number;
+  netIfYesWins: number;
+  netIfNoWins: number;
 }
 
 export function useTopDashboardState({
@@ -67,6 +77,7 @@ export function useTopDashboardState({
   botLogs = [],
   btcPrice,
   btcWindowOpen,
+  yesPrice = 0.5,
 }: UseTopDashboardStateProps): TopDashboardState {
   // Bot stats
   const activeBots = bots.filter(b => b.enabled).length;
@@ -137,25 +148,48 @@ export function useTopDashboardState({
   }, [botLogs, openPositions]);
 
   const { yesTrades, noTrades } = useMemo(() => {
-    // Count from bot logs (TRADE entries)
-    const yesFromLogs = botLogs.filter(log =>
-      log.type === "TRADE" &&
-      (log.details?.outcome === "YES" || log.details?.outcome === "UP" || log.details?.action === "YES" || log.details?.action === "UP")
-    ).length;
-    const noFromLogs = botLogs.filter(log =>
-      log.type === "TRADE" &&
-      (log.details?.outcome === "NO" || log.details?.outcome === "DOWN" || log.details?.action === "NO" || log.details?.action === "DOWN")
-    ).length;
-    // Plus current open positions
+    // Use open positions as the source for YES/NO distribution
     const yesFromOpen = openPositions.filter(p => p.outcome === "YES").length;
     const noFromOpen = openPositions.filter(p => p.outcome === "NO").length;
-    return { yesTrades: yesFromLogs + yesFromOpen, noTrades: noFromLogs + noFromOpen };
-  }, [botLogs, openPositions]);
+
+    return {
+      yesTrades: yesFromOpen,
+      noTrades: noFromOpen,
+    };
+  }, [openPositions]);
 
   const btcDelta = useMemo(() => {
     if (!btcPrice || !btcWindowOpen || btcWindowOpen <= 0) return 0;
     return ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100;
   }, [btcPrice, btcWindowOpen]);
+
+  // Position distribution by outcome
+  // Position structure: amount = cost (what you paid), stake = potential payout if wins
+  const { yesPositions, noPositions, yesStake, noStake, netIfYesWins, netIfNoWins } = useMemo(() => {
+    const yesPositions = openPositions.filter(p => p.outcome === "YES");
+    const noPositions = openPositions.filter(p => p.outcome === "NO");
+
+    // stake = potential payout if wins, amount = cost paid
+    const yesStake = yesPositions.reduce((sum, p) => sum + (p.stake || 0), 0);
+    const noStake = noPositions.reduce((sum, p) => sum + (p.stake || 0), 0);
+    const yesAmount = yesPositions.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const noAmount = noPositions.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    // Potential outcomes:
+    // If YES wins: YES positions pay out their stake, NO positions lose their amount
+    // Net = yesStake - yesAmount - noAmount (total payout - total cost)
+    // If NO wins: NO positions pay out their stake, YES positions lose their amount
+    // Net = noStake - noAmount - yesAmount
+
+    return {
+      yesPositions: yesPositions.length,
+      noPositions: noPositions.length,
+      yesStake,
+      noStake,
+      netIfYesWins: yesStake - yesAmount - noAmount,
+      netIfNoWins: noStake - noAmount - yesAmount,
+    };
+  }, [openPositions]);
 
   return {
     activeBots,
@@ -178,6 +212,12 @@ export function useTopDashboardState({
     yesTrades,
     noTrades,
     btcDelta,
+    yesPositions,
+    noPositions,
+    yesStake,
+    noStake,
+    netIfYesWins,
+    netIfNoWins,
   };
 }
 

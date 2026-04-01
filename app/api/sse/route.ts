@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
           yesPrice: parseFloat(market?.outcomePrices?.yes || '0.5'),
           noPrice: parseFloat(market?.outcomePrices?.no || '0.5'),
           btcPrice: priceService.getPrice(),
+          priceToBeat: marketEngine.getMarketStartBtcPrice() || market?.priceToBeat || null,
           timeRemaining: marketEngine.getTimeRemaining(),
           marketDuration: marketDuration,
           timestamp: Date.now(),

@@ -18,6 +18,7 @@ interface BotData {
   stats: BotStats
   portfolio: {
     balance: number
+    initialBalance?: number
     totalPnL: number
     totalTrades: number
     winRate: number

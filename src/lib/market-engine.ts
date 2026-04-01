@@ -3,7 +3,7 @@
 
 import type { Market, Position, Portfolio, MarketHistory, Trade } from "../types";
 import { priceService } from "./price";
-import { dbService } from "./database";
+import { dbService, type PositionRow } from "./database";
 import { polymarketProvider } from "./providers/polymarket-provider";
 
 const FEE_RATE = 0.02; // 2%
@@ -55,6 +55,116 @@ export class MarketEngine {
     this.startNewMarket();
   }
 
+  /** Restore state from database - call after dbService.connect() */
+  async restoreFromDatabase(): Promise<void> {
+    try {
+      // Load all open positions from database
+      const openPositions = await dbService.getOpenPositions();
+      console.log(`[MarketEngine] Restoring ${openPositions.length} open positions from database`);
+
+      // Track unique bot IDs that need state restoration
+      const botIds = new Set<string>();
+
+      for (const row of openPositions) {
+        // Reconstruct position object
+        const position: Position = {
+          id: row.id,
+          marketId: row.market_id,
+          outcome: row.outcome as "YES" | "NO",
+          amount: row.amount,
+          odds: row.odds,
+          stake: row.stake,
+          fee: row.fee,
+          timestamp: row.timestamp,
+          status: row.status as "open" | "closed" | "settled",
+          pnl: row.pnl,
+          botId: row.bot_id || undefined,
+          unrealizedPnl: 0,
+        };
+
+        // Add to positions map
+        this.positions.set(position.id, position);
+
+        // Track bot ID
+        if (position.botId) {
+          botIds.add(position.botId);
+        }
+      }
+
+      // For each bot with positions, restore full portfolio state from database
+      for (const botId of botIds) {
+        await this.restoreBotPortfolio(botId);
+      }
+
+      console.log(`[MarketEngine] State restoration complete: ${this.positions.size} positions, ${this.portfolios.size} portfolios`);
+    } catch (error) {
+      console.error("[MarketEngine] Failed to restore from database:", error);
+    }
+  }
+
+  /** Restore a bot's complete portfolio state from database */
+  private async restoreBotPortfolio(botId: string): Promise<void> {
+    try {
+      // Get all positions for this bot
+      const allPositions = await dbService.getPositionsByBot(botId);
+
+      // Create fresh portfolio
+      const portfolio = this.createEmptyPortfolio();
+
+      // Process each position
+      for (const row of allPositions) {
+        const position: Position = {
+          id: row.id,
+          marketId: row.market_id,
+          outcome: row.outcome as "YES" | "NO",
+          amount: row.amount,
+          odds: row.odds,
+          stake: row.stake,
+          fee: row.fee,
+          timestamp: row.timestamp,
+          status: row.status as "open" | "closed" | "settled",
+          pnl: row.pnl,
+          botId: row.bot_id || undefined,
+          unrealizedPnl: 0,
+        };
+
+        portfolio.positions.push(position);
+
+        if (row.status === "open") {
+          portfolio.openPositions.push(position);
+          // Deduct cost from balance
+          portfolio.balance -= (position.amount + position.fee);
+        } else if (row.status === "settled" || row.status === "closed") {
+          portfolio.closedPositions.unshift(position);
+
+          // Update stats
+          portfolio.totalTrades++;
+          if ((row.pnl || 0) > 0) {
+            portfolio.winningTrades++;
+            portfolio.balance += position.stake; // Add payout
+          } else {
+            portfolio.losingTrades++;
+          }
+          portfolio.totalPnL += (row.pnl || 0);
+        }
+      }
+
+      // Calculate derived stats
+      portfolio.winRate = portfolio.totalTrades > 0 ? portfolio.winningTrades / portfolio.totalTrades : 0;
+      portfolio.roi = (portfolio.totalPnL / portfolio.initialBalance) * 100;
+
+      // Update metrics
+      this.updatePortfolioMetrics(portfolio);
+
+      // Store portfolio
+      this.portfolios.set(botId, portfolio);
+
+      console.log(`[MarketEngine] Restored portfolio for ${botId}: balance=${portfolio.balance.toFixed(2)}, trades=${portfolio.totalTrades}, open=${portfolio.openPositions.length}`);
+    } catch (error) {
+      console.error(`[MarketEngine] Failed to restore portfolio for ${botId}:`, error);
+    }
+  }
+
   /** Subscribe to price updates */
   onPriceUpdate(callback: (price: { yes: number; no: number; timestamp: number }) => void): () => void {
     this.priceUpdateCallbacks.push(callback);
@@ -85,6 +195,13 @@ export class MarketEngine {
   /** Get current asset */
   getAsset(): string {
     return this.config.asset;
+  }
+
+  /** Clear all positions and portfolios - used when resetting bots */
+  clearAllPositions(): void {
+    this.positions.clear();
+    this.portfolios.clear();
+    console.log("[MarketEngine] All positions and portfolios cleared");
   }
 
   /** Switch to a different timeframe */

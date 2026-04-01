@@ -89,6 +89,8 @@ export function setSSEBroadcast(fn: SSEBroadcastFn): void {
 export function broadcastToSSE(type: string, data: unknown): void {
   if (sseBroadcastFn) {
     sseBroadcastFn(type, data);
+  } else {
+    console.warn('[Global] SSE broadcast called but no clients connected. Type:', type);
   }
 }
 
@@ -120,6 +122,10 @@ export async function initializeServices(): Promise<void> {
     await dbService.connect();
     console.log("[Global] Database connected");
 
+    // 1b. Restore market engine state from database
+    await marketEngine.restoreFromDatabase();
+    console.log("[Global] Market engine state restored");
+
     // 2. Subscribe to price updates and broadcast
     priceService.subscribeToUpdates((update) => {
       broadcastToSSE("price", update);
@@ -143,6 +149,7 @@ export async function initializeServices(): Promise<void> {
         timeRemaining: marketEngine.getTimeRemaining(),
         marketDuration: marketDuration,
         btcPrice: priceService.getPrice(),
+        priceToBeat: marketEngine.getMarketStartBtcPrice() || market?.priceToBeat || null,
       });
     });
     console.log("[Global] Market price broadcasting set up");
@@ -161,6 +168,16 @@ export async function initializeServices(): Promise<void> {
       }
     }, 1000);
     console.log("[Global] Timer broadcasting set up");
+
+    // 4c. Set up periodic bots state broadcast (every 5 seconds)
+    setInterval(() => {
+      const bots = botManager.getBots();
+      const totalBalance = bots.reduce((sum: number, b: { portfolio?: { balance?: number } }) => sum + (b.portfolio?.balance || 0), 0);
+      if (totalBalance > 0) {
+        broadcastToSSE("bots", bots);
+      }
+    }, 5000);
+    console.log("[Global] Periodic bots broadcasting set up (5s interval)");
 
     // 5. Set up settlement handling
     marketEngine.onSettlement((data) => {

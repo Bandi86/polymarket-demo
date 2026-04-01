@@ -6,8 +6,7 @@ import { DepositModal } from "@/components/DepositModal";
 import { useLocalTimer } from "@/hooks/useLocalTimer";
 import {
   TopDashboardHeader,
-  QuickStatsCards,
-  MarketInfoPanel,
+  CompactDataBar,
   TabNavigation,
   useTopDashboardState,
   formatDurationMs,
@@ -37,7 +36,7 @@ interface TopDashboardProps {
   // Positions
   openPositionsCount: number;
   openPositionsValue: number;
-  openPositions?: Array<{ outcome: string; stake: number }>;
+  openPositions?: Array<{ outcome: string; stake: number; amount?: number; odds?: number; botId?: string }>;
   // Bot logs for historical trade tracking
   botLogs?: Array<{ type: string; details?: { outcome?: string; action?: string; amount?: number; stake?: number } }>;
   // Tabs
@@ -65,7 +64,6 @@ export function TopDashboard({
   portfolio,
   yesPrice,
   noPrice,
-  apiLatency,
   coinColor,
   isBotRunning,
   soundEnabled,
@@ -111,6 +109,7 @@ export function TopDashboard({
     botLogs,
     btcPrice,
     btcWindowOpen,
+    yesPrice,
   });
 
   // Use local timer for smooth countdown
@@ -156,10 +155,10 @@ export function TopDashboard({
         maxWidth: 1600,
         margin: "0 auto",
         width: "100%",
-        padding: "1rem 1.5rem 0",
+        padding: "0.75rem 1.5rem 0",
         display: "flex",
         flexDirection: "column",
-        gap: "1rem"
+        gap: "0.75rem"
       }}>
         {/* ROW 1: Logo & Global Controls */}
         <TopDashboardHeader
@@ -179,50 +178,37 @@ export function TopDashboard({
           risk={state.risk}
         />
 
-        {/* Quick Stats Cards */}
-        <QuickStatsCards
-          maxConsecutiveWins={state.maxConsecutiveWins}
-          bestTrade={state.bestTrade}
-          activeBots={state.activeBots}
-          isBotRunning={isBotRunning}
-          totalPnl={state.totalPnl}
-        />
-
-        {/* ROW 2: Detailed Market & Bot Stats Box */}
-        <MarketInfoPanel
-          marketData={marketData}
-          competition={competition}
+        {/* ROW 2: Compact Data Bar with all metrics */}
+        <CompactDataBar
           yesPrice={yesPrice}
           noPrice={noPrice}
           timeRemaining={timeRemaining}
-          runTimeRemaining={state.runTimeRemaining}
-          isBotRunning={isBotRunning}
-          bots={bots}
-          activeBots={state.activeBots}
+          btcPrice={btcPrice}
+          priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
           totalBotsBalance={state.totalBotsBalance}
+          liveBalance={liveBalance}
           totalPnl={state.totalPnl}
-          totalWinRate={state.totalWinRate}
           totalTrades={state.totalTrades}
+          totalWinRate={state.totalWinRate}
           totalWins={state.totalWins}
           totalLosses={state.totalLosses}
           totalExposure={state.totalExposure}
           exposureRatio={state.exposureRatio}
-          potentialWin={state.potentialWin}
-          potentialLoss={state.potentialLoss}
-          openPositionsCount={openPositionsCount}
-          liveBalance={liveBalance}
-          onRefreshLiveBalance={onRefreshLiveBalance}
+          activeBots={state.activeBots}
+          totalBots={bots.length}
+          competition={competition}
+          runTimeRemaining={state.runTimeRemaining}
+          isBotRunning={isBotRunning}
           onRunAll={onRunAll}
           onStopAll={onStopAll}
           onQuickRun={handleQuickRun}
-          tradingMode={tradingMode}
-          setTradingMode={setTradingMode}
-          totalStake={state.totalStake}
-          yesTrades={state.yesTrades}
-          noTrades={state.noTrades}
-          btcPrice={btcPrice}
-          btcDelta={state.btcDelta}
-          priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
+          maxStreak={state.maxConsecutiveWins}
+          yesBots={state.yesPositions}
+          noBots={state.noPositions}
+          yesStake={state.yesStake}
+          noStake={state.noStake}
+          netIfYesWins={state.netIfYesWins}
+          netIfNoWins={state.netIfNoWins}
         />
 
         {/* ROW 3: Tab Navigation */}

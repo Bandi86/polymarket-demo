@@ -37,6 +37,7 @@ interface TradingState {
   yesPrice: number
   noPrice: number
   btcPrice: number
+  priceToBeat: number | null
   timeRemaining: number
   marketDuration: number
   marketEndTime: number // Timestamp when market ends (for local countdown)
@@ -71,6 +72,7 @@ const initialState = {
   yesPrice: 0.5,
   noPrice: 0.5,
   btcPrice: 0,
+  priceToBeat: null,
   timeRemaining: 300000,
   marketDuration: 300000,
   marketEndTime: Date.now() + 300000, // Default 5 minutes from now

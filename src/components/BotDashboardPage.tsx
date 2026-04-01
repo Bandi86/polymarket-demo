@@ -13,19 +13,34 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
 import LiveModeDashboard from "@/components/LiveModeDashboard";
 import { useTradingData } from "@/hooks/useTradingData";
+import { useTradingStore } from "@/lib/stores/trading-store";
+import { useBotStore } from "@/lib/stores/bot-store";
+import type { BotData } from "@/hooks/useTradingData";
 
-export function BotTabsContent({ activeTab }: { activeTab: string }) {
-  const {
-    bots,
-    botLogs,
-    yesPrice,
-    noPrice,
-    loading,
-    updateBotState,
-    timeRemaining,
-    competition,
-    fetchData,
-  } = useTradingData();
+export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab: string; marketData?: any; coinColor?: string }) {
+  // Use Zustand stores directly instead of useTradingData 
+  // to avoid creating duplicate interval polling loops
+  const { yesPrice, noPrice, timeRemaining, competition, loading } = useTradingStore();
+  const { bots, botLogs, updateBot } = useBotStore();
+
+  const updateBotState = async (id: string, updates: Partial<BotData>) => {
+    // API call to update bot server-side - specifically for enabling/disabling
+    if ('enabled' in updates) {
+      try {
+        await fetch(`/api/bots/${id}/toggle`, { method: "POST" });
+      } catch(e) { console.error(e) }
+    }
+    // Update local store immediately for responsiveness
+    updateBot(id, updates);
+  };
+
+  const fetchData = async () => {
+    // Function passed to CompetitionTab for manual refresh requested
+    try {
+      await fetch('/api/market'); // forces market refresh
+      await fetch('/api/bots');   // forces bots refresh
+    } catch(e) { console.error(e) }
+  };
 
   const [positions, setPositions] = useState<Array<{
     id: string;
@@ -73,7 +88,6 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
           positions={positions}
           updateBotState={updateBotState}
           timeRemaining={timeRemaining}
-          competition={competition}
         />
       )}
 
@@ -103,7 +117,7 @@ export function BotTabsContent({ activeTab }: { activeTab: string }) {
       {activeTab === 'risk' && (
         <RiskDashboard
           bots={bots}
-          totalBalance={bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)}
+          totalBalance={bots.reduce((sum: number, b: BotData) => sum + (b.portfolio?.balance || 0), 0)}
           initialBalance={bots.length * 10}
         />
       )}

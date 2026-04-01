@@ -6,8 +6,6 @@ interface BotStatsGridProps {
   wins: number;
   losses: number;
   currentStreak: { type: "win" | "loss" | "none"; count: number };
-  avgTrade: number;
-  pnl: number;
   avgWin?: number;
   avgLoss?: number;
 }
@@ -18,8 +16,6 @@ export function BotStatsGrid({
   wins,
   losses,
   currentStreak,
-  avgTrade,
-  pnl,
   avgWin = 0,
   avgLoss = 0,
 }: BotStatsGridProps) {

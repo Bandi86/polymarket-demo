@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from "react";
-import { Play, Square, Settings, Timer, TrendingDown, TrendingUp, Target } from "lucide-react";
+import { Play, Square, Settings, Target } from "lucide-react";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
-import { formatDuration } from "@/lib/utils";
 import { useBotStatusState, BotCardHeader, BotBalanceCard, BotStatsGrid } from "./bot-card";
 import type { BotData } from "@/hooks/useTradingData";
 
@@ -76,8 +75,6 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
         wins={bot.stats.wins}
         losses={bot.stats.losses}
         currentStreak={state.currentStreak}
-        avgTrade={bot.stats.pnl / Math.max(1, bot.stats.trades)}
-        pnl={bot.stats.pnl}
         avgWin={bot.stats.avgWin}
         avgLoss={bot.stats.avgLoss}
       />

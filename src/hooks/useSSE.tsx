@@ -27,6 +27,9 @@ export function useSSE() {
 
     eventSource.onopen = () => {
       reconnectAttempts.current = 0
+      // Clear bot logs on reconnect to avoid stale data
+      // This ensures consistency after server restart
+      useBotStore.getState().clearLogs()
     }
 
     eventSource.onmessage = (event) => {
@@ -35,7 +38,12 @@ export function useSSE() {
 
         switch (type) {
           case 'connected':
-          case 'market':
+          case 'market': {
+            // Clear stale logs on reconnect to ensure consistency
+            if (type === 'connected') {
+              useBotStore.getState().clearLogs()
+            }
+
             // Calculate price direction for animations
             const yesDirection = data.yesPrice > prevYesPrice.current ? 'up' :
                                  data.yesPrice < prevYesPrice.current ? 'down' : null
@@ -47,7 +55,8 @@ export function useSSE() {
             // Calculate market end time for local countdown
             const marketEndTime = Date.now() + (data.timeRemaining || 0)
 
-            setMarketData({
+            // Only update priceToBeat if we have a valid (non-null) value
+            const updateData: Record<string, unknown> = {
               yesPrice: data.yesPrice,
               noPrice: data.noPrice,
               btcPrice: data.btcPrice,
@@ -56,32 +65,44 @@ export function useSSE() {
               marketEndTime: marketEndTime,
               priceDirection: { yes: yesDirection, no: noDirection },
               loading: false,
-            })
+            }
+            if (data.priceToBeat != null) {
+              updateData.priceToBeat = data.priceToBeat
+            }
+            setMarketData(updateData)
             if (data.bots) setBots(data.bots)
             if (data.competition) setCompetition(data.competition)
             break
-          case 'market_price':
+          }
+          case 'market_price': {
             // Real-time price updates from market engine
             const marketYesDir = data.yes > prevYesPrice.current ? 'up' :
                                  data.yes < prevYesPrice.current ? 'down' : null
             const marketNoDir = data.no > prevNoPrice.current ? 'up' :
-                                data.no < prevNoPrice.current ? 'down' : null
+                                 data.no < prevNoPrice.current ? 'down' : null
             prevYesPrice.current = data.yes
             prevNoPrice.current = data.no
 
             // Calculate market end time for local countdown
             const priceMarketEndTime = Date.now() + (data.timeRemaining || 0)
 
-            setMarketData({
+            const priceUpdateData: Record<string, unknown> = {
               yesPrice: data.yes,
               noPrice: data.no,
+              btcPrice: data.btcPrice,
               timeRemaining: data.timeRemaining,
               marketDuration: data.marketDuration,
               marketEndTime: priceMarketEndTime,
               priceDirection: { yes: marketYesDir, no: marketNoDir },
               loading: false,
-            })
+            }
+            // Forward priceToBeat if available (prevents flickering)
+            if (data.priceToBeat != null) {
+              priceUpdateData.priceToBeat = data.priceToBeat
+            }
+            setMarketData(priceUpdateData)
             break
+          }
           case 'price':
             // BTC price updates from price service
             setMarketData({

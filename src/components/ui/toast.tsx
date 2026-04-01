@@ -1,6 +1,7 @@
 'use client'
 
 import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
+import type { ReactNode } from "react";
 
 // Re-export toast functions for convenience
 export const toast = {
@@ -19,6 +20,9 @@ export const toast = {
     success: string;
     error: string;
   }) => sonnerToast.promise(promise, messages),
+  // Custom rich notifications
+  custom: (content: ReactNode, options?: { duration?: number }) =>
+    sonnerToast.custom(() => content as React.ReactElement, options),
 };
 
 // Hook for components that prefer the hook pattern
@@ -38,6 +42,7 @@ export function Toaster() {
           color: "var(--text-primary)",
           borderRadius: "12px",
           padding: "12px 16px",
+          maxWidth: "380px",
         },
         classNames: {
           success: "border-green-500/30",

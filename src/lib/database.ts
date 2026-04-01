@@ -402,6 +402,42 @@ export class DatabaseService {
     return stmt.all(botId) as PositionRow[];
   }
 
+  async getOpenPositions(): Promise<PositionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM positions WHERE status = 'open' ORDER BY timestamp DESC"
+    );
+    return stmt.all() as PositionRow[];
+  }
+
+  async getSettledPositionsByBot(botId: string, limit: number = 100): Promise<PositionRow[]> {
+    if (!this.db) return [];
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM positions WHERE bot_id = ? AND status IN ('settled', 'closed') ORDER BY timestamp DESC LIMIT ?"
+    );
+    return stmt.all(botId, limit) as PositionRow[];
+  }
+
+  async getLatestBotSession(botId: string): Promise<BotSessionRow | null> {
+    if (!this.db) return null;
+
+    const stmt = this.db.prepare(
+      "SELECT * FROM bot_sessions WHERE bot_id = ? ORDER BY start_time DESC LIMIT 1"
+    );
+    return stmt.get(botId) as BotSessionRow | null;
+  }
+
+  async updatePositionStatus(id: string, status: string, pnl: number | null): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.db.prepare(
+      "UPDATE positions SET status = ?, pnl = ? WHERE id = ?"
+    );
+    stmt.run(status, pnl, id);
+  }
+
   // === Bot Session Operations ===
 
   async saveBotSession(session: {
