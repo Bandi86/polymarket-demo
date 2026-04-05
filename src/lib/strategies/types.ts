@@ -41,6 +41,15 @@ export interface StrategyThresholds {
   // sniper_value
   yesBuyMax?: number;          // Buy YES if price below this (default 0.15)
   noBuyMin?: number;           // Buy NO if YES price above this (default 0.40)
+
+  // ultra_low_entry
+  ultraLowMax?: number;        // Ultra-low zone max (e.g., 0.12 = 12¢)
+  lowEntryMax?: number;         // Low entry zone max (e.g., 0.25 = 25¢)
+  overvaluedMin?: number;      // Overvalued zone min (e.g., 0.85 = 85¢)
+
+  // Fallback configuration (price_reversion, sniper_value, ultra_low_entry)
+  fallbackEnabled?: boolean;   // Enable BTC momentum fallback in middle zone
+  fallbackMinDelta?: number;   // Minimum BTC delta for fallback trades
 }
 
 /**

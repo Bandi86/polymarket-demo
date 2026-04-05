@@ -83,6 +83,11 @@ const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> =
     interval: [2000, 6000],
     kellyFraction: [0.2, 0.5],
   },
+  ultra_low_entry: {
+    betSize: [0.5, 2.0],
+    interval: [3000, 6000],
+    kellyFraction: [0.2, 0.5],
+  },
   time_pattern: {
     betSize: [0.5, 2.0],
     interval: [3000, 8000],

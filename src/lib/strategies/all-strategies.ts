@@ -698,6 +698,15 @@ export const strategies: Record<StrategyType, Strategy> = {
     },
   },
 
+  // ultra_low_entry: Implemented in ./strategies/ultra-low-entry.ts
+  // This is a minimal placeholder - actual strategy imported in index.ts
+  ultra_low_entry: {
+    name: "Ultra Low Entry",
+    description: "Entry at 4-15¢ - market underestimates probability",
+    category: "mean_reversion",
+    execute: () => ({ action: null, confidence: 0, reason: "Use strategy from index.ts" }),
+  },
+
   time_pattern: {
     name: "Time Pattern",
     description: "Magas meggyőződésű órákban kereskedik",

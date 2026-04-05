@@ -37,6 +37,7 @@ const STRATEGY_PERFORMANCE_BY_PHASE: Record<MarketPhase, StrategyType[]> = {
 const STRATEGY_NAMES: Record<StrategyType, string> = {
   // NEW STRATEGIES
   volatility_breakout: "Volatility Breakout",
+  ultra_low_entry: "Ultra Low Entry",
   time_pattern: "Time Pattern",
   price_reversion: "Price Reversion",
   binance_velocity: "Binance Velocity",

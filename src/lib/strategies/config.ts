@@ -27,6 +27,16 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
     minTimeRemaining: 30000,    // Don't trade with <30 seconds remaining
   },
 
+  ultra_low_entry: {
+    ultraLowMax: 0.12,         // Ultra-low zone: 4-12¢ (max edge)
+    lowEntryMax: 0.25,         // Low entry zone: 12-25¢
+    overvaluedMin: 0.85,       // Overvalued zone: YES > 85¢
+    minTimeRemaining: 20000,   // Don't trade with <20 seconds remaining
+    // Fallback: BTC momentum if in middle zone
+    fallbackEnabled: true,
+    fallbackMinDelta: 0.04,
+  },
+
   time_pattern: {
     minDelta: 0.02,             // 0.02% minimum BTC delta for direction
     minTimeRemaining: 30000,    // Don't trade with <30 seconds remaining
@@ -34,9 +44,12 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   price_reversion: {
-    oversoldYes: 0.25,          // Buy YES when price < 25¢ (oversold)
-    overboughtYes: 0.75,        // Buy NO when YES price > 75¢ (overbought)
+    oversoldYes: 0.20,          // Buy YES when price < 20¢ (widened from 25¢)
+    overboughtYes: 0.80,        // Buy NO when YES price > 80¢ (widened from 75¢)
     minTimeRemaining: 15000,    // Don't trade with <15 seconds remaining
+    // Fallback: BTC momentum if in middle zone
+    fallbackEnabled: true,
+    fallbackMinDelta: 0.03,
   },
 
   binance_velocity: {
@@ -46,9 +59,12 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   sniper_value: {
-    yesBuyMax: 0.15,            // Buy YES if price < 15¢ (extreme undervaluation)
-    noBuyMin: 0.40,             // Buy NO if YES price > 40¢ (overvaluation)
-    minTimeRemaining: 20000,    // Don't trade with <20 seconds remaining
+    yesBuyMax: 0.12,           // Buy YES if price < 12¢ (widened from 15¢)
+    noBuyMin: 0.45,             // Buy NO if YES price > 45¢ (widened from 40¢)
+    minTimeRemaining: 20000,   // Don't trade with <20 seconds remaining
+    // Fallback: BTC momentum if in middle zone
+    fallbackEnabled: true,
+    fallbackMinDelta: 0.04,
   },
 
   // ═══════════════════════════════════════════════════════════════

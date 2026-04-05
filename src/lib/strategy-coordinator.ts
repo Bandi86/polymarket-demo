@@ -42,6 +42,8 @@ const DEFAULT_CONFIG: CoordinatorConfig = {
     // === NEW STRATEGIES (Option A) ===
     // Volatility breakout is independent - can pair with others
     volatility_breakout: ["time_pattern", "binance_velocity"],
+    // Ultra low entry - similar to sniper, uses price extremes
+    ultra_low_entry: ["price_reversion", "sniper_value"],
     // Time pattern is independent - can pair with others
     time_pattern: ["volatility_breakout", "binance_velocity"],
     // Price reversion is fully independent (uses Polymarket prices, not BTC)

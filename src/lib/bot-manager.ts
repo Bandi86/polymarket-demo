@@ -190,8 +190,8 @@ export class BotManager {
       // 1. Volatility Breakout - trades when BTC volatility is extreme
       { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 3000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
-      // 2. Time Pattern - trades during high-conviction hours
-      { id: "bot-time-pattern", name: "Time Pattern", strategy: "time_pattern", interval: 5000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      // 2. Ultra Low Entry - Andrew's approach: Entry at 4-15¢ (market underestimates)
+      { id: "bot-ultra-low", name: "Ultra Low Entry", strategy: "ultra_low_entry", interval: 5000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
       // 3. Price Reversion - bets on Polymarket price mean-reversion (independent of BTC!)
       { id: "bot-price-reversion", name: "Price Reversion", strategy: "price_reversion", interval: 4000, betSize: 1.0, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },

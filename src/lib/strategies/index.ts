@@ -4,6 +4,7 @@
 import {
   // NEW STRATEGIES (Option A)
   volatilityBreakoutStrategy,
+  ultraLowEntryStrategy,
   timePatternStrategy,
   priceReversionStrategy,
   binanceVelocityStrategy,
@@ -29,6 +30,7 @@ export const strategies = {
   // NEW STRATEGIES (Option A - Change the Game)
   // ═══════════════════════════════════════════════════════════════
   volatility_breakout: volatilityBreakoutStrategy,
+  ultra_low_entry: ultraLowEntryStrategy,
   time_pattern: timePatternStrategy,
   price_reversion: priceReversionStrategy,
   binance_velocity: binanceVelocityStrategy,

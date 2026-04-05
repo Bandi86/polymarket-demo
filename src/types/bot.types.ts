@@ -7,6 +7,7 @@ import type { StrategyContext } from "./price.types";
 export type StrategyType =
   // === NEW STRATEGIES (Option A - Change the Game) ===
   | "volatility_breakout"   // Trade when BTC volatility is extreme
+  | "ultra_low_entry"       // Andrew's approach: Entry at 4-15¢ (market underestimates)
   | "time_pattern"          // Trade during high-conviction hours
   | "price_reversion"       // Bet on Polymarket price mean-reversion
   | "binance_velocity"      // Use BTC velocity/acceleration

@@ -2,6 +2,7 @@
 
 // NEW STRATEGIES (Option A - Change the Game)
 export { volatilityBreakoutStrategy } from "./volatility-breakout";
+export { ultraLowEntryStrategy } from "./ultra-low-entry";
 export { timePatternStrategy } from "./time-pattern";
 export { priceReversionStrategy } from "./price-reversion";
 export { binanceVelocityStrategy } from "./binance-velocity";
