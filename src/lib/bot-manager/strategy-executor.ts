@@ -13,6 +13,190 @@ import { polymarketProvider } from "../providers/polymarket-provider";
 import { strategyConfig } from "../strategies/config";
 import { checkOddsRange } from "../strategies/base";
 
+// Bot loss tracking for risk management
+interface BotLossTracker {
+  consecutiveLosses: number;
+  totalLosses: number;
+  totalWins: number;
+  lastLossTime: number;
+  drawdown: number; // Current drawdown from peak balance
+  peakBalance: number;
+  pendingSettlements: number; // Number of trades awaiting settlement
+}
+
+const botLossTrackers = new Map<string, BotLossTracker>();
+
+/**
+ * Get or create loss tracker for a bot
+ */
+function getBotTracker(botId: string, currentBalance: number): BotLossTracker {
+  let tracker = botLossTrackers.get(botId);
+  if (!tracker) {
+    tracker = {
+      consecutiveLosses: 0,
+      totalLosses: 0,
+      totalWins: 0,
+      lastLossTime: 0,
+      drawdown: 0,
+      peakBalance: currentBalance,
+      pendingSettlements: 0,
+    };
+    botLossTrackers.set(botId, tracker);
+  }
+
+  // Update peak balance and drawdown
+  if (currentBalance > tracker.peakBalance) {
+    tracker.peakBalance = currentBalance;
+  }
+  tracker.drawdown = ((tracker.peakBalance - currentBalance) / tracker.peakBalance) * 100;
+
+  return tracker;
+}
+
+/**
+ * Update tracker AFTER trade is sent (not after settlement!)
+ * This prevents race condition where bot sends multiple trades before settlement arrives
+ */
+export function markTradeSent(botId: string): void {
+  const tracker = botLossTrackers.get(botId);
+  if (tracker) {
+    tracker.pendingSettlements++;
+    console.log(`[LossTracker] ${botId}: trade sent, pendingSettlements=${tracker.pendingSettlements}`);
+  }
+}
+
+/**
+ * Update tracker after settlement
+ */
+export function updateBotTracker(botId: string, won: boolean, pnl: number, currentBalance: number): void {
+  const tracker = getBotTracker(botId, currentBalance);
+
+  const prevConsecutive = tracker.consecutiveLosses;
+
+  if (won) {
+    tracker.totalWins++;
+    tracker.consecutiveLosses = 0;
+  } else {
+    tracker.totalLosses++;
+    tracker.consecutiveLosses++;
+    tracker.lastLossTime = Date.now();
+  }
+
+  // Decrement pending settlements (min 0)
+  tracker.pendingSettlements = Math.max(0, tracker.pendingSettlements - 1);
+
+  // LOGGING: Log settlement for debugging
+  console.log(`[LossTracker] ${botId} settlement: ${won ? 'WIN' : 'LOSS'} (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}) | consecutiveLosses: ${prevConsecutive} → ${tracker.consecutiveLosses}, pendingSettlements: ${tracker.pendingSettlements}`);
+}
+
+/**
+ * Get risk multiplier based on bot performance
+ * Returns 0 if bot should stop trading (hit loss limits)
+ *
+ * RACE CONDITION FIX: Also checks pendingSettlements to prevent
+ * trades being sent while waiting for settlement arrival.
+ */
+export function getRiskMultiplier(botId: string, currentBalance: number): number {
+  const tracker = getBotTracker(botId, currentBalance);
+
+  // LOGGING: Log tracker state for debugging
+  if (tracker.consecutiveLosses > 0 || tracker.pendingSettlements > 0) {
+    console.log(`[LossTracker] ${botId}: consecutiveLosses=${tracker.consecutiveLosses}, pendingSettlements=${tracker.pendingSettlements}, drawdown=${tracker.drawdown.toFixed(1)}%`);
+  }
+
+  // CRITICAL: Stop after 3 consecutive losses
+  // Also stop if we have pending settlements (race condition prevention)
+  if (tracker.consecutiveLosses >= 3 || tracker.pendingSettlements > 0) {
+    return 0; // Stop trading
+  }
+
+  // Reduce sizing after 2 consecutive losses
+  if (tracker.consecutiveLosses === 2) {
+    return 0.25; // 25% of normal size
+  }
+
+  // Reduce sizing after 1 consecutive loss
+  if (tracker.consecutiveLosses === 1) {
+    return 0.5; // 50% of normal size
+  }
+
+  // Stop if drawdown exceeds 25%
+  if (tracker.drawdown >= 25) {
+    return 0; // Stop trading
+  }
+
+  // Reduce sizing if drawdown exceeds 15%
+  if (tracker.drawdown >= 15) {
+    return 0.25;
+  }
+
+  // Normal sizing
+  return 1;
+}
+
+/**
+ * Adjust confidence based on bot's recent performance
+ * Reduces confidence after consecutive losses
+ */
+export function adjustConfidenceForPerformance(
+  botId: string,
+  baseConfidence: number,
+  currentBalance: number
+): number {
+  const tracker = getBotTracker(botId, currentBalance);
+
+  // Reduce confidence after consecutive losses
+  if (tracker.consecutiveLosses >= 3) {
+    return 0; // Stop trading entirely
+  }
+
+  let confidenceMultiplier = 1.0;
+
+  if (tracker.consecutiveLosses === 1) {
+    confidenceMultiplier = 0.7; // 30% reduction
+  } else if (tracker.consecutiveLosses === 2) {
+    confidenceMultiplier = 0.5; // 50% reduction
+  }
+
+  // Also reduce if on a losing streak overall
+  if (tracker.totalLosses > tracker.totalWins * 1.5 && tracker.totalWins >= 3) {
+    confidenceMultiplier *= 0.8; // Additional 20% reduction
+  }
+
+  return Math.max(0, baseConfidence * confidenceMultiplier);
+}
+
+/**
+ * Get current market regime
+ * - 'trending_up': Strong upward momentum
+ * - 'trending_down': Strong downward momentum
+ * - 'ranging': No clear direction
+ * - 'volatile': High volatility, unpredictable
+ */
+export function getMarketRegime(ctx: StrategyContext): 'trending_up' | 'trending_down' | 'ranging' | 'volatile' {
+  const btcVelocity = ctx.btcVelocity ?? 0;
+  const btcAcceleration = ctx.btcAcceleration ?? 0;
+  const btcVolatility = ctx.btcVolatility ?? 0;
+  const volatility = ctx.volatility ?? 0;
+
+  // High volatility = volatile regime
+  if (btcVolatility > 0.02 || volatility > 0.05) {
+    return 'volatile';
+  }
+
+  // Strong trend detection
+  if (btcVelocity > 0.001 && btcAcceleration > 0) {
+    return 'trending_up';
+  }
+
+  if (btcVelocity < -0.001 && btcAcceleration < 0) {
+    return 'trending_down';
+  }
+
+  // Default to ranging
+  return 'ranging';
+}
+
 export interface MarketInfo {
   id: string;
   startTime: number;
@@ -117,6 +301,46 @@ export function buildStrategyContext(market: MarketInfo): StrategyContext {
     btcWindowOpen = closest.price;
   }
 
+  // === NEW CONTEXT DATA for Option A strategies ===
+
+  // Time-based context (UTC)
+  const now = new Date();
+  const hourOfDay = now.getUTCHours();
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+
+  // BTC velocity (price change per second over last 10 seconds)
+  let btcVelocity = 0;
+  let btcAcceleration = 0;
+  const klineHistory = binanceKlineProvider.getKlineHistory(10);
+  if (klineHistory.length >= 2) {
+    const recent = klineHistory[klineHistory.length - 1];
+    const previous = klineHistory[klineHistory.length - 2];
+    const timeDiff = (recent.startTime - previous.startTime) / 1000 || 1;
+    btcVelocity = (recent.close - previous.close) / previous.close / timeDiff;
+
+    // Acceleration (velocity change)
+    if (klineHistory.length >= 3) {
+      const older = klineHistory[klineHistory.length - 3];
+      const olderVelocity = (previous.close - older.close) / older.close / timeDiff;
+      btcAcceleration = btcVelocity - olderVelocity;
+    }
+  }
+
+  // YES price velocity (rate of change)
+  let priceVelocity = 0;
+  if (priceHistory.length >= 5) {
+    const recent = priceHistory.slice(-3);
+    const older = priceHistory.slice(-6, -3);
+    if (older.length > 0) {
+      const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+      const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+      priceVelocity = recentAvg - olderAvg; // Change per tick (~200ms)
+    }
+  }
+
+  // BTC realized volatility from price service
+  const btcVolatility = priceService.getVolatility(20);
+
   return {
     currentPrice: yesPrice,
     startPrice: market.startPrice || 0.5,
@@ -131,6 +355,13 @@ export function buildStrategyContext(market: MarketInfo): StrategyContext {
     btcPriceChange,
     btcWindowOpen,
     btcPriceHistory,
+    // New context data
+    hourOfDay,
+    dayOfWeek,
+    btcVelocity,
+    btcAcceleration,
+    priceVelocity,
+    btcVolatility,
   };
 }
 

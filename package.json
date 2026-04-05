@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "next build && node scripts/cleanup-workers.js",
+    "build:clean": "next build && node scripts/cleanup-workers.js",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "cleanup": "node scripts/cleanup-workers.js"
   },
   "dependencies": {
     "next": "16.2.1",

@@ -104,6 +104,14 @@ export class DatabaseService {
   private config: DatabaseConfig;
   private initialized = false;
 
+  // OPTIMIZATION 3: Prepared statement cache for better performance
+  private statementCache: Map<string, Database.Statement> = new Map();
+
+  // OPTIMIZATION 3: Write batch queue for batching multiple writes
+  private writeBatchQueue: Array<() => void> = [];
+  private batchFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly BATCH_FLUSH_INTERVAL_MS = 50; // Flush batch every 50ms
+
   constructor(config: DatabaseConfig = { mode: "file", filePath: "./data/polymarket.db" }) {
     this.config = config;
   }
@@ -128,9 +136,97 @@ export class DatabaseService {
       this.db = new Database(this.config.filePath);
     }
 
+    // OPTIMIZATION 3: Enable WAL mode for better concurrent read/write performance
+    // WAL mode allows readers to not block writers and vice versa
+    this.db.exec("PRAGMA journal_mode = WAL");
+
+    // OPTIMIZATION 3: Set synchronous to NORMAL for good balance of safety and speed
+    // NORMAL is safe for WAL mode and faster than FULL
+    this.db.exec("PRAGMA synchronous = NORMAL");
+
+    // OPTIMIZATION 3: Increase cache size for better performance (2000 pages = ~8MB)
+    this.db.exec("PRAGMA cache_size = -2000");
+
+    // OPTIMIZATION 3: Enable foreign keys
+    this.db.exec("PRAGMA foreign_keys = ON");
+
     this.createSchema();
     this.initialized = true;
+
+    // OPTIMIZATION 3: Start batch flush timer
+    this.startBatchFlushTimer();
+
+    console.log("[Database] Connected with WAL mode and write batching enabled");
     return Promise.resolve();
+  }
+
+  /** Start the batch flush timer - flushes write queue periodically */
+  private startBatchFlushTimer(): void {
+    if (this.batchFlushTimer) return;
+
+    this.batchFlushTimer = setInterval(() => {
+      this.flushWriteBatch();
+    }, this.BATCH_FLUSH_INTERVAL_MS);
+  }
+
+  /** Flush all pending writes in a single transaction */
+  private flushWriteBatch(): void {
+    if (!this.db || this.writeBatchQueue.length === 0) return;
+
+    try {
+      // Execute all queued writes in a single transaction
+      this.db.transaction(() => {
+        for (const writeFn of this.writeBatchQueue) {
+          writeFn();
+        }
+      })();
+
+      const flushedCount = this.writeBatchQueue.length;
+      this.writeBatchQueue = [];
+
+      if (flushedCount > 1) {
+        console.log(`[Database] Flushed ${flushedCount} writes in batch`);
+      }
+    } catch (error) {
+      console.error("[Database] Batch flush error:", error);
+      // Clear queue on error to prevent data corruption
+      this.writeBatchQueue = [];
+    }
+  }
+
+  /** Queue a write operation for batching */
+  private queueWrite(writeFn: () => void): void {
+    this.writeBatchQueue.push(writeFn);
+  }
+
+  /** Execute a write immediately without batching (for time-critical operations) */
+  private executeWriteImmediate(writeFn: () => void): void {
+    if (!this.db) return;
+
+    try {
+      this.db.transaction(writeFn)();
+    } catch (error) {
+      console.error("[Database] Immediate write error:", error);
+    }
+  }
+
+  /** Get a cached prepared statement or create a new one */
+  private getStatement(sql: string): Database.Statement {
+    if (!this.db) {
+      throw new Error("Database not connected");
+    }
+
+    let stmt = this.statementCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      this.statementCache.set(sql, stmt);
+    }
+    return stmt;
+  }
+
+  /** Clear all cached statements (for cleanup) */
+  private clearStatementCache(): void {
+    this.statementCache.clear();
   }
 
   private createSchema(): void {
@@ -289,29 +385,33 @@ export class DatabaseService {
   }): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement(`
       INSERT OR REPLACE INTO markets
       (id, question, description, start_time, end_time, start_price, end_price,
        status, result, outcome_yes, outcome_no, volume, liquidity, category)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      market.id,
-      market.question,
-      market.description,
-      market.startTime,
-      market.endTime,
-      market.startPrice,
-      market.endPrice,
-      market.status,
-      market.result,
-      market.outcomeYes,
-      market.outcomeNo,
-      market.volume,
-      market.liquidity,
-      market.category || "Crypto"
-    );
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(
+        market.id,
+        market.question,
+        market.description,
+        market.startTime,
+        market.endTime,
+        market.startPrice,
+        market.endPrice,
+        market.status,
+        market.result,
+        market.outcomeYes,
+        market.outcomeNo,
+        market.volume,
+        market.liquidity,
+        market.category || "Crypto"
+      );
+    });
   }
 
   async getMarket(id: string): Promise<MarketRow | null> {
@@ -351,30 +451,82 @@ export class DatabaseService {
   }): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement(`
       INSERT OR REPLACE INTO positions
       (id, market_id, outcome, amount, odds, stake, fee, timestamp, status,
        pnl, bot_id, bot_name, decision_context, btc_price, time_remaining)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      position.id,
-      position.marketId,
-      position.outcome,
-      position.amount,
-      position.odds,
-      position.stake,
-      position.fee,
-      position.timestamp,
-      position.status,
-      position.pnl,
-      position.botId || null,
-      position.botName || null,
-      position.decisionContext ? JSON.stringify(position.decisionContext) : null,
-      position.btcPrice ?? null,
-      position.timeRemaining ?? null
-    );
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(
+        position.id,
+        position.marketId,
+        position.outcome,
+        position.amount,
+        position.odds,
+        position.stake,
+        position.fee,
+        position.timestamp,
+        position.status,
+        position.pnl,
+        position.botId || null,
+        position.botName || null,
+        position.decisionContext ? JSON.stringify(position.decisionContext) : null,
+        position.btcPrice ?? null,
+        position.timeRemaining ?? null
+      );
+    });
+  }
+
+  /** Save position immediately without batching (for time-critical operations) */
+  async savePositionImmediate(position: {
+    id: string;
+    marketId: string;
+    outcome: "YES" | "NO";
+    amount: number;
+    odds: number;
+    stake: number;
+    fee: number;
+    timestamp: number;
+    status: "open" | "closed" | "settled";
+    pnl: number | null;
+    botId?: string | null;
+    botName?: string | null;
+    decisionContext?: Record<string, unknown>;
+    btcPrice?: number;
+    timeRemaining?: number;
+  }): Promise<void> {
+    if (!this.db) return;
+
+    const stmt = this.getStatement(`
+      INSERT OR REPLACE INTO positions
+      (id, market_id, outcome, amount, odds, stake, fee, timestamp, status,
+       pnl, bot_id, bot_name, decision_context, btc_price, time_remaining)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    this.executeWriteImmediate(() => {
+      stmt.run(
+        position.id,
+        position.marketId,
+        position.outcome,
+        position.amount,
+        position.odds,
+        position.stake,
+        position.fee,
+        position.timestamp,
+        position.status,
+        position.pnl,
+        position.botId || null,
+        position.botName || null,
+        position.decisionContext ? JSON.stringify(position.decisionContext) : null,
+        position.btcPrice ?? null,
+        position.timeRemaining ?? null
+      );
+    });
   }
 
   async getPosition(id: string): Promise<PositionRow | null> {
@@ -432,10 +584,13 @@ export class DatabaseService {
   async updatePositionStatus(id: string, status: string, pnl: number | null): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(
-      "UPDATE positions SET status = ?, pnl = ? WHERE id = ?"
-    );
-    stmt.run(status, pnl, id);
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement("UPDATE positions SET status = ?, pnl = ? WHERE id = ?");
+
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(status, pnl, id);
+    });
   }
 
   // === Bot Session Operations ===
@@ -462,7 +617,8 @@ export class DatabaseService {
   }): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement(`
       INSERT OR REPLACE INTO bot_sessions
       (id, bot_id, bot_name, strategy, start_time, end_time, start_balance,
        end_balance, total_trades, winning_trades, losing_trades, total_pnl,
@@ -470,26 +626,29 @@ export class DatabaseService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.botId,
-      session.botName,
-      session.strategy,
-      session.startTime,
-      session.endTime,
-      session.startBalance,
-      session.endBalance,
-      session.totalTrades,
-      session.winningTrades,
-      session.losingTrades,
-      session.totalPnL,
-      session.status,
-      session.maxDrawdown ?? 0,
-      session.sharpeRatio ?? 0,
-      session.strategyConfig ? JSON.stringify(session.strategyConfig) : null,
-      session.botConfig ? JSON.stringify(session.botConfig) : null,
-      session.sessionNotes ?? null
-    );
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(
+        session.id,
+        session.botId,
+        session.botName,
+        session.strategy,
+        session.startTime,
+        session.endTime,
+        session.startBalance,
+        session.endBalance,
+        session.totalTrades,
+        session.winningTrades,
+        session.losingTrades,
+        session.totalPnL,
+        session.status,
+        session.maxDrawdown ?? 0,
+        session.sharpeRatio ?? 0,
+        session.strategyConfig ? JSON.stringify(session.strategyConfig) : null,
+        session.botConfig ? JSON.stringify(session.botConfig) : null,
+        session.sessionNotes ?? null
+      );
+    });
   }
 
   async getBotSession(id: string): Promise<BotSessionRow | null> {
@@ -581,24 +740,28 @@ export class DatabaseService {
   }): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement(`
       INSERT INTO trades
       (id, position_id, market_id, type, outcome, amount, price, fee, timestamp, bot_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      trade.id,
-      trade.positionId,
-      trade.marketId,
-      trade.type,
-      trade.outcome,
-      trade.amount,
-      trade.price,
-      trade.fee,
-      trade.timestamp,
-      trade.botId || null
-    );
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(
+        trade.id,
+        trade.positionId,
+        trade.marketId,
+        trade.type,
+        trade.outcome,
+        trade.amount,
+        trade.price,
+        trade.fee,
+        trade.timestamp,
+        trade.botId || null
+      );
+    });
   }
 
   // === Configuration Operations ===
@@ -614,21 +777,51 @@ export class DatabaseService {
   async setConfig(key: string, value: string): Promise<void> {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
+    // OPTIMIZATION 3: Use cached prepared statement
+    const stmt = this.getStatement(`
       INSERT OR REPLACE INTO config (key, value, updated_at)
       VALUES (?, ?, ?)
     `);
 
-    stmt.run(key, value, Date.now());
+    // OPTIMIZATION 3: Queue write for batching
+    this.queueWrite(() => {
+      stmt.run(key, value, Date.now());
+    });
   }
 
   // === Database Management ===
 
+  /** Flush all pending writes immediately (call before shutdown) */
+  async flushPendingWrites(): Promise<void> {
+    this.flushWriteBatch();
+  }
+
   async close(): Promise<void> {
     if (this.db) {
+      // Flush any pending writes before closing
+      this.flushWriteBatch();
+
+      // Clear batch flush timer
+      if (this.batchFlushTimer) {
+        clearInterval(this.batchFlushTimer);
+        this.batchFlushTimer = null;
+      }
+
+      // Clear statement cache
+      this.clearStatementCache();
+
+      // checkpoint WAL to main database file
+      try {
+        this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch (error) {
+        console.error("[Database] WAL checkpoint error:", error);
+      }
+
       this.db.close();
       this.db = null;
       this.initialized = false;
+
+      console.log("[Database] Closed (WAL checkpoint complete)");
     }
   }
 

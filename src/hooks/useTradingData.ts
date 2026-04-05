@@ -181,7 +181,7 @@ export function useTradingData() {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [apiLatency, setApiLatency] = useState(0);
 
-  // Sync SSE-updated store values into marketData
+  // Sync SSE-updated store values into marketData (backward compatibility)
   // Only overwrite priceToBeat if the new value is actually set (not null)
   // This prevents race conditions where SSE null overwrites valid HTTP-fetched values
   useEffect(() => {
@@ -189,6 +189,8 @@ export function useTradingData() {
       if (!prev) return null;
       let changed = false;
       const next = { ...prev };
+      // Use store btcPrice directly - it's updated via SSE in real-time
+      // This sync is kept for backward compatibility with components still using marketData.spotPrice
       if (btcPrice !== undefined && btcPrice > 0 && btcPrice !== prev.spotPrice) {
         next.spotPrice = btcPrice;
         changed = true;
@@ -313,11 +315,12 @@ export function useTradingData() {
     return () => clearTimeout(timeout);
   }, [fetchData, fetchLiveBalance, setLoading]);
 
-  // Fallback polling every 30 seconds (reduced from 10s - SSE handles real-time updates)
+  // Fallback polling every 60 seconds (SSE handles real-time updates)
+  // Polling is kept as a safety net for SSE failures or disconnections
   useEffect(() => {
     const pollInterval = setInterval(() => {
       fetchData();
-    }, 30000);
+    }, 60000);
 
     return () => clearInterval(pollInterval);
   }, [fetchData]);

@@ -42,8 +42,9 @@ export function DepositModal({ isOpen, onClose, polymarketBalance, onRefreshBala
         setError("Approval failed. Please try again.");
         setStep("amount");
       }
-    } catch (err: any) {
-      setError(err.message || "Approval failed");
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Approval failed";
+      setError(errorMessage);
       setStep("amount");
     }
   };

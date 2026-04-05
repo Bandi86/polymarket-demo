@@ -16,9 +16,10 @@ import LiveModeDashboard from "@/components/LiveModeDashboard";
 import { useTradingData } from "@/hooks/useTradingData";
 import { useTradingStore } from "@/lib/stores/trading-store";
 import { useBotStore } from "@/lib/stores/bot-store";
-import type { BotData } from "@/hooks/useTradingData";
+import type { BotData, MarketData } from "@/hooks/useTradingData";
+import type { BotLog, Position } from "@/types";
 
-export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab: string; marketData?: any; coinColor?: string }) {
+export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab: string; marketData?: MarketData | null; coinColor?: string }) {
   // Use Zustand stores directly instead of useTradingData 
   // to avoid creating duplicate interval polling loops
   const { yesPrice, noPrice, timeRemaining, competition, loading } = useTradingStore();
@@ -43,15 +44,7 @@ export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab
     } catch(e) { console.error(e) }
   };
 
-  const [positions, setPositions] = useState<Array<{
-    id: string;
-    botId?: string;
-    outcome: "YES" | "NO";
-    amount: number;
-    stake: number;
-    odds: number;
-    fee?: number;
-  }>>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
 
   useEffect(() => {
     const fetchPositions = async () => {

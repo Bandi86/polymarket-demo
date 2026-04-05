@@ -4,6 +4,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useTradingStore } from '@/lib/stores/trading-store'
 import { useBotStore } from '@/lib/stores/bot-store'
+import { SSEHealthMonitor } from '@/lib/sse-health-monitor'
 
 export function useSSE() {
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -30,11 +31,22 @@ export function useSSE() {
       // Clear bot logs on reconnect to avoid stale data
       // This ensures consistency after server restart
       useBotStore.getState().clearLogs()
+
+      // Record reconnection in health monitor
+      if (reconnectAttempts.current > 0) {
+        SSEHealthMonitor.recordReconnect()
+      }
+      SSEHealthMonitor.recordMessage('connected')
     }
 
     eventSource.onmessage = (event) => {
       try {
         const { type, data } = JSON.parse(event.data)
+        const receiveTime = Date.now()
+
+        // Record message in health monitor with latency if available
+        const latency = data.timestamp ? receiveTime - data.timestamp : undefined
+        SSEHealthMonitor.recordMessage(type, latency)
 
         switch (type) {
           case 'connected':
@@ -140,6 +152,12 @@ export function useSSE() {
 
     eventSource.onerror = () => {
       eventSource.close()
+      // Record disconnect in health monitor
+      SSEHealthMonitor.recordDisconnect()
+
+      // Record error
+      SSEHealthMonitor.recordError('SSE connection error')
+
       // Exponential backoff
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000)
       reconnectAttempts.current++

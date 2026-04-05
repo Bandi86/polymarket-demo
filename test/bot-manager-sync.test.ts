@@ -31,11 +31,10 @@ describe('BotManager Stats Sync', () => {
 
   it('should sync stats from portfolio correctly', () => {
     // 1. Create a bot
-    const bot = manager.createBot({
+    manager.createBot({
       id: 'test-bot-1',
       name: 'Test Bot',
       strategy: 'window_delta',
-      type: 'momentum',
       enabled: false,
       interval: 1000,
       betSize: 10,

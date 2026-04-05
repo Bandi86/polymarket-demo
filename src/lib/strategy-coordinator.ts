@@ -39,6 +39,19 @@ const DEFAULT_CONFIG: CoordinatorConfig = {
   conflictMode: "strict",
   maxBotsSameOutcome: 2, // Reduced from 3 to prevent overexposure
   compatibleStrategies: {
+    // === NEW STRATEGIES (Option A) ===
+    // Volatility breakout is independent - can pair with others
+    volatility_breakout: ["time_pattern", "binance_velocity"],
+    // Time pattern is independent - can pair with others
+    time_pattern: ["volatility_breakout", "binance_velocity"],
+    // Price reversion is fully independent (uses Polymarket prices, not BTC)
+    price_reversion: [], // Standalone - different signal source
+    // Binance velocity - momentum-based
+    binance_velocity: ["volatility_breakout", "time_pattern"],
+    // Sniper value - extreme prices, independent from others
+    sniper_value: ["price_reversion"], // Both use price extremes
+
+    // === LEGACY STRATEGIES ===
     // Momentum strategies are compatible with each other
     window_delta: ["momentum", "momentum_burst", "binance_signal"],
     binance_signal: ["window_delta", "momentum", "last_seconds_scalp"],

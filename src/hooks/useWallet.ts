@@ -34,6 +34,39 @@ const ERC20_ABI = [
   },
 ];
 
+// EIP-1193 Provider interface
+interface Eip1193Provider {
+  request<T = unknown>(args: { method: string; params?: unknown[] }): Promise<T>;
+  on(event: "accountsChanged" | "chainChanged" | string, listener: (...args: unknown[]) => void): void;
+  removeListener(event: "accountsChanged" | "chainChanged" | string, listener: (...args: unknown[]) => void): void;
+}
+
+// EIP-712 Typed Data types
+interface Eip712Domain {
+  name: string;
+  version: string;
+  chainId: number;
+  verifyingContract: string;
+}
+
+interface Eip712Type {
+  name: string;
+  type: string;
+}
+
+interface Eip712Types {
+  [key: string]: Eip712Type[];
+}
+
+interface Eip712Value {
+  [key: string]: string | number;
+}
+
+// Wallet error with optional code (for RPC errors)
+interface WalletError extends Error {
+  code?: number;
+}
+
 export interface WalletState {
   isConnected: boolean;
   address: string | null;
@@ -58,12 +91,12 @@ export function useWallet() {
   });
 
   // Check if MetaMask is installed
-  const isMetaMaskInstalled = typeof window !== "undefined" && typeof (window as any).ethereum !== "undefined";
+  const isMetaMaskInstalled = typeof window !== "undefined" && typeof (window as { ethereum?: Eip1193Provider }).ethereum !== "undefined";
 
   // Get ethereum provider
   const getProvider = useCallback(() => {
     if (typeof window === "undefined") return null;
-    return (window as any).ethereum;
+    return (window as { ethereum?: Eip1193Provider }).ethereum;
   }, []);
 
   // Update USDC balance
@@ -85,10 +118,10 @@ export function useWallet() {
       });
 
       // Parse result (6 decimals for USDC)
-      const balance = parseInt(result, 16) / 1e6;
+      const balance = parseInt(result as string, 16) / 1e6;
       setState(prev => ({ ...prev, usdcBalance: balance }));
     } catch (err) {
-      console.error("Failed to fetch USDC balance:", err);
+      console.error("Failed to fetch USDC balance:", err instanceof Error ? err.message : err);
     }
   }, [getProvider]);
 
@@ -112,10 +145,10 @@ export function useWallet() {
       });
 
       // Parse result
-      const allowance = parseInt(result, 16) / 1e6;
+      const allowance = parseInt(result as string, 16) / 1e6;
       setState(prev => ({ ...prev, usdcAllowance: allowance }));
     } catch (err) {
-      console.error("Failed to fetch USDC allowance:", err);
+      console.error("Failed to fetch USDC allowance:", err instanceof Error ? err.message : err);
     }
   }, [getProvider]);
 
@@ -131,11 +164,11 @@ export function useWallet() {
 
     try {
       // Request account access
-      const accounts = await provider.request({ method: "eth_requestAccounts" });
+      const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
       const address = accounts[0];
 
       // Get chain ID
-      const chainId = await provider.request({ method: "eth_chainId" });
+      const chainId = await provider.request<string>({ method: "eth_chainId" });
       const chainIdNum = parseInt(chainId, 16);
 
       setState(prev => ({
@@ -150,12 +183,13 @@ export function useWallet() {
       // Fetch USDC balance
       await updateUsdcBalance(address);
       await updateUsdcAllowance(address);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to connect wallet:", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to connect wallet";
       setState(prev => ({
         ...prev,
         isConnecting: false,
-        error: err.message || "Failed to connect wallet",
+        error: errorMessage,
       }));
     }
   }, [getProvider, updateUsdcBalance, updateUsdcAllowance]);
@@ -185,9 +219,10 @@ export function useWallet() {
         method: "wallet_switchEthereumChain",
         params: [{ chainId: "0x89" }], // 137 in hex
       });
-    } catch (switchError: any) {
+    } catch (switchError) {
+      const error = switchError as WalletError;
       // If the chain is not added, add it
-      if (switchError.code === 4902) {
+      if (error.code === 4902) {
         try {
           await provider.request({
             method: "wallet_addEthereumChain",
@@ -204,10 +239,10 @@ export function useWallet() {
             }],
           });
         } catch (addError) {
-          console.error("Failed to add Polygon network:", addError);
+          console.error("Failed to add Polygon network:", addError instanceof Error ? addError.message : addError);
         }
       } else {
-        console.error("Failed to switch network:", switchError);
+        console.error("Failed to switch network:", error.message ?? switchError);
       }
     }
   }, [getProvider]);
@@ -226,7 +261,7 @@ export function useWallet() {
         "000000000000000000000000" + CTF_EXCHANGE.slice(2) + // spender
         amountWei; // amount
 
-      const txHash = await provider.request({
+      const txHash = await provider.request<string>({
         method: "eth_sendTransaction",
         params: [{
           from: state.address,
@@ -244,9 +279,9 @@ export function useWallet() {
       await updateUsdcAllowance(state.address);
 
       return true;
-    } catch (err: any) {
-      console.error("Failed to approve USDC:", err);
-      setState(prev => ({ ...prev, error: err.message }));
+    } catch (err) {
+      console.error("Failed to approve USDC:", err instanceof Error ? err.message : err);
+      setState(prev => ({ ...prev, error: err instanceof Error ? err.message : "Failed to approve USDC" }));
       return false;
     }
   }, [getProvider, state.address, updateUsdcAllowance]);
@@ -261,15 +296,15 @@ export function useWallet() {
         method: "personal_sign",
         params: [message, state.address],
       });
-      return signature;
-    } catch (err: any) {
-      console.error("Failed to sign message:", err);
+      return signature as string;
+    } catch (err) {
+      console.error("Failed to sign message:", err instanceof Error ? err.message : err);
       return null;
     }
   }, [getProvider, state.address]);
 
   // Sign typed data (EIP-712)
-  const signTypedData = useCallback(async (domain: any, types: any, value: any) => {
+  const signTypedData = useCallback(async (domain: Eip712Domain, types: Eip712Types, value: Eip712Value) => {
     const provider = getProvider();
     if (!provider || !state.address) return null;
 
@@ -278,9 +313,9 @@ export function useWallet() {
         method: "eth_signTypedData_v4",
         params: [state.address, JSON.stringify({ domain, types, primaryType: Object.keys(types)[0], message: value })],
       });
-      return signature;
-    } catch (err: any) {
-      console.error("Failed to sign typed data:", err);
+      return signature as string;
+    } catch (err) {
+      console.error("Failed to sign typed data:", err instanceof Error ? err.message : err);
       return null;
     }
   }, [getProvider, state.address]);
@@ -290,18 +325,21 @@ export function useWallet() {
     const provider = getProvider();
     if (!provider) return;
 
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
+    const handleAccountsChanged = (accounts: unknown) => {
+      const accountsArray = Array.isArray(accounts) ? accounts as string[] : [];
+      if (accountsArray.length === 0) {
         disconnect();
       } else {
-        setState(prev => ({ ...prev, address: accounts[0] }));
-        updateUsdcBalance(accounts[0]);
-        updateUsdcAllowance(accounts[0]);
+        const address = accountsArray[0];
+        setState(prev => ({ ...prev, address }));
+        updateUsdcBalance(address);
+        updateUsdcAllowance(address);
       }
     };
 
-    const handleChainChanged = (chainId: string) => {
-      const chainIdNum = parseInt(chainId, 16);
+    const handleChainChanged = (chainId: unknown) => {
+      const chainIdStr = String(chainId);
+      const chainIdNum = parseInt(chainIdStr, 16);
       setState(prev => ({
         ...prev,
         chainId: chainIdNum,
@@ -313,8 +351,8 @@ export function useWallet() {
     provider.on("chainChanged", handleChainChanged);
 
     // Check if already connected
-    provider.request({ method: "eth_accounts" }).then((accounts: string[]) => {
-      if (accounts.length > 0) {
+    provider.request<string[]>({ method: "eth_accounts" }).then((accounts) => {
+      if (accounts && accounts.length > 0) {
         connect();
       }
     });
@@ -340,8 +378,8 @@ export function useWallet() {
 }
 
 // Helper to wait for transaction
-async function waitForTransaction(provider: any, txHash: string): Promise<void> {
-  let receipt = null;
+async function waitForTransaction(provider: Eip1193Provider, txHash: string): Promise<void> {
+  let receipt: unknown = null;
   while (!receipt) {
     receipt = await provider.request({
       method: "eth_getTransactionReceipt",

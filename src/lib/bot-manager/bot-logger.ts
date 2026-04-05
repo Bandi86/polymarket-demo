@@ -71,6 +71,13 @@ export class BotLogger {
     };
   }
 
+  removeListener(listener: (log: BotLog) => void): void {
+    const index = this.listeners.indexOf(listener);
+    if (index >= 0) {
+      this.listeners.splice(index, 1);
+    }
+  }
+
   clear(): void {
     this.logs = [];
   }

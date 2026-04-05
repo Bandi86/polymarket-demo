@@ -4,6 +4,7 @@ import { CircularTimer, BotRunTimer } from "@/components/ui/CircularTimer";
 import { QUICK_RUN_OPTIONS } from "@/components/dashboard";
 import { formatTimeRemaining } from "./useTopDashboardState";
 import type { MarketData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
+import type { BotConfig } from "@/types";
 import { motion } from "framer-motion";
 
 function formatBTCPrice(price: number): string {
@@ -88,7 +89,7 @@ interface MarketInfoPanelProps {
   timeRemaining: number;
   runTimeRemaining: number;
   isBotRunning: boolean;
-  bots: any[];
+  bots: BotConfig[];
   activeBots: number;
   totalBotsBalance: number;
   totalPnl: number;

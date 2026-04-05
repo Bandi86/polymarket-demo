@@ -2,7 +2,10 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useTradingData } from "@/hooks/useTradingData";
+import { useTradingStore } from "@/lib/stores/trading-store";
 import { useSoundNotifications } from "@/hooks/useSoundNotifications";
+import { useNotifications } from "@/lib/notifications";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { MarketCard } from "@/components/MarketCard";
 import { ChartPanel } from "@/components/ChartPanel";
 import { TradingPanel } from "@/components/TradingPanel";
@@ -54,71 +57,110 @@ export function App() {
     addTradeEvent,
   } = useTradingData();
 
+  // Use BTC price directly from store for real-time updates (bypasses marketData.spotPrice lag)
+  const btcPriceFromStore = useTradingStore(s => s.btcPrice);
+  const priceToBeatFromStore = useTradingStore(s => s.priceToBeat);
+
+  // Use enhanced notification system
+  const { showTrade, showSettlement, showSessionComplete, showError } = useNotifications();
   const { enabled: soundEnabled, playTrade, playNotification, toggleEnabled: toggleSound } = useSoundNotifications();
   const toast = useToastActions();
 
+  // Track processed log IDs to avoid duplicate notifications
+  const processedLogIds = useRef<Set<string>>(new Set());
+
   // Handle new bot trade notifications - only when bots are running
   useEffect(() => {
-    if (botLogs.length === 0) return;
-    // Only show notifications when at least one bot is running
-    if (!isBotRunning) return;
+    if (!isBotRunning || botLogs.length === 0) return;
 
-    const latestLog = botLogs[0];
-    if (latestLog.id === lastProcessedLogId.current) return;
+    const newLogs = botLogs.filter(log => !processedLogIds.current.has(log.id));
+    if (newLogs.length === 0) return;
 
-    // Skip competition logs
-    if (latestLog.botId === "competition") return;
+    // Process each new log
+    newLogs.forEach(latestLog => {
+      processedLogIds.current.add(latestLog.id);
 
-    lastProcessedLogId.current = latestLog.id;
+      // Skip competition logs
+      if (latestLog.botId === "competition") return;
 
-    // Notify on TRADE (position opened) and SETTLED (position closed/won/lost)
-    if (latestLog.type === "TRADE") {
-      const details = latestLog.details || {};
-      const outcome = (details.outcome as "YES" | "NO") || "YES";
-      const amount = details.amount as number || details.stake as number || 0;
-      const price = details.odds as number || details.price as number || details.avgPrice as number || details.marketPrice as number || details.fillPrice as number || 0;
+      // Notify on TRADE (position opened) and SETTLED (position closed/won/lost)
+      if (latestLog.type === "TRADE") {
+        const details = latestLog.details || {};
+        const outcome = (details.outcome as "YES" | "NO") || "YES";
+        const amount = details.amount as number || details.stake as number || 0;
+        const price = details.odds as number || details.price as number || details.avgPrice as number || details.marketPrice as number || details.fillPrice as number || 0;
 
-      playTrade();
+        playTrade();
 
-      // Find bot for additional info
-      const bot = bots.find(b => b.id === latestLog.botId);
+        // Find bot for additional info
+        const bot = bots.find(b => b.id === latestLog.botId);
 
-      toast.custom(
-        <TradeNotification
-          botName={latestLog.botName}
-          outcome={outcome}
-          amount={amount}
-          price={price}
-          balance={bot?.portfolio?.balance}
-          strategy={bot?.strategy}
-        />,
-        { duration: 4000 }
-      );
-    } else if (latestLog.type === "SETTLED") {
-      const details = latestLog.details || {};
-      const won = details.won as boolean;
-      const pnl = details.pnl as number || 0;
-      const outcome = details.outcome as string || "YES";
+        // Show enhanced notification
+        showTrade({
+          botName: latestLog.botName,
+          outcome,
+          amount,
+          price,
+          balance: bot?.portfolio?.balance,
+          strategy: bot?.strategy,
+        });
 
-      playNotification?.();
+        // Also show toast for backward compatibility
+        toast.custom(
+          <TradeNotification
+            botName={latestLog.botName}
+            outcome={outcome}
+            amount={amount}
+            price={price}
+            balance={bot?.portfolio?.balance}
+            strategy={bot?.strategy}
+          />,
+          { duration: 4000 }
+        );
+      } else if (latestLog.type === "SETTLED") {
+        const details = latestLog.details || {};
+        const won = details.won as boolean;
+        const pnl = details.pnl as number || 0;
+        const outcome = details.outcome as string || "YES";
 
-      // Find bot for additional stats
-      const bot = bots.find(b => b.id === latestLog.botId);
+        playNotification?.();
 
-      toast.custom(
-        <SettlementNotification
-          botName={latestLog.botName}
-          won={won}
-          pnl={pnl}
-          outcome={outcome}
-          trades={bot?.stats?.trades}
-          winRate={bot?.stats?.winRate}
-          strategy={bot?.strategy}
-        />,
-        { duration: 5000 }
-      );
+        // Find bot for additional stats
+        const bot = bots.find(b => b.id === latestLog.botId);
+
+        // Show enhanced notification
+        showSettlement({
+          botName: latestLog.botName,
+          won,
+          pnl,
+          outcome,
+          trades: bot?.stats?.trades,
+          winRate: bot?.stats?.winRate,
+          strategy: bot?.strategy,
+        });
+
+        // Also show toast for backward compatibility
+        toast.custom(
+          <SettlementNotification
+            botName={latestLog.botName}
+            won={won}
+            pnl={pnl}
+            outcome={outcome}
+            trades={bot?.stats?.trades}
+            winRate={bot?.stats?.winRate}
+            strategy={bot?.strategy}
+          />,
+          { duration: 5000 }
+        );
+      }
+    });
+
+    // Cleanup old processed IDs to prevent memory leak (keep last 1000)
+    if (processedLogIds.current.size > 1000) {
+      const ids = Array.from(processedLogIds.current);
+      processedLogIds.current = new Set(ids.slice(-500));
     }
-  }, [botLogs, playTrade, playNotification, toast, isBotRunning, bots]);
+  }, [botLogs, isBotRunning, bots, showTrade, showSettlement, playTrade, playNotification, toast]);
 
   const [botPositions, setBotPositions] = useState<Array<{
     id: string; botId?: string; outcome: "YES" | "NO";
@@ -185,11 +227,12 @@ export function App() {
     if (prevCompetitionActive.current && !competition?.active && competition?.completedAt) {
       setShowSessionSummary(true);
 
-      // Show session complete notification
+      // Calculate session stats
       const totalPnl = bots.reduce((sum, b) => sum + (b.stats?.pnl || 0), 0);
       const totalTrades = bots.reduce((sum, b) => sum + (b.stats?.trades || 0), 0);
       const totalWins = bots.reduce((sum, b) => sum + (b.stats?.wins || 0), 0);
       const totalLosses = bots.reduce((sum, b) => sum + (b.stats?.losses || 0), 0);
+      const totalLossesChecked = totalLosses || 0;
       const winRate = totalTrades > 0 ? totalWins / totalTrades : 0;
       const duration = competition.completedAt - competition.startTime;
 
@@ -200,12 +243,25 @@ export function App() {
 
       playNotification?.();
 
+      // Show enhanced notification
+      showSessionComplete({
+        totalPnl,
+        totalTrades,
+        totalWins,
+        totalLosses: totalLossesChecked,
+        winRate,
+        duration,
+        bestBot,
+        worstBot,
+      });
+
+      // Also show toast for backward compatibility
       toast.custom(
         <SessionCompleteNotification
           totalPnl={totalPnl}
           totalTrades={totalTrades}
           totalWins={totalWins}
-          totalLosses={totalLosses}
+          totalLosses={totalLossesChecked}
           winRate={winRate}
           duration={duration}
           bestBot={bestBot}
@@ -215,7 +271,7 @@ export function App() {
       );
     }
     prevCompetitionActive.current = competition?.active ?? false;
-  }, [competition?.active, competition?.completedAt, bots, playNotification, toast]);
+  }, [competition?.active, competition?.completedAt, bots, playNotification, showSessionComplete, toast]);
 
   // Sync timeframe and asset to backend
   useEffect(() => {
@@ -388,8 +444,8 @@ export function App() {
         setTradingMode={setTradingMode}
         liveBalance={liveBalance}
         onRefreshLiveBalance={fetchLiveBalance}
-        btcPrice={marketData?.spotPrice}
-        btcWindowOpen={marketData?.priceToBeat}
+        btcPrice={btcPriceFromStore || marketData?.spotPrice}
+        btcWindowOpen={priceToBeatFromStore || marketData?.priceToBeat}
       />
 
       <div style={{ maxWidth: 1600, margin: "0 auto", width: "100%", padding: "1.5rem", position: "relative", flex: 1 }}>
@@ -420,8 +476,8 @@ export function App() {
                 coinColor={coinColor}
                 selectedAsset={selectedAsset}
                 selectedTimeframe={selectedTimeframe}
-                btcPrice={marketData?.spotPrice}
-                priceToBeat={marketData?.priceToBeat || marketData?.market?.priceToBeat}
+                btcPrice={btcPriceFromStore || marketData?.spotPrice}
+                priceToBeat={priceToBeatFromStore || marketData?.priceToBeat || marketData?.market?.priceToBeat}
               />
 
               {/* Quick Actions */}

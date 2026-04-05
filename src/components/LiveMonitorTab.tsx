@@ -6,22 +6,14 @@ import { formatCurrency } from "@/lib/utils";
 import { BotStatusCard } from "@/components/BotStatusCard";
 import { BotConfigPanel } from "@/components/BotConfigPanel";
 import type { BotData } from "@/hooks/useTradingData";
-import type { BotLog } from "@/types";
+import type { BotLog, Position } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface LiveMonitorTabProps {
   bots: BotData[];
   botLogs: BotLog[];
   yesPrice: number;
-  positions: Array<{
-    id: string;
-    botId?: string;
-    outcome: "YES" | "NO";
-    amount: number;
-    stake: number;
-    odds: number;
-    fee?: number;
-  }>;
+  positions: Position[];
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
   timeRemaining: number;
 }

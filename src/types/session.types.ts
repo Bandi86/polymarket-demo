@@ -66,6 +66,9 @@ export interface DecisionContext {
   rawBetSize: number;
   finalBetSize: number;
   balanceAtDecision: number;
+
+  // Allow additional properties for database compatibility
+  [key: string]: number | string | boolean | Record<string, unknown> | undefined;
 }
 
 export interface RiskMetrics {

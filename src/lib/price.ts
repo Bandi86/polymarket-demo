@@ -18,8 +18,14 @@ const DEFAULT_POLL_INTERVAL = 3000;
 class BinanceProvider implements Provider {
   name = "Binance";
   private ws: WebSocket | null = null;
+  private tradeWs: WebSocket | null = null; // Separate WebSocket for real-time trades
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private lastTradePrice = 0;
+  private tradeListeners: Set<(price: number) => void> = new Set();
+  private fallbackToTicker = false; // Fallback to ticker if trade stream fails
+  private httpFallbackActive = false; // HTTP polling fallback if all WS fails
+  private httpPollInterval: ReturnType<typeof setInterval> | null = null;
 
   async fetchPrice(): Promise<PriceUpdate | null> {
     try {
@@ -50,6 +56,154 @@ class BinanceProvider implements Provider {
       console.error("[BinanceProvider] Fetch error:", error);
       return null;
     }
+  }
+
+  // Subscribe to real-time trades (faster than ticker - ~100-300ms latency)
+  // Includes automatic fallback to ticker stream and HTTP polling
+  subscribeToTrades(callback: (price: number) => void): () => void {
+    let lastMessageTime = Date.now();
+    let messageTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const connectTradeStream = () => {
+      if (this.fallbackToTicker) {
+        // Already in fallback mode, don't reconnect trade stream
+        return;
+      }
+
+      try {
+        this.tradeWs = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");
+
+        this.tradeWs.onopen = () => {
+          console.log("[BinanceProvider] Trade stream connected");
+          this.reconnectAttempts = 0;
+          this.fallbackToTicker = false;
+          lastMessageTime = Date.now();
+
+          // Setup message timeout - if no message in 10s, switch to fallback
+          if (messageTimeout) clearTimeout(messageTimeout);
+          messageTimeout = setTimeout(() => {
+            console.log("[BinanceProvider] Trade stream timeout, switching to ticker fallback");
+            this.fallbackToTicker = true;
+            this.tradeWs?.close();
+            this.startTickerFallback(callback);
+          }, 10000);
+        };
+
+        this.tradeWs.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const price = parseFloat(data.p);
+            this.lastTradePrice = price;
+            lastMessageTime = Date.now();
+
+            // Clear timeout on successful message
+            if (messageTimeout) {
+              clearTimeout(messageTimeout);
+              messageTimeout = null;
+            }
+
+            // Notify all trade listeners immediately (ultra-low latency)
+            this.tradeListeners.forEach(cb => cb(price));
+          } catch (error) {
+            console.error("[BinanceProvider] Trade parse error:", error);
+          }
+        };
+
+        this.tradeWs.onclose = () => {
+          console.log("[BinanceProvider] Trade stream closed");
+
+          // If we haven't received messages, switch to ticker fallback
+          if (Date.now() - lastMessageTime > 10000 && !this.fallbackToTicker) {
+            console.log("[BinanceProvider] Trade stream stale, switching to ticker fallback");
+            this.fallbackToTicker = true;
+            this.startTickerFallback(callback);
+          } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            // Try to reconnect trade stream
+            this.reconnectAttempts++;
+            console.log(`[BinanceProvider] Reconnecting trade stream (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            setTimeout(connectTradeStream, 1000 * Math.min(this.reconnectAttempts, 3));
+          } else if (!this.fallbackToTicker) {
+            // Max attempts reached, switch to ticker
+            console.log("[BinanceProvider] Max trade stream attempts, switching to ticker fallback");
+            this.fallbackToTicker = true;
+            this.startTickerFallback(callback);
+          }
+        };
+
+        this.tradeWs.onerror = (error) => {
+          console.error("[BinanceProvider] Trade WebSocket error:", error);
+        };
+      } catch (error) {
+        console.error("[BinanceProvider] Trade connection error:", error);
+        this.fallbackToTicker = true;
+        this.startTickerFallback(callback);
+      }
+    };
+
+    connectTradeStream();
+
+    return () => {
+      this.tradeWs?.close();
+      this.tradeWs = null;
+      if (messageTimeout) clearTimeout(messageTimeout);
+      this.stopHttpFallback();
+    };
+  }
+
+  // Start ticker stream as fallback (slower but more reliable than trades)
+  private startTickerFallback(callback: (price: number) => void): void {
+    console.log("[BinanceProvider] Starting ticker fallback stream");
+    this.fallbackToTicker = true;
+
+    // Use the existing ticker subscribe but wrap the callback
+    const unsubscribe = this.subscribe((update) => {
+      callback(update.price);
+    });
+
+    // Store unsubscribe to clean up later
+    (this as any)._tickerFallbackUnsubscribe = unsubscribe;
+  }
+
+  // Start HTTP polling as last resort fallback
+  private startHttpFallback(callback: (price: number) => void): void {
+    if (this.httpFallbackActive) return;
+
+    console.log("[BinanceProvider] Starting HTTP polling fallback (3s interval)");
+    this.httpFallbackActive = true;
+
+    const poll = async () => {
+      try {
+        const update = await this.fetchPrice();
+        if (update) {
+          callback(update.price);
+          // If we get successful HTTP responses, we're in fallback mode
+          this.fallbackToTicker = true;
+        }
+      } catch (error) {
+        console.error("[BinanceProvider] HTTP fallback poll error:", error);
+      }
+    };
+
+    // Poll immediately
+    poll();
+
+    // Then poll every 3 seconds
+    this.httpPollInterval = setInterval(poll, 3000);
+  }
+
+  private stopHttpFallback(): void {
+    if (this.httpPollInterval) {
+      clearInterval(this.httpPollInterval);
+      this.httpPollInterval = null;
+    }
+    this.httpFallbackActive = false;
+  }
+
+  // Manually trigger fallback (for testing or external triggers)
+  forceFallback(): void {
+    console.log("[BinanceProvider] Forcing fallback mode");
+    this.fallbackToTicker = true;
+    this.tradeWs?.close();
   }
 
   subscribe(callback: (update: PriceUpdate) => void): () => void {
@@ -104,6 +258,9 @@ class BinanceProvider implements Provider {
   destroy(): void {
     this.ws?.close();
     this.ws = null;
+    this.tradeWs?.close();
+    this.tradeWs = null;
+    this.tradeListeners.clear();
   }
 }
 
@@ -168,6 +325,7 @@ export class PriceService {
   private priceHistory: PricePoint[] = [];
   private listeners: Set<(price: number) => void> = new Set();
   private updateListeners: Set<(update: PriceUpdate) => void> = new Set();
+  private tradeListeners: Set<(price: number) => void> = new Set(); // Ultra-low latency trade subscribers
   private ready = false;
   private readyCallbacks: Set<() => void> = new Set();
   private providers: Provider[] = [];
@@ -179,6 +337,7 @@ export class PriceService {
   private lastPriceUpdate: PriceUpdate | null = null;
   private unsubscribeProvider: (() => void) | null = null;
   private wsUnsubscribe: (() => void) | null = null;
+  private tradeUnsubscribe: (() => void) | null = null;
 
   constructor(config: {
     pollInterval?: number;
@@ -197,9 +356,28 @@ export class PriceService {
     // Always start with Binance provider first
     this.currentProviderIndex = 0;
 
-    // Start WebSocket subscription for real-time updates from Binance
-    // WebSocket is primary - polling only runs as fallback
+    // Start BOTH WebSocket streams:
+    // 1. @ticker for full price data (24h stats, volume, etc)
+    // 2. @trade for ultra-low latency price updates (~100-300ms faster)
     this.startWebSocket();
+    this.startTradeStream();
+  }
+
+  private startTradeStream(): void {
+    const binanceProvider = this.providers[0] as BinanceProvider;
+    if (binanceProvider && 'subscribeToTrades' in binanceProvider) {
+      this.tradeUnsubscribe = binanceProvider.subscribeToTrades((price: number) => {
+        // Update current price immediately (ultra-low latency path)
+        this.currentPrice = price;
+        this.lastUpdate = Date.now();
+
+        // Notify trade listeners immediately (for strategies needing fastest data)
+        this.tradeListeners.forEach(fn => fn(price));
+
+        // Also notify regular listeners but throttled (see throttledNotify below)
+        this.notifyListenersThrottled(price);
+      });
+    }
   }
 
   private startWebSocket(): void {
@@ -273,6 +451,42 @@ export class PriceService {
     }
   }
 
+  private notifyThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastNotifiedPrice = 0;
+  private readonly NOTIFY_THROTTLE_MS = 100; // Max 10 notifications per second to regular listeners
+
+  // Throttled notification for regular listeners (prevents flooding)
+  private notifyListenersThrottled(price: number): void {
+    // Skip if price hasn't changed significantly
+    if (Math.abs(price - this.lastNotifiedPrice) < 0.01) {
+      return;
+    }
+
+    if (this.notifyThrottleTimer) {
+      return; // Already scheduled
+    }
+
+    this.notifyThrottleTimer = setTimeout(() => {
+      this.lastNotifiedPrice = price;
+
+      // Notify regular price listeners (number only)
+      this.listeners.forEach((fn) => fn(price));
+
+      // ALSO notify update listeners with a minimal PriceUpdate object
+      // This ensures SSE broadcast receives trade stream updates (ultra-low latency path)
+      if (this.lastPriceUpdate) {
+        const throttledUpdate: PriceUpdate = {
+          ...this.lastPriceUpdate,
+          price,
+          timestamp: Date.now(),
+        };
+        this.updateListeners.forEach((fn) => fn(throttledUpdate));
+      }
+
+      this.notifyThrottleTimer = null;
+    }, this.NOTIFY_THROTTLE_MS);
+  }
+
   private handlePriceUpdate(update: PriceUpdate): void {
     this.currentPrice = update.price;
     this.lastUpdate = update.timestamp;
@@ -294,9 +508,9 @@ export class PriceService {
       this.readyCallbacks.forEach((cb) => cb());
     }
 
-    // Notify listeners
-    this.listeners.forEach((fn) => fn(update.price));
+    // Notify update listeners (full data)
     this.updateListeners.forEach((fn) => fn(update));
+    // Regular price listeners are notified via trade stream (throttled)
   }
 
   // === Public Methods ===
@@ -335,6 +549,12 @@ export class PriceService {
   getPriceHistoryForDuration(durationMs: number): number[] {
     const cutoff = Date.now() - durationMs;
     return this.priceHistory.filter((p) => p.timestamp >= cutoff).map((p) => p.price);
+  }
+
+  // Subscribe to ultra-low latency trade stream (~100-300ms faster than ticker)
+  subscribeToTrades(callback: (price: number) => void): () => void {
+    this.tradeListeners.add(callback);
+    return () => this.tradeListeners.delete(callback);
   }
 
   getVolatility(windowSize: number = 20): number {
@@ -447,9 +667,19 @@ export class PriceService {
       this.pollTimer = null;
     }
 
+    if (this.notifyThrottleTimer) {
+      clearTimeout(this.notifyThrottleTimer);
+      this.notifyThrottleTimer = null;
+    }
+
     if (this.wsUnsubscribe) {
       this.wsUnsubscribe();
       this.wsUnsubscribe = null;
+    }
+
+    if (this.tradeUnsubscribe) {
+      this.tradeUnsubscribe();
+      this.tradeUnsubscribe = null;
     }
 
     if (this.unsubscribeProvider) {
@@ -460,6 +690,7 @@ export class PriceService {
     this.providers.forEach((p) => p.destroy?.());
     this.listeners.clear();
     this.updateListeners.clear();
+    this.tradeListeners.clear();
     this.readyCallbacks.clear();
   }
 }

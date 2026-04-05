@@ -1,8 +1,11 @@
 // Market Analyzer - Detects market conditions and recommends optimal strategies
 // Analyzes price data to determine market phase and suggest best trading approach
+//
+// FIX: Added price validation to detect Polymarket CLOB mispricing anomalies
 
 import type { StrategyType } from "../types";
 import { analyticsService, type MarketPhase } from "./analytics";
+import { priceService } from "./price";
 
 export interface MarketRecommendation {
   phase: MarketPhase;
@@ -32,6 +35,13 @@ const STRATEGY_PERFORMANCE_BY_PHASE: Record<MarketPhase, StrategyType[]> = {
 
 // Strategy display names for UI
 const STRATEGY_NAMES: Record<StrategyType, string> = {
+  // NEW STRATEGIES
+  volatility_breakout: "Volatility Breakout",
+  time_pattern: "Time Pattern",
+  price_reversion: "Price Reversion",
+  binance_velocity: "Binance Velocity",
+  sniper_value: "Sniper Value",
+  // LEGACY STRATEGIES
   window_delta: "Window Delta",
   last_seconds_scalp: "Last Seconds Scalp",
   binance_signal: "Binance Signal",
@@ -214,6 +224,62 @@ export class MarketAnalyzer {
     this.priceHistory = [];
     this.lastPhase = "ranging";
     this.phaseHistory = [];
+  }
+
+  /**
+   * PRICE VALIDATION: Detect Polymarket CLOB mispricing anomalies
+   * Compares implied probability from YES/NO prices with actual BTC price movement
+   *
+   * Usage: Call before trade to ensure market prices reflect reality
+   *
+   * @param yesPrice - Current YES price (0-1)
+   * @param noPrice - Current NO price (0-1)
+   * @param btcStartPrice - BTC price at market start
+   * @param btcCurrentPrice - Current BTC price
+   * @returns True if prices are valid, false if anomaly detected
+   */
+  validateMarketPrices(
+    yesPrice: number,
+    noPrice: number,
+    btcStartPrice: number,
+    btcCurrentPrice: number
+  ): { valid: boolean; reason?: string; severity: 'none' | 'warning' | 'critical' } {
+    // Calculate actual BTC movement
+    const btcChange = btcStartPrice > 0
+      ? ((btcCurrentPrice - btcStartPrice) / btcStartPrice)
+      : 0;
+
+    // Implied probability from YES price
+    const impliedUpProb = yesPrice;
+
+    // Actual direction
+    const actualDirection = btcChange >= 0 ? 'UP' : 'DOWN';
+    const impliedDirection = impliedUpProb >= 0.5 ? 'UP' : 'DOWN';
+
+    // Check for mismatch
+    if (actualDirection !== impliedDirection) {
+      // MISMATCH: Market pricing opposite of reality
+      const severity: 'warning' | 'critical' = Math.abs(btcChange) > 0.001 ? 'critical' : 'warning';
+
+      return {
+        valid: false,
+        reason: `Market mispricing detected: BTC ${actualDirection} (${(btcChange * 100).toFixed(3)}%) but market implies ${impliedDirection} (${(impliedUpProb * 100).toFixed(1)}%)`,
+        severity,
+      };
+    }
+
+    // Check for extreme mispricing (YES + NO should ≈ 1.0)
+    const sum = yesPrice + noPrice;
+    if (Math.abs(sum - 1.0) > 0.15) {
+      return {
+        valid: false,
+        reason: `Abnormal YES/NO spread: ${yesPrice.toFixed(3)} + ${noPrice.toFixed(3)} = ${sum.toFixed(3)} (expected ~1.0)`,
+        severity: 'warning',
+      };
+    }
+
+    // All checks passed
+    return { valid: true, severity: 'none' };
   }
 }
 

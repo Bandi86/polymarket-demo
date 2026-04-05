@@ -5,19 +5,12 @@ import { Play, Square, Settings, Target } from "lucide-react";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 import { useBotStatusState, BotCardHeader, BotBalanceCard, BotStatsGrid } from "./bot-card";
 import type { BotData } from "@/hooks/useTradingData";
+import type { Position } from "@/types";
 
 interface BotStatusCardProps {
   bot: BotData;
   yesPrice: number;
-  positions: Array<{
-    id: string;
-    botId?: string;
-    outcome: "YES" | "NO";
-    amount: number;
-    stake: number;
-    odds: number;
-    fee?: number;
-  }>;
+  positions: Position[];
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
   timeRemaining?: number;
@@ -305,7 +298,7 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
                 flexDirection: "column",
                 gap: "0.25rem",
               }}>
-                {state.closedPositions.slice(-6).reverse().map((trade: any, i: number) => {
+                {state.closedPositions.slice(-6).reverse().map((trade, i) => {
                   const isWin = (trade.pnl || 0) > 0;
                   return (
                     <div

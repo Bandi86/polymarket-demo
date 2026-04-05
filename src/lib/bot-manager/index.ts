@@ -15,6 +15,12 @@ export {
   buildDecisionContext,
   calculate7FactorConfidence,
   checkStrategyOdds,
+  // Phase 1 fixes - loss tracking and risk management
+  getRiskMultiplier,
+  adjustConfidenceForPerformance,
+  updateBotTracker,
+  markTradeSent, // RACE CONDITION FIX
+  getMarketRegime,
   type MarketInfo,
   type TradeDecision,
   type StrategyExecutionResult,

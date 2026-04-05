@@ -20,6 +20,27 @@ export interface StrategyThresholds {
   minOdds?: number;         // Minimum odds to enter trade (0-1 scale)
   maxOdds?: number;         // Maximum odds to enter trade (0-1 scale)
   avoidMiddle?: boolean;    // Avoid 40-60¢ "fair value" zone (default: true)
+
+  // === NEW THRESHOLDS for Option A strategies ===
+  // volatility_breakout
+  minHighVolatility?: number;  // High vol threshold (e.g., 0.003 = 0.3%)
+  maxLowVolatility?: number;   // Low vol threshold (e.g., 0.001 = 0.1%)
+  breakoutDelta?: number;      // Delta needed for low-vol breakout
+
+  // time_pattern
+  avoidWeekend?: boolean;      // Skip trading on weekends
+
+  // price_reversion
+  oversoldYes?: number;        // Buy YES when price below this (e.g., 0.25)
+  overboughtYes?: number;      // Buy NO when price above this (e.g., 0.75)
+
+  // binance_velocity
+  minVelocity?: number;        // Minimum BTC velocity to trade
+  minAcceleration?: number;    // Minimum acceleration for stronger signal
+
+  // sniper_value
+  yesBuyMax?: number;          // Buy YES if price below this (default 0.15)
+  noBuyMin?: number;           // Buy NO if YES price above this (default 0.40)
 }
 
 /**

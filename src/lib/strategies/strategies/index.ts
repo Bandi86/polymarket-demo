@@ -1,5 +1,13 @@
 // Strategy Registry - Exports all split strategies
 
+// NEW STRATEGIES (Option A - Change the Game)
+export { volatilityBreakoutStrategy } from "./volatility-breakout";
+export { timePatternStrategy } from "./time-pattern";
+export { priceReversionStrategy } from "./price-reversion";
+export { binanceVelocityStrategy } from "./binance-velocity";
+export { sniperValueStrategy } from "./sniper-value";
+
+// LEGACY STRATEGIES
 export { windowDeltaStrategy } from "./window-delta";
 export { fairValueStrategy } from "./fair-value";
 export { oracleLagStrategy } from "./oracle-lag";

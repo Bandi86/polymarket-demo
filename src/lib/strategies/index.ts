@@ -2,6 +2,13 @@
 // Phase 1 refactor: Split strategies into separate files with configurable thresholds
 
 import {
+  // NEW STRATEGIES (Option A)
+  volatilityBreakoutStrategy,
+  timePatternStrategy,
+  priceReversionStrategy,
+  binanceVelocityStrategy,
+  sniperValueStrategy,
+  // LEGACY STRATEGIES
   windowDeltaStrategy,
   fairValueStrategy,
   oracleLagStrategy,
@@ -18,7 +25,18 @@ import { strategies as legacyStrategies } from "./all-strategies";
 
 // Export merged strategies - split ones override legacy
 export const strategies = {
-  // PRIMARY STRATEGIES - Split with configurable thresholds
+  // ═══════════════════════════════════════════════════════════════
+  // NEW STRATEGIES (Option A - Change the Game)
+  // ═══════════════════════════════════════════════════════════════
+  volatility_breakout: volatilityBreakoutStrategy,
+  time_pattern: timePatternStrategy,
+  price_reversion: priceReversionStrategy,
+  binance_velocity: binanceVelocityStrategy,
+  sniper_value: sniperValueStrategy,
+
+  // ═══════════════════════════════════════════════════════════════
+  // LEGACY STRATEGIES (kept for backward compatibility)
+  // ═══════════════════════════════════════════════════════════════
   window_delta: windowDeltaStrategy,
   fair_value: fairValueStrategy,
   binance_signal: oracleLagStrategy,

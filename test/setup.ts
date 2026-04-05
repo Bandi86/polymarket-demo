@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { vi, afterEach } from 'vitest';
 
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -22,3 +22,14 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }));
+
+// Cleanup after each test to prevent resource leaks
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.resetAllMocks();
+});
+
+// Cleanup all timers and intervals after tests
+afterEach(() => {
+  vi.clearAllTimers();
+});

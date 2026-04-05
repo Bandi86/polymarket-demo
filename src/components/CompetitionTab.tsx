@@ -9,6 +9,7 @@ import { LiveLogPanel } from "@/components/dashboard/LiveLogPanel";
 import { useTradingStore } from "@/lib/stores/trading-store";
 import { useBotStore } from "@/lib/stores/bot-store";
 import type { BotData, CompetitionState } from "@/hooks/useTradingData";
+import type { Position } from "@/types";
 
 interface CompetitionTabProps {
   bots?: BotData[];
@@ -511,11 +512,11 @@ export function CompetitionTab({ bots = [], competition, onRefreshData }: Compet
                 {competition.leaderboard.map((entry) => {
                   const isWinner = entry.botId === competition.winner;
                   const matchingBot = bots.find(b => b.id === entry.botId);
-                  const closedPositions = (matchingBot?.portfolio?.closedPositions || []) as any[];
+                  const closedPositions = (matchingBot?.portfolio?.closedPositions || []) as Position[];
                   const startBalanceForCurve = competition.startBalance || 10;
                   const equityCurvePlot = [startBalanceForCurve];
                   let currentBalance = startBalanceForCurve;
-                  closedPositions.forEach((p: any) => {
+                  closedPositions.forEach((p) => {
                     currentBalance += (p.pnl || 0);
                     equityCurvePlot.push(currentBalance);
                   });

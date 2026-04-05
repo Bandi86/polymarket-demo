@@ -54,4 +54,14 @@ export interface StrategyContext {
   btcWindowOpen?: number;
   // Recent BTC price history (last 20 ticks)
   btcPriceHistory?: number[];
+  // === NEW CONTEXT DATA for Option A strategies ===
+  // Time-based context
+  hourOfDay?: number;       // 0-23 UTC
+  dayOfWeek?: number;       // 0-6 (0 = Sunday)
+  // Velocity context
+  btcVelocity?: number;     // BTC price change rate (per second)
+  btcAcceleration?: number; // BTC velocity change rate
+  priceVelocity?: number;   // YES price change rate
+  // Volatility context
+  btcVolatility?: number;   // BTC realized volatility
 }

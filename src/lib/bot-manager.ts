@@ -11,6 +11,7 @@ import type {
   RiskMetrics,
 } from "../types";
 import { marketEngine } from "./market-engine";
+import { priceService } from "./price";
 import { dbService } from "./database";
 import { generateId, clamp } from "./utils";
 import { riskManager, RiskMetricsCalculator } from "./risk-manager";
@@ -21,6 +22,7 @@ import { liveModeManager } from "./live-mode-manager";
 import { broadcastToSSE } from "./global";
 import { strategies } from "./strategies";
 import { strategyConfig } from "./strategies/config";
+import { marketAnalyzer } from "./market-analyzer";
 import {
   BotLogger,
   type BotLog,
@@ -33,6 +35,11 @@ import {
   buildDecisionContext,
   calculate7FactorConfidence,
   checkStrategyOdds,
+  // Phase 1 fixes - loss tracking and risk management
+  getRiskMultiplier,
+  adjustConfidenceForPerformance,
+  updateBotTracker,
+  markTradeSent, // RACE CONDITION FIX: Track pending settlements
 } from "./bot-manager/index";
 
 // Re-export TradingMode type for backward compatibility
@@ -48,6 +55,9 @@ export interface BotManagerConfig {
 
 export class BotManager {
   private bots: Map<string, BotConfig> = new Map();
+  private boundHandleSigint: () => void;
+  private boundHandleSigterm: () => void;
+  private boundHandleBeforeExit: () => void;
   private intervals: Map<string, ReturnType<typeof setInterval>> = new Map();
   private sessions: BotSession[] = [];
   private currentSessions: Map<string, BotSession> = new Map();
@@ -56,6 +66,9 @@ export class BotManager {
   private competitionManager: CompetitionManager;
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
   private metricsCalculators: Map<string, RiskMetricsCalculator> = new Map();
+  private shutdownHandlersRegistered = false;
+  private consecutiveErrors: Map<string, number> = new Map(); // Track consecutive errors per bot
+  private readonly MAX_CONSECUTIVE_ERRORS = 3; // Disable bot after 3 consecutive errors
 
   // Trading mode: demo (simulated) or live (real Polymarket trades)
   private tradingMode: TradingMode = "demo";
@@ -70,15 +83,33 @@ export class BotManager {
       this.addLog(botId, type, message, details);
     });
 
+    // Bind shutdown handlers for proper cleanup
+    this.boundHandleSigint = () => this.handleShutdown('SIGINT');
+    this.boundHandleSigterm = () => this.handleShutdown('SIGTERM');
+    this.boundHandleBeforeExit = () => this.handleShutdown('beforeExit');
+
     this.initDefaultBots();
     this.startAutoSave();
   }
 
-  /** Auto-save sessions every 60 seconds to prevent data loss */
+  /** Auto-save sessions every 30 seconds to prevent data loss */
   private startAutoSave(): void {
     this.autoSaveInterval = setInterval(() => {
       this.saveAllActiveSessions();
-    }, 60000); // Save every 60 seconds
+    }, 30000); // Save every 30 seconds (reduced from 60s)
+
+    // Add shutdown handlers to save sessions on exit (only once)
+    if (this.shutdownHandlersRegistered) return;
+    process.on('SIGINT', this.boundHandleSigint);
+    process.on('SIGTERM', this.boundHandleSigterm);
+    process.on('beforeExit', this.boundHandleBeforeExit);
+    this.shutdownHandlersRegistered = true;
+  }
+
+  /** Handle process shutdown - save all sessions */
+  private handleShutdown(signal: string): void {
+    console.log(`[BotManager] Received ${signal}, saving all sessions...`);
+    this.forceSaveAll();
   }
 
   /** Save all currently active sessions to database */
@@ -116,6 +147,11 @@ export class BotManager {
     return this.logger.addListener(callback);
   }
 
+  /** Remove a log listener */
+  removeLogListener(callback: (log: BotLog) => void): void {
+    this.logger.removeListener(callback);
+  }
+
   /** Get all logs */
   getLogs(limit = 50): BotLog[] {
     return this.logger.getLogs(limit);
@@ -134,24 +170,39 @@ export class BotManager {
       metricsCalc.recordTradeResult(won);
       console.log(`[BotManager] Recorded settlement for ${botId}: ${won ? 'WIN' : 'LOSS'} PnL=$${pnl.toFixed(2)}`);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 1 FIX: Update loss tracker for confidence adjustment
+    // ═══════════════════════════════════════════════════════════════
+    const bot = this.bots.get(botId);
+    if (bot) {
+      const portfolio = marketEngine.getBotPortfolio(botId);
+      updateBotTracker(botId, won, pnl, portfolio.balance);
+    }
   }
 
   private initDefaultBots(): void {
+    // ═══════════════════════════════════════════════════════════════
+    // NEW BOTS (Option A - Change the Game)
+    // These strategies have REAL edges, not just BTC direction prediction
+    // ═══════════════════════════════════════════════════════════════
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
-      // === PRIMARY BOTS - These are the winners based on research ===
-      // maxBet is a PERCENTAGE of bankroll (e.g., 0.20 = 20% max)
-      // kellyFraction reduced to ~0.35 (quarter-Kelly approach for stability)
-      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 500, betSize: 1.0, maxBet: 0.15, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-oracle-lag", name: "Oracle Lag", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-monte-carlo", name: "Monte Carlo", strategy: "monte_carlo", interval: 5000, betSize: 0.5, maxBet: 0.12, useKelly: false, kellyFraction: 0.25 },
-      { id: "bot-fair-value", name: "Fair Value Arb", strategy: "fair_value", interval: 3000, betSize: 0.75, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      // 1. Volatility Breakout - trades when BTC volatility is extreme
+      { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 3000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
-      // === SECONDARY BOTS - Complementary strategies ===
-      { id: "bot-momentum", name: "BTC Momentum", strategy: "momentum", interval: 4000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 8000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 6000, betSize: 0.5, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
-      { id: "bot-arbitrage", name: "Arbitrage", strategy: "arbitrage", interval: 5000, betSize: 0.75, maxBet: 0.15, useKelly: true, kellyFraction: 0.35 },
+      // 2. Time Pattern - trades during high-conviction hours
+      { id: "bot-time-pattern", name: "Time Pattern", strategy: "time_pattern", interval: 5000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+
+      // 3. Price Reversion - bets on Polymarket price mean-reversion (independent of BTC!)
+      { id: "bot-price-reversion", name: "Price Reversion", strategy: "price_reversion", interval: 4000, betSize: 1.0, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
+
+      // 4. Binance Velocity - uses BTC velocity/acceleration
+      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+
+      // 5. Sniper Value - extreme price sniper (10-15¢ YES, 40-50¢+ NO)
+      // Based on: https://x.com/Mnilax/status/2038626407333417470
+      // 100% win rate, 490 trades, $5 → $15,000
+      { id: "bot-sniper-value", name: "Sniper Value", strategy: "sniper_value", interval: 3000, betSize: 3.0, maxBet: 0.50, useKelly: false, kellyFraction: 0.25 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -159,7 +210,6 @@ export class BotManager {
         id: cfg.id,
         name: cfg.name,
         strategy: cfg.strategy,
-        type: cfg.strategy,
         enabled: false,
         interval: cfg.interval ?? this.config.defaultInterval,
         betSize: cfg.betSize ?? 0.5,
@@ -281,9 +331,9 @@ export class BotManager {
     };
   }
 
-  toggleBot(id: string): BotConfig | null {
+  toggleBot(id: string): BotConfig | undefined {
     const bot = this.bots.get(id);
-    if (!bot) return null;
+    if (!bot) return undefined;
 
     const newEnabled = !bot.enabled;
     bot.enabled = newEnabled;
@@ -296,7 +346,7 @@ export class BotManager {
 
     // Get fresh bot state after startBot/stopBot modified it
     const updatedBot = this.bots.get(id);
-    if (!updatedBot) return null;
+    if (!updatedBot) return undefined;
 
     console.log(`[BotManager] Bot ${id} toggled to ${newEnabled ? 'enabled' : 'disabled'}, runTime: ${updatedBot.runTime}`);
 
@@ -326,7 +376,8 @@ export class BotManager {
     // Update bot with optimized parameters (with small randomization for exploration)
     if (bot.useKelly || bot.useKelly === undefined) {
       bot.betSize = optimizedParams.betSize;
-      bot.interval = Math.round(optimizedParams.interval);
+      // OPTIMIZATION: Allow faster intervals (min 50ms instead of 100ms)
+      bot.interval = Math.max(50, Math.round(optimizedParams.interval));
       bot.kellyFraction = optimizedParams.kellyFraction;
       bot.maxBet = optimizedParams.maxBet;
     }
@@ -364,9 +415,11 @@ export class BotManager {
       marketQuestion: market?.question,
     });
 
-    // Start execution loop
+    // OPTIMIZATION 2: Parallel execution - use central coordinator loop
+    // Instead of individual intervals per bot, track which bots need execution
+    // and run them all in parallel batches to prevent stale data issues
     const intervalId = setInterval(() => {
-      this.executeBotStrategy(id);
+      this.executeAllBotsParallel();
     }, bot.interval);
 
     this.intervals.set(id, intervalId);
@@ -442,6 +495,9 @@ export class BotManager {
     // Clean up metrics calculator
     this.metricsCalculators.delete(id);
 
+    // Clean up consecutive error tracking
+    this.consecutiveErrors.delete(id);
+
     // Only clear runTime - do NOT clear enabled flag as it may be set by caller
     const bot = this.bots.get(id);
     if (bot) {
@@ -499,6 +555,514 @@ export class BotManager {
     }).catch((e) => console.error("[BotManager] DB save error:", e));
   }
 
+  /** OPTIMIZATION 2: Execute all enabled bots in parallel batches
+   *
+   * This prevents stale data issues when bots execute sequentially:
+   * - First bot in queue gets freshest data
+   * - Later bots work with stale market state
+   *
+   * Parallel execution ensures all bots see the same market state
+   * and makes decisions simultaneously, then executes in coordinated order.
+   */
+  private async executeAllBotsParallel(): Promise<void> {
+    const enabledBots: BotConfig[] = [];
+
+    // Collect all enabled bots
+    for (const [id, bot] of this.bots) {
+      if (bot.enabled) {
+        enabledBots.push(bot);
+      }
+    }
+
+    if (enabledBots.length === 0) return;
+
+    // Get current market state ONCE - all bots see the same snapshot
+    const market = marketEngine.getCurrentMarket();
+    if (!market || market.status !== "active") return;
+
+    // Phase 1: Collect decisions from all bots in parallel
+    const decisions: Array<{
+      botId: string;
+      decision: { action: Outcome | null; confidence: number; reason?: string } | null;
+      error?: string;
+    }> = await Promise.all(
+      enabledBots.map(async (bot) => {
+        try {
+          const decision = await this.collectBotDecision(bot.id, market);
+          return { botId: bot.id, decision };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return { botId: bot.id, decision: null, error: errorMessage };
+        }
+      })
+    );
+
+    // Phase 2: Execute trades for bots that want to trade (sequential for coordinator)
+    for (const result of decisions) {
+      // Skip if no decision or action is null
+      if (!result.decision?.action) continue;
+
+      // Execute with pre-collected decision to avoid re-computation
+      // Type assertion is safe here because we checked action is non-null
+      await this.executeBotStrategyWithDecision(
+        result.botId,
+        result.decision as { action: Outcome; confidence: number; reason?: string },
+        market
+      );
+    }
+  }
+
+  /** Collect bot decision without executing - used for parallel decision gathering */
+  private async collectBotDecision(
+    botId: string,
+    market: Market
+  ): Promise<{ action: Outcome | null; confidence: number; reason?: string } | null> {
+    const bot = this.bots.get(botId);
+    if (!bot || !bot.enabled) return null;
+
+    // Risk check: Is bot paused?
+    if (riskManager.shouldPause(botId)) {
+      return null;
+    }
+
+    const strategy = strategies[bot.strategy];
+    if (!strategy) return null;
+
+    // Build context - same market snapshot for all bots
+    const btcStartPrice = marketEngine.getMarketStartBtcPrice();
+    const context = buildStrategyContext({
+      id: market.id,
+      startTime: market.startTime,
+      endTime: market.endTime,
+      startPrice: market.startPrice,
+      outcomePrices: market.outcomePrices,
+      yesPriceHistory: market.yesPriceHistory,
+      tokens: market.tokens,
+      status: market.status,
+      btcStartPrice: btcStartPrice ?? undefined,
+    });
+
+    // Execute strategy
+    try {
+      const decision = strategy.execute(context);
+      // Reset error count on success
+      this.consecutiveErrors.delete(botId);
+      return decision;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Track consecutive errors
+      const errorCount = (this.consecutiveErrors.get(botId) || 0) + 1;
+      this.consecutiveErrors.set(botId, errorCount);
+
+      // Don't log here - let executeBotStrategy handle logging
+      // This is just decision collection
+
+      // Disable bot after MAX_CONSECUTIVE_ERRORS
+      if (errorCount >= this.MAX_CONSECUTIVE_ERRORS) {
+        this.stopBot(botId);
+        const botRef = this.bots.get(botId);
+        if (botRef) {
+          botRef.enabled = false;
+          this.bots.set(botId, botRef);
+        }
+      }
+      return null;
+    }
+  }
+
+  /** Execute bot strategy with pre-collected decision (for parallel execution) */
+  private async executeBotStrategyWithDecision(
+    id: string,
+    preCollectedDecision: { action: Outcome; confidence: number; reason?: string },
+    market: Market
+  ): Promise<void> {
+    const bot = this.bots.get(id);
+    if (!bot || !bot.enabled) return;
+
+    // Risk check: Is bot paused?
+    if (riskManager.shouldPause(id)) {
+      const status = riskManager.getBotRiskStatus(id);
+      if (status.paused && status.pauseReason) {
+        this.addLog(id, "RISK", `Bot paused: ${status.pauseReason}`);
+      }
+      return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 1 FIX: Check loss limits BEFORE executing strategy
+    // ═══════════════════════════════════════════════════════════════
+    const portfolio = marketEngine.getBotPortfolio(id);
+    const riskMultiplier = getRiskMultiplier(id, portfolio.balance);
+
+    if (riskMultiplier === 0) {
+      // Bot should stop trading - get tracker details for logging
+      const tracker = this.metricsCalculators.get(id);
+      const currentBalance = portfolio.balance;
+      let consecutiveLosses = 0;
+      let drawdown = 0;
+
+      // Try to get from tracker (simplified - full tracker is in strategy-executor.ts)
+      // For now, just log the block
+      this.addLog(id, "RISK", `🛑 Bot stopped: Hit loss limits (consecutive losses or drawdown)`, {
+        balance: currentBalance.toFixed(2),
+        riskMultiplier,
+      });
+      return;
+    }
+
+    if (!market || market.status !== "active") return;
+
+    // Use pre-collected decision (strategy already executed in parallel phase)
+    const decision = preCollectedDecision;
+
+    // Log decision
+    if (!decision.action) {
+      return;
+    }
+
+    // At this point, decision.action is guaranteed to be non-null
+    const action = decision.action;
+    const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
+    const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
+
+    // Check if bot already has an open position on this market - one position per market
+    const existingPositions = marketEngine.getOpenPositions(id);
+    const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
+    if (hasPositionOnMarket) {
+      return;
+    }
+
+    // CRITICAL: Check odds range - avoid 40-60¢ loss zone
+    const oddsCheck = checkStrategyOdds(action, yesPrice, noPrice, bot.strategy);
+    if (!oddsCheck.valid) {
+      this.addLog(id, "ODDS", `Odds blocked: ${oddsCheck.reason}`, {
+        action,
+        odds: oddsCheck.odds,
+        yesPrice,
+        noPrice,
+        reason: oddsCheck.reason,
+      });
+      return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PRICE ANOMALY FIX: Validate market prices reflect BTC reality
+    // Detects Polymarket CLOB mispricing (like T+~5min anomaly)
+    // ═══════════════════════════════════════════════════════════════
+    const btcStartPriceCheck = marketEngine.getMarketStartBtcPrice();
+    const btcCurrentPrice = priceService.getPrice();
+
+    if (btcStartPriceCheck && btcStartPriceCheck > 0) {
+      const validation = marketAnalyzer.validateMarketPrices(
+        yesPrice,
+        noPrice,
+        btcStartPriceCheck,
+        btcCurrentPrice
+      );
+
+      if (!validation.valid) {
+        const emoji = validation.severity === 'critical' ? '🚨' : '⚠️';
+        this.addLog(id, "ODDS", `${emoji} Price validation failed: ${validation.reason}`, {
+          yesPrice,
+          noPrice,
+          btcStartPrice: btcStartPriceCheck,
+          btcCurrentPrice,
+          severity: validation.severity,
+        });
+
+        // Block trade on critical mispricing
+        if (validation.severity === 'critical') {
+          return;
+        }
+      }
+    }
+
+    // Build context for 7-factor confidence (need market data)
+    const btcStartPrice = marketEngine.getMarketStartBtcPrice();
+    const context = buildStrategyContext({
+      id: market.id,
+      startTime: market.startTime,
+      endTime: market.endTime,
+      startPrice: market.startPrice,
+      outcomePrices: market.outcomePrices,
+      yesPriceHistory: market.yesPriceHistory,
+      tokens: market.tokens,
+      status: market.status,
+      btcStartPrice: btcStartPrice ?? undefined,
+    });
+
+    // Calculate 7-factor confidence for enhanced scoring
+    const confidenceResult = calculate7FactorConfidence(context, action, { ...strategyConfig[bot.strategy] });
+    const enhancedConfidence = (decision.confidence + confidenceResult.score) / 2;
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 1 FIX: Adjust confidence based on bot's recent performance
+    // Reduces confidence after consecutive losses
+    // ═══════════════════════════════════════════════════════════════
+    const adjustedConfidence = adjustConfidenceForPerformance(
+      id,
+      enhancedConfidence,
+      portfolio.balance
+    );
+
+    if (adjustedConfidence <= 0) {
+      this.addLog(id, "RISK", `🛑 Trade blocked: Confidence reduced to 0 after losses`, {
+        originalConfidence: decision.confidence,
+        enhancedConfidence,
+        adjustedConfidence: 0,
+      });
+      return;
+    }
+
+    // Log the decision to trade
+    this.addLog(id, "DECISION", `Trade decision: ${action} - ${decision.reason}`, {
+      action,
+      confidence: decision.confidence,
+      enhancedConfidence,
+      adjustedConfidence,
+      factors: confidenceResult.factors,
+      reason: decision.reason,
+      yesPrice,
+      noPrice,
+      odds: oddsCheck.odds,
+      timeRemaining: context.timeRemaining,
+      volatility: context.volatility.toFixed(4),
+      momentum: context.momentum.toFixed(4),
+      btcPriceChange: ((context.btcPriceChange ?? 0) * 100).toFixed(3) + '%',
+    });
+
+    // Calculate bet size using extracted function
+    let betSize = calculateBetSize(bot, action, yesPrice, noPrice, portfolio.balance);
+
+    // Adjust bet size based on adjusted confidence (not original or enhanced)
+    betSize = betSize * (0.5 + adjustedConfidence * 0.5);
+
+    // Apply risk multiplier (from loss tracking)
+    betSize = betSize * riskMultiplier;
+
+    betSize = Math.max(1, betSize); // Minimum $1 bet
+
+    // Risk check: Can open position?
+    const riskCheck = riskManager.canOpenPosition(id, betSize, enhancedConfidence);
+    if (!riskCheck.allowed) {
+      this.addLog(id, "RISK", `Trade blocked: ${riskCheck.reason}`, {
+        betSize,
+        confidence: decision.confidence,
+      });
+      return;
+    }
+
+    // Live mode specific checks
+    if (this.tradingMode === "live") {
+      const liveCheck = liveModeManager.canBotTrade(id, bot);
+      if (!liveCheck.allowed) {
+        this.addLog(id, "LIVE_RISK", `Live trade blocked: ${liveCheck.reason}`, {
+          betSize,
+          confidence: decision.confidence,
+          reason: liveCheck.reason,
+        });
+        return;
+      }
+
+      // Adjust bet size based on live mode constraints
+      const liveBetSize = liveModeManager.calculateLiveBetSize(id, decision.confidence);
+      if (liveBetSize < betSize) {
+        betSize = liveBetSize;
+        this.addLog(id, "LIVE_RISK", `Bet size reduced to $${betSize.toFixed(2)} for live mode`, {
+          originalBetSize: betSize,
+          adjustedBetSize: liveBetSize,
+        });
+      }
+    }
+
+    // Coordinator check: Prevent conflicting trades between bots
+    const totalBalance = Array.from(this.bots.values())
+      .reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
+    const coordination = strategyCoordinator.registerDecision(
+      market.id,
+      {
+        botId: id,
+        botName: bot.name,
+        strategy: bot.strategy,
+        action: action,
+        confidence: decision.confidence,
+        betSize,
+      },
+      totalBalance
+    );
+
+    if (!coordination.allowed) {
+      this.addLog(id, "COORD", `Trade blocked by coordinator: ${coordination.reason}`, {
+        action: action,
+        betSize,
+        reason: coordination.reason,
+      });
+      return;
+    }
+
+    // Log coordinator warnings
+    if (coordination.warnings && coordination.warnings.length > 0) {
+      this.addLog(id, "COORD", `Warnings: ${coordination.warnings.join("; ")}`, {
+        warnings: coordination.warnings,
+      });
+    }
+
+    // Use adjusted bet size if coordinator reduced it
+    const finalBetSize = coordination.adjustedBetSize ?? betSize;
+    const adjustedFee = finalBetSize * 0.02;
+
+    if (portfolio.balance < finalBetSize + adjustedFee) {
+      strategyCoordinator.cancelDecision(market.id, id);
+      this.addLog(id, "ERROR", `Insufficient balance for trade - Required: $${(finalBetSize + adjustedFee).toFixed(2)}, Available: $${portfolio.balance.toFixed(2)}`);
+      return;
+    }
+
+    // Execute trade based on trading mode
+    if (this.tradingMode === "live") {
+      // LIVE MODE: Place real order on Polymarket with full error handling
+      try {
+        await this.executeLiveTrade(id, market, action, finalBetSize);
+        // ═══════════════════════════════════════════════════════════════
+        // RACE CONDITION FIX: Mark trade as sent immediately
+        // This prevents multiple trades before settlement arrives
+        // ═══════════════════════════════════════════════════════════════
+        markTradeSent(id);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Cancel coordinator decision on failure
+        strategyCoordinator.cancelDecision(market.id, id);
+        this.addLog(id, "ERROR", `Live trade failed: ${errorMessage}`, {
+          action,
+          marketId: market.id,
+          error: errorMessage,
+          mode: "live",
+        });
+        console.error(`[BotManager] Live trade error for ${bot.name}:`, error);
+        return;
+      }
+    } else {
+      // DEMO MODE: Use simulated market engine
+      const position = marketEngine.placeTrade(action, finalBetSize, id);
+      if (position) {
+        // ═══════════════════════════════════════════════════════════════
+        // RACE CONDITION FIX: Mark trade as sent immediately
+        // This prevents multiple trades before settlement arrives
+        // ═══════════════════════════════════════════════════════════════
+        markTradeSent(id);
+
+        // Record balance for drawdown tracking
+        const metricsCalc = this.metricsCalculators.get(id);
+        if (metricsCalc) {
+          const newBalance = portfolio.balance - finalBetSize - adjustedFee;
+          metricsCalc.recordBalance(newBalance);
+        }
+
+        // Build and save decision context
+        const decisionContext = buildDecisionContext(
+          bot,
+          context,
+          { action, confidence: decision.confidence, reason: decision.reason },
+          betSize,
+          finalBetSize,
+          riskCheck
+        );
+
+        // Save position with decision context to DB (with proper error handling and rollback)
+        try {
+          await dbService.saveMarket({
+            id: market.id,
+            question: market.question || "BTC Prediction Market",
+            description: market.description || "",
+            startTime: market.startTime,
+            endTime: market.endTime,
+            startPrice: market.startPrice || 0.5,
+            endPrice: null,
+            status: "active",
+            result: null,
+            outcomeYes: parseFloat(market.outcomePrices?.yes || "0.5"),
+            outcomeNo: parseFloat(market.outcomePrices?.no || "0.5"),
+            volume: 0,
+            liquidity: 0,
+            category: "Crypto",
+          });
+
+          await dbService.savePosition({
+            id: position.id,
+            marketId: market.id,
+            outcome: position.outcome,
+            amount: position.amount,
+            odds: position.odds,
+            stake: position.stake,
+            fee: position.fee,
+            timestamp: position.timestamp,
+            status: "open",
+            pnl: null,
+            botId: id,
+            botName: bot.name,
+            decisionContext,
+            btcPrice: context.btcPrice,
+            timeRemaining: context.timeRemaining,
+          });
+        } catch (dbError) {
+          // Rollback coordinator decision on DB failure
+          strategyCoordinator.cancelDecision(market.id, id);
+          const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+          this.addLog(id, "ERROR", `Database save failed: ${dbErrorMessage}`, {
+            marketId: market.id,
+            positionId: position.id,
+            error: dbErrorMessage,
+          });
+          console.error("[BotManager] DB save failed:", dbError);
+          return;
+        }
+
+        // Confirm execution with coordinator
+        strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
+
+        // Emit position opened event
+        botEventBus.emitPositionOpened({
+          botId: id,
+          positionId: position.id,
+          marketId: market.id,
+          outcome: action,
+          amount: finalBetSize,
+          entryPrice: position.odds,
+        });
+
+        // Get market price for display (without slippage)
+        const marketPrice = action === "YES"
+          ? parseFloat(market.outcomePrices?.yes || "0.5")
+          : parseFloat(market.outcomePrices?.no || "0.5");
+
+        this.addLog(id, "TRADE", `Bought ${action} $${finalBetSize.toFixed(2)} @ ${(marketPrice * 100).toFixed(1)}¢`, {
+          outcome: action, // Use 'outcome' for consistency with ActivityLog/LiveMonitorTab display
+          action: action, // Keep 'action' for backward compatibility
+          amount: finalBetSize,
+          marketPrice,
+          fillPrice: position.odds,
+          odds: position.odds, // Add 'odds' for ActivityLog display
+          price: marketPrice, // Add 'price' for ActivityLog fallback
+          slippage: position.odds - marketPrice,
+          fee: position.fee,
+          positionId: position.id,
+          confidence: decision.confidence,
+          balanceAfter: portfolio.balance - finalBetSize - adjustedFee,
+          openPositions: portfolio.openPositions.length + 1,
+          kellyUsed: bot.useKelly,
+          strategy: bot.strategy,
+          coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
+          mode: "demo",
+        });
+        // Broadcast updated bots to all SSE clients
+        broadcastToSSE("bots", this.getBots());
+      } else {
+        // Trade failed, cancel with coordinator
+        strategyCoordinator.cancelDecision(market.id, id);
+      }
+    }
+  }
+
   private async executeBotStrategy(id: string): Promise<void> {
     const bot = this.bots.get(id);
     if (!bot || !bot.enabled) return;
@@ -536,13 +1100,34 @@ export class BotManager {
     let decision: { action: Outcome | null; confidence: number; reason?: string };
     try {
       decision = strategy.execute(context);
+      // Reset error count on success
+      this.consecutiveErrors.delete(id);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.addLog(id, "ERROR", `Strategy execution failed: ${errorMessage}`, {
+
+      // Track consecutive errors
+      const errorCount = (this.consecutiveErrors.get(id) || 0) + 1;
+      this.consecutiveErrors.set(id, errorCount);
+
+      this.addLog(id, "ERROR", `Strategy execution failed: ${errorMessage} (error #${errorCount})`, {
         strategy: bot.strategy,
         error: errorMessage,
+        consecutiveErrors: errorCount,
       });
       console.error(`[BotManager] Strategy error for ${bot.name}:`, error);
+
+      // Disable bot after MAX_CONSECUTIVE_ERRORS
+      if (errorCount >= this.MAX_CONSECUTIVE_ERRORS) {
+        this.addLog(id, "ERROR", `Bot disabled after ${errorCount} consecutive errors`, {
+          consecutiveErrors: errorCount,
+        });
+        this.stopBot(id);
+        const botRef = this.bots.get(id);
+        if (botRef) {
+          botRef.enabled = false;
+          this.bots.set(id, botRef);
+        }
+      }
       return;
     }
 
@@ -689,12 +1274,37 @@ export class BotManager {
 
     // Execute trade based on trading mode
     if (this.tradingMode === "live") {
-      // LIVE MODE: Place real order on Polymarket
-      await this.executeLiveTrade(id, market, action, decision.confidence, finalBetSize);
+      // LIVE MODE: Place real order on Polymarket with full error handling
+      try {
+        await this.executeLiveTrade(id, market, action, finalBetSize);
+        // ═══════════════════════════════════════════════════════════════
+        // RACE CONDITION FIX: Mark trade as sent immediately
+        // This prevents multiple trades before settlement arrives
+        // ═══════════════════════════════════════════════════════════════
+        markTradeSent(id);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Cancel coordinator decision on failure
+        strategyCoordinator.cancelDecision(market.id, id);
+        this.addLog(id, "ERROR", `Live trade failed: ${errorMessage}`, {
+          action,
+          marketId: market.id,
+          error: errorMessage,
+          mode: "live",
+        });
+        console.error(`[BotManager] Live trade error for ${bot.name}:`, error);
+        return;
+      }
     } else {
       // DEMO MODE: Use simulated market engine
       const position = marketEngine.placeTrade(action, finalBetSize, id);
       if (position) {
+        // ═══════════════════════════════════════════════════════════════
+        // RACE CONDITION FIX: Mark trade as sent immediately
+        // This prevents multiple trades before settlement arrives
+        // ═══════════════════════════════════════════════════════════════
+        markTradeSent(id);
+
         // Record balance for drawdown tracking
         const metricsCalc = this.metricsCalculators.get(id);
         if (metricsCalc) {
@@ -712,42 +1322,54 @@ export class BotManager {
           riskCheck
         );
 
-        // Ensure market exists in DB before saving position (required for foreign key constraint)
-        dbService.saveMarket({
-          id: market.id,
-          question: market.question || "BTC Prediction Market",
-          description: market.description || "",
-          startTime: market.startTime,
-          endTime: market.endTime,
-          startPrice: market.startPrice || 0.5,
-          endPrice: null,
-          status: "active",
-          result: null,
-          outcomeYes: parseFloat(market.outcomePrices?.yes || "0.5"),
-          outcomeNo: parseFloat(market.outcomePrices?.no || "0.5"),
-          volume: 0,
-          liquidity: 0,
-          category: "Crypto",
-        }).catch(e => console.error("[BotManager] DB market save error:", e));
+        // Save position with decision context to DB (with proper error handling and rollback)
+        try {
+          await dbService.saveMarket({
+            id: market.id,
+            question: market.question || "BTC Prediction Market",
+            description: market.description || "",
+            startTime: market.startTime,
+            endTime: market.endTime,
+            startPrice: market.startPrice || 0.5,
+            endPrice: null,
+            status: "active",
+            result: null,
+            outcomeYes: parseFloat(market.outcomePrices?.yes || "0.5"),
+            outcomeNo: parseFloat(market.outcomePrices?.no || "0.5"),
+            volume: 0,
+            liquidity: 0,
+            category: "Crypto",
+          });
 
-        // Save position with decision context to DB
-        dbService.savePosition({
-          id: position.id,
-          marketId: market.id,
-          outcome: position.outcome,
-          amount: position.amount,
-          odds: position.odds,
-          stake: position.stake,
-          fee: position.fee,
-          timestamp: position.timestamp,
-          status: "open",
-          pnl: null,
-          botId: id,
-          botName: bot.name,
-          decisionContext: decisionContext as unknown as Record<string, unknown>,
-          btcPrice: context.btcPrice,
-          timeRemaining: context.timeRemaining,
-        }).catch(e => console.error("[BotManager] DB save error:", e));
+          await dbService.savePosition({
+            id: position.id,
+            marketId: market.id,
+            outcome: position.outcome,
+            amount: position.amount,
+            odds: position.odds,
+            stake: position.stake,
+            fee: position.fee,
+            timestamp: position.timestamp,
+            status: "open",
+            pnl: null,
+            botId: id,
+            botName: bot.name,
+            decisionContext,
+            btcPrice: context.btcPrice,
+            timeRemaining: context.timeRemaining,
+          });
+        } catch (dbError) {
+          // Rollback coordinator decision on DB failure
+          strategyCoordinator.cancelDecision(market.id, id);
+          const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+          this.addLog(id, "ERROR", `Database save failed: ${dbErrorMessage}`, {
+            marketId: market.id,
+            positionId: position.id,
+            error: dbErrorMessage,
+          });
+          console.error("[BotManager] DB save failed:", dbError);
+          return;
+        }
 
         // Confirm execution with coordinator
         strategyCoordinator.confirmExecution(market.id, id, action, finalBetSize);
@@ -800,7 +1422,6 @@ export class BotManager {
     botId: string,
     market: Market,
     action: Outcome,
-    _confidence: number, // Reserved for future use (Kelly sizing in live mode)
     betSize: number
   ): Promise<void> {
     await executeLiveTradeFn(botId, market, action, betSize, (type, message, details) => {
@@ -821,9 +1442,9 @@ export class BotManager {
   // updateBotStats removed — stats are now derived from portfolio settled positions
   // via syncStatsFromPortfolio() called in getBots()
 
-  updateBotConfig(id: string, updates: Partial<BotConfig>): BotConfig | null {
+  updateBotConfig(id: string, updates: Partial<BotConfig>): BotConfig | undefined {
     const bot = this.bots.get(id);
-    if (!bot) return null;
+    if (!bot) return undefined;
 
     if (updates.betSize !== undefined) bot.betSize = Math.max(0.01, updates.betSize);
     if (updates.interval !== undefined) bot.interval = Math.max(1000, updates.interval);
@@ -876,9 +1497,9 @@ export class BotManager {
     this.initDefaultBots();
   }
 
-  resetBot(id: string): BotConfig | null {
+  resetBot(id: string): BotConfig | undefined {
     const bot = this.bots.get(id);
-    if (!bot) return null;
+    if (!bot) return undefined;
 
     // Stop the bot if running
     if (bot.enabled) {
@@ -907,6 +1528,9 @@ export class BotManager {
 
     // Clear session
     this.currentSessions.delete(id);
+
+    // Clear consecutive error tracking
+    this.consecutiveErrors.delete(id);
 
     // Reset runTime
     bot.runTime = 0;
@@ -1025,8 +1649,21 @@ export class BotManager {
       this.autoSaveInterval = null;
     }
 
+    // Remove process event listeners (if registered)
+    if (this.shutdownHandlersRegistered) {
+      process.removeListener('SIGINT', this.boundHandleSigint);
+      process.removeListener('SIGTERM', this.boundHandleSigterm);
+      process.removeListener('beforeExit', this.boundHandleBeforeExit);
+      this.shutdownHandlersRegistered = false;
+    }
+
     this.stopAllBots();
     this.intervals.clear();
+    this.consecutiveErrors.clear();
+    this.metricsCalculators.clear();
+    this.currentSessions.clear();
+    this.bots.clear();
+    this.logger.clear();
   }
 
   /** Force save all sessions immediately (call on shutdown) */

@@ -5,6 +5,13 @@ import type { Portfolio } from "./trading.types";
 import type { StrategyContext } from "./price.types";
 
 export type StrategyType =
+  // === NEW STRATEGIES (Option A - Change the Game) ===
+  | "volatility_breakout"   // Trade when BTC volatility is extreme
+  | "time_pattern"          // Trade during high-conviction hours
+  | "price_reversion"       // Bet on Polymarket price mean-reversion
+  | "binance_velocity"      // Use BTC velocity/acceleration
+  | "sniper_value"          // Extreme price sniper (10-15¢ YES, 40-50¢+ NO)
+  // === LEGACY STRATEGIES (kept for backward compatibility) ===
   | "window_delta"
   | "last_seconds_scalp"
   | "binance_signal"
@@ -41,7 +48,6 @@ export interface BotConfig {
   id: string;
   name: string;
   strategy: StrategyType;
-  type: string;
   enabled: boolean;
   interval: number;
   betSize: number;

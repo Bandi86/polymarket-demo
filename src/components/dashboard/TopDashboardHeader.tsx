@@ -4,6 +4,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { SoundToggle } from "@/components/ui/SoundToggle";
 import { WalletButton } from "@/components/WalletButton";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { ASSETS, TIMEFRAMES } from "@/components/dashboard";
 import type { LiveBalance } from "@/hooks/useTradingData";
 
@@ -155,6 +156,7 @@ export function TopDashboardHeader({
         </button>
 
         <SoundToggle enabled={soundEnabled} onToggle={onToggleSound} />
+        <NotificationCenter />
         <ThemeToggle />
       </div>
     </div>

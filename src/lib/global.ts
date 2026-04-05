@@ -79,9 +79,15 @@ export function getSessionSummaryGenerator(): SessionSummaryGenerator {
 
 // === SSE Broadcasting ===
 // These functions handle real-time updates to connected clients
+// Implements throttling to prevent flooding (max 10 updates/sec per type)
 
 type SSEBroadcastFn = (type: string, data: unknown) => void;
 let sseBroadcastFn: SSEBroadcastFn | null = null;
+
+// Throttling state per broadcast type
+const sseThrottleTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+const ssePendingData: Map<string, unknown> = new Map();
+const SSE_THROTTLE_MS = 100; // Max 10 broadcasts per second per type
 
 /**
  * Set the SSE broadcast function. Called by the SSE route during initialization.
@@ -91,13 +97,43 @@ export function setSSEBroadcast(fn: SSEBroadcastFn): void {
 }
 
 /**
- * Broadcast data to all connected SSE clients.
+ * Broadcast data to all connected SSE clients with throttling.
+ * Multiple calls within the throttle window are batched into a single broadcast.
  */
 export function broadcastToSSE(type: string, data: unknown): void {
+  if (!sseBroadcastFn) {
+    console.warn('[Global] SSE broadcast called but no clients connected. Type:', type);
+    return;
+  }
+
+  // Store pending data (latest value wins)
+  ssePendingData.set(type, data);
+
+  // Already throttling - wait for timer
+  if (sseThrottleTimers.has(type)) {
+    return;
+  }
+
+  // Schedule broadcast after throttle window
+  const timer = setTimeout(() => {
+    const pending = ssePendingData.get(type);
+    if (pending && sseBroadcastFn) {
+      sseBroadcastFn(type, pending);
+    }
+    sseThrottleTimers.delete(type);
+    ssePendingData.delete(type);
+  }, SSE_THROTTLE_MS);
+
+  sseThrottleTimers.set(type, timer);
+}
+
+/**
+ * Broadcast immediately without throttling (for critical updates).
+ * Use sparingly - only for time-sensitive data.
+ */
+export function broadcastToSSEImmediate(type: string, data: unknown): void {
   if (sseBroadcastFn) {
     sseBroadcastFn(type, data);
-  } else {
-    console.warn('[Global] SSE broadcast called but no clients connected. Type:', type);
   }
 }
 
@@ -243,6 +279,17 @@ export function isInitialized(): boolean {
  */
 export function resetInitialization(): void {
   initialized = false;
+}
+
+/**
+ * Clear all SSE throttle timers (for cleanup).
+ */
+export function clearSSEThrottles(): void {
+  for (const timer of sseThrottleTimers.values()) {
+    clearTimeout(timer);
+  }
+  sseThrottleTimers.clear();
+  ssePendingData.clear();
 }
 
 // === Convenience Exports ===

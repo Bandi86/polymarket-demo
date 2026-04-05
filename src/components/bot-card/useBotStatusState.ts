@@ -2,16 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { getStrategyColor, getStrategyName } from "@/lib/design-tokens";
 import { TrendingDown, TrendingUp, AlertCircle, XCircle } from "lucide-react";
 import type { BotData } from "@/hooks/useTradingData";
-
-interface Position {
-  id: string;
-  botId?: string;
-  outcome: "YES" | "NO";
-  amount: number;
-  stake: number;
-  odds: number;
-  fee?: number;
-}
+import type { Position } from "@/types";
 
 interface UseBotStatusStateProps {
   bot: BotData;
@@ -45,7 +36,7 @@ export interface BotStatusState {
   unrealizedPnl: number;
 
   // Closed positions
-  closedPositions: any[];
+  closedPositions: Position[];
   recentTrades: number[];
   lastTradePnl: number;
   initialBalance: number;
@@ -96,14 +87,14 @@ export function useBotStatusState({ bot, yesPrice, positions }: UseBotStatusStat
   }, 0), [botPositions, yesPrice]);
 
   // Closed positions
-  const closedPositions = useMemo(() => (bot.portfolio.closedPositions || []) as any[], [bot.portfolio.closedPositions]);
+  const closedPositions = useMemo(() => (bot.portfolio.closedPositions || []) as Position[], [bot.portfolio.closedPositions]);
 
   // Equity curve and related calculations
   const { recentTrades, lastTradePnl, initialBalance, growthPercent, equityCurvePlot, balanceGrowth } = useMemo(() => {
-    const recentTrades = closedPositions.slice(0, 8).map((p: any) => p.pnl || 0);
+    const recentTrades = closedPositions.slice(0, 8).map((p) => p.pnl || 0);
     const lastTrade = closedPositions[0];
     const lastTradePnl = lastTrade?.pnl || 0;
-    const totalClosedPnL = closedPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
+    const totalClosedPnL = closedPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
 
     // CRITICAL FIX: Use portfolio.initialBalance from backend (source of truth)
     // Fallback to calculation only if initialBalance is not set
@@ -115,7 +106,7 @@ export function useBotStatusState({ bot, yesPrice, positions }: UseBotStatusStat
     // Build equity curve
     const equityCurvePlot = [initialBalance];
     let currentBalance = initialBalance;
-    [...closedPositions].reverse().forEach((p: any) => {
+    [...closedPositions].reverse().forEach((p) => {
       currentBalance += (p.pnl || 0);
       equityCurvePlot.push(currentBalance);
     });

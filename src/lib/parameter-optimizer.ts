@@ -77,7 +77,33 @@ const DEFAULT_BOUNDS: Record<string, [number, number]> = {
 
 // Parameter bounds by strategy
 const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> = {
-  // === NEW STRATEGIES (research-based) ===
+  // === NEW STRATEGIES (Option A - Change the Game) ===
+  volatility_breakout: {
+    betSize: [0.5, 2.0],
+    interval: [2000, 6000],
+    kellyFraction: [0.2, 0.5],
+  },
+  time_pattern: {
+    betSize: [0.5, 2.0],
+    interval: [3000, 8000],
+    kellyFraction: [0.2, 0.5],
+  },
+  price_reversion: {
+    betSize: [0.5, 2.0],
+    interval: [3000, 6000],
+    kellyFraction: [0.2, 0.5],
+  },
+  binance_velocity: {
+    betSize: [0.5, 2.0],
+    interval: [1500, 4000],
+    kellyFraction: [0.2, 0.5],
+  },
+  sniper_value: {
+    betSize: [1.0, 5.0],        // Up to $5 per trade as per strategy
+    interval: [2000, 5000],
+    kellyFraction: [0.2, 0.5],
+  },
+  // === LEGACY STRATEGIES ===
   window_delta: {
     betSize: [0.5, 2.0],
     interval: [1500, 5000],
@@ -404,7 +430,8 @@ class ParameterOptimizer {
 
     for (const key of Object.keys(bounds)) {
       const k = key as keyof OptimizableParameters;
-      if (Math.random() < 0.5) {
+      // Only copy if parent2 has a defined value for this key
+      if (Math.random() < 0.5 && parent2[k] !== undefined) {
         (child as any)[k] = parent2[k];
       }
     }
