@@ -1,175 +1,168 @@
-// Sniper Value Strategy
-// Based on: https://x.com/Mnilax/status/2038626407333417470
-// 100% win rate, 490 trades, $5 → $15,000
+// Smart Sniper Strategy
+// Fixed version: Wider zones + BTC momentum fallback + no confidence blocking
 //
-// Strategy:
-// - Buy YES if below 10-15 cents (extreme undervaluation)
-// - Buy NO if YES above 40-50 cents (overvaluation)
-// - Risk under $5 per trade
-//
-// PHASE 1 FIXES (2026-04-04):
-// - Market regime detection: Avoid mean reversion in strong trends
-// - Dynamic confidence: Reduce after consecutive losses
-// - Price velocity filter: Enhanced to catch slow bleeds
-// - Minimum recovery probability check
+// Key insights from testing:
+// - Original zones (15-40¢) too narrow - no trades
+// - Need wider zones: 10-40¢ for YES, 60-90¢ for NO
+// - Add BTC momentum fallback for middle zone
+// - Remove strict confidence blocking (let strategies decide)
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
-import { strategyConfig } from "../config";
 import { noTrade, trade } from "../base";
 
-// Market regime awareness - mean reversion fails in strong trends
-const REGIME_MULTIPLIERS = {
-  trending_up: 0.3,    // Reduce confidence in trends
-  trending_down: 0.3,  // Reduce confidence in trends
-  ranging: 1.0,        // Full confidence in ranging markets
-  volatile: 0.5,       // Moderate confidence in volatile markets
-};
-
 export const sniperValueStrategy: Strategy = {
-  name: "Sniper Value",
-  description: "Trades at extreme prices - 10-15¢ YES, 40-50¢+ NO",
+  name: "Smart Sniper",
+  description: "Extreme price sniper with wider zones + BTC fallback",
   category: "mean_reversion",
   execute: (ctx: StrategyContext): StrategyDecision => {
-    const thresholds = strategyConfig.sniper_value;
-
-    // Time check - avoid last 20 seconds
-    if (ctx.timeRemaining < (thresholds.minTimeRemaining ?? 20000)) {
-      return noTrade("Too close to closure");
-    }
-
     const yesPrice = ctx.marketPrice.yesPrice;
     const noPrice = ctx.marketPrice.noPrice;
     const priceVelocity = ctx.priceVelocity ?? 0;
-    const btcVelocity = ctx.btcVelocity ?? 0;
-    const btcAcceleration = ctx.btcAcceleration ?? 0;
-    const btcVolatility = ctx.btcVolatility ?? 0;
+    const priceHistory = ctx.priceHistory || [];
+
+    // Get BTC data for fallback
+    const btcPrice = ctx.btcPrice ?? 0;
+    const btcWindowOpen = ctx.btcWindowOpen ?? btcPrice;
 
     // ═══════════════════════════════════════════════════════════════
-    // MARKET REGIME DETECTION
-    // Mean reversion strategies fail in strong trending markets
+    // ZONE DEFINITIONS (WIDER for more trades)
     // ═══════════════════════════════════════════════════════════════
 
-    // Strong trend detection - AVOID trading
-    const isStrongTrend = Math.abs(btcVelocity) > 0.002 && Math.abs(btcAcceleration) > 0.0005;
-    const isVolatile = btcVolatility > 0.025;
+    // YES zones
+    const SNIPER_YES_MAX = 0.40;   // 40¢ max for YES sniper
+    const ULTRA_YES_MAX = 0.15;    // 15¢ max for ultra sniper
 
-    if (isStrongTrend) {
-      const trendDirection = btcVelocity > 0 ? "UP" : "DOWN";
-      return noTrade(`Strong BTC trend ${trendDirection} - mean reversion risky`);
+    // NO zones
+    const SNIPER_NO_MIN = 0.60;    // 60¢ min for NO sniper
+    const ULTRA_NO_MIN = 0.85;     // 85¢ min for ultra sniper
+
+    // ═══════════════════════════════════════════════════════════════
+    // TIME CHECK - Avoid last 20 seconds
+    // ═══════════════════════════════════════════════════════════════
+    const minTimeRemaining = 20000;
+    if (ctx.timeRemaining < minTimeRemaining) {
+      return noTrade("Too close to closure");
     }
 
-    if (isVolatile) {
-      return noTrade("High volatility - market unpredictable");
-    }
-
-    // Thresholds from the strategy
-    const yesBuyMax = thresholds.yesBuyMax ?? 0.15;    // Buy YES if < 15¢
-    const noBuyMin = thresholds.noBuyMin ?? 0.40;       // Buy NO if YES > 40¢
-
     // ═══════════════════════════════════════════════════════════════
-    // CASE 1: YES is EXTREMELY CHEAP (< 10-15¢)
-    // Market is overly pessimistic - buy YES for cheap
+    // ZONE 1: ULTRA SNIPER YES (4-15¢) - Maximum edge
     // ═══════════════════════════════════════════════════════════════
-    if (yesPrice < yesBuyMax) {
-      // Enhanced price velocity check - catch slow bleeds
-      const droppingFast = priceVelocity < -0.015;
-      const droppingModerate = priceVelocity < -0.005;
+    if (yesPrice <= ULTRA_YES_MAX) {
+      // Don't catch falling knife
+      const droppingFast = priceVelocity < -0.02;
+      if (droppingFast) {
+        return noTrade(`Ultra sniper YES but crashing: ${(yesPrice * 100).toFixed(1)}¢`);
+      }
 
-      // Check recovery probability - is price showing signs of stabilization?
-      const priceHistory = ctx.priceHistory || [];
+      // Check for stabilization
       let isStabilizing = false;
       if (priceHistory.length >= 5) {
         const recent = priceHistory.slice(-3);
         const older = priceHistory.slice(-5, -3);
         const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
         const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-        // Stabilizing if recent average is not significantly lower
-        isStabilizing = recentAvg >= olderAvg * 0.98; // Within 2% is okay
+        isStabilizing = recentAvg >= olderAvg * 0.95;
       }
 
-      if (droppingFast) {
-        return noTrade(`YES crashing: velocity=${priceVelocity.toFixed(4)}`);
-      }
+      // Higher confidence for lower price
+      const priceDiscount = ULTRA_YES_MAX - yesPrice;
+      let confidence = Math.min(0.90, 0.65 + priceDiscount * 3);
 
-      if (droppingModerate && !isStabilizing) {
-        return noTrade(`YES still dropping, no stabilization`);
-      }
-
-      // Price stabilizing or recovering - BUY YES
-      // Cheaper = higher confidence (more upside)
-      let confidence = Math.min(0.90, 0.60 + (yesBuyMax - yesPrice) * 3);
-
-      // Apply regime multiplier (already passed trend check, so ranging market)
-      confidence *= REGIME_MULTIPLIERS.ranging;
-
-      // Minimum recovery probability check
-      const recoveryProb = yesPrice; // Probability of YES occurring
-      if (recoveryProb < 0.10) {
-        // Less than 10% chance - too risky even at low price
-        return noTrade(`Recovery probability too low: ${(recoveryProb * 100).toFixed(1)}%`);
-      }
+      if (isStabilizing) confidence += 0.05;
+      if (priceVelocity >= 0) confidence += 0.03;
 
       return trade(
         "YES",
         confidence,
-        `SNIPER YES: extremely cheap @ ${(yesPrice * 100).toFixed(0)}¢ (target: 50¢+)`,
-        { yesPrice, priceVelocity, mode: "sniper_yes_cheap" }
+        `ULTRA-SNIPER: YES @ ${(yesPrice * 100).toFixed(1)}¢ (target: 50¢+)`,
+        { yesPrice, priceVelocity, zone: "ultra_sniper" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // CASE 2: YES is OVERPRICED (> 40-50¢)
-    // Market is overly optimistic - buy NO for cheap
+    // ZONE 2: SNIPER YES (15-40¢) - Good edge
     // ═══════════════════════════════════════════════════════════════
-    if (yesPrice > noBuyMin) {
-      // NO price is now cheap (since YES is expensive)
-      const effectiveNoPrice = noPrice;
-
-      // Check if YES is still rising fast - wait
-      const risingFast = priceVelocity > 0.015;
-      const risingModerate = priceVelocity > 0.005;
-
-      // Check for peak detection
-      const priceHistory = ctx.priceHistory || [];
-      let isPeaking = false;
-      if (priceHistory.length >= 5) {
-        const recent = priceHistory.slice(-3);
-        const older = priceHistory.slice(-5, -3);
-        const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-        // Peaking if recent average is not significantly higher
-        isPeaking = recentAvg <= olderAvg * 1.02; // Within 2% suggests peak
+    if (yesPrice <= SNIPER_YES_MAX) {
+      const fallingFast = priceVelocity < -0.015;
+      if (fallingFast) {
+        return noTrade(`Sniper YES but falling: ${(yesPrice * 100).toFixed(1)}¢`);
       }
 
+      const priceDiscount = SNIPER_YES_MAX - yesPrice;
+      const confidence = Math.min(0.75, 0.55 + priceDiscount * 1.5);
+
+      return trade(
+        "YES",
+        confidence,
+        `SNIPER YES: ${(yesPrice * 100).toFixed(1)}¢`,
+        { yesPrice, priceVelocity, zone: "sniper_yes" }
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ZONE 3: ULTRA SNIPER NO (YES > 85¢)
+    // ═══════════════════════════════════════════════════════════════
+    if (yesPrice >= ULTRA_NO_MIN) {
+      const risingFast = priceVelocity > 0.02;
       if (risingFast) {
-        return noTrade(`YES still rising fast: velocity=${priceVelocity.toFixed(4)}`);
+        return noTrade(`Ultra sniper NO but soaring: ${(yesPrice * 100).toFixed(1)}¢`);
       }
 
-      if (risingModerate && !isPeaking) {
-        return noTrade(`YES rising, no peak detected yet`);
-      }
-
-      // YES stabilizing or dropping - BUY NO
-      // Higher YES price = cheaper NO = more upside
-      let confidence = Math.min(0.85, 0.55 + (yesPrice - noBuyMin) * 2);
-
-      // Apply regime multiplier
-      confidence *= REGIME_MULTIPLIERS.ranging;
+      const pricePremium = yesPrice - ULTRA_NO_MIN;
+      const confidence = Math.min(0.90, 0.65 + pricePremium * 3);
 
       return trade(
         "NO",
         confidence,
-        `SNIPER NO: YES overpriced @ ${(yesPrice * 100).toFixed(0)}¢ (NO: ${(effectiveNoPrice * 100).toFixed(0)}¢)`,
-        { yesPrice, noPrice: effectiveNoPrice, priceVelocity, mode: "sniper_no_cheap" }
+        `ULTRA-SNIPER: NO @ ${(noPrice * 100).toFixed(1)}¢ (YES=${(yesPrice * 100).toFixed(1)}¢)`,
+        { yesPrice, noPrice, priceVelocity, zone: "ultra_sniper_no" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // MIDDLE ZONE (15-40¢) - NO TRADE
-    // This is the "fair value" zone - no edge
+    // ZONE 4: SNIPER NO (60-85¢) - Buy NO when YES is expensive
     // ═══════════════════════════════════════════════════════════════
-    return noTrade(`Middle zone: YES=${(yesPrice * 100).toFixed(0)}¢ (no edge)`);
+    if (yesPrice >= SNIPER_NO_MIN) {
+      const risingFast = priceVelocity > 0.015;
+      if (risingFast) {
+        return noTrade(`Sniper NO but rising: ${(yesPrice * 100).toFixed(1)}¢`);
+      }
+
+      const pricePremium = yesPrice - SNIPER_NO_MIN;
+      const confidence = Math.min(0.75, 0.55 + pricePremium * 1.5);
+
+      return trade(
+        "NO",
+        confidence,
+        `SNIPER NO: NO @ ${(noPrice * 100).toFixed(1)}¢ (YES=${(yesPrice * 100).toFixed(1)}¢)`,
+        { yesPrice, noPrice, priceVelocity, zone: "sniper_no" }
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ZONE 5: MIDDLE ZONE (40-60¢) - BTC momentum fallback
+    // ═══════════════════════════════════════════════════════════════
+    if (btcPrice && btcWindowOpen) {
+      const btcDeltaPct = ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100;
+
+      const minDelta = 0.05;  // Clear BTC momentum needed
+
+      if (Math.abs(btcDeltaPct) >= minDelta) {
+        const action = btcDeltaPct > 0 ? "YES" : "NO";
+        const confidence = Math.min(0.65, 0.50 + Math.abs(btcDeltaPct) * 2);
+
+        return trade(
+          action,
+          confidence,
+          `SNIPER MOMENTUM: ${action} | BTC ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
+          { btcDeltaPct, zone: "momentum" }
+        );
+      }
+    }
+
+    // No edge in middle zone
+    return noTrade(`Middle zone: YES=${(yesPrice * 100).toFixed(1)}¢ (no sniper edge)`);
   },
 };
 

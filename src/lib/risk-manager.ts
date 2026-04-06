@@ -101,10 +101,50 @@ export class RiskManager {
   private warnings: RiskWarning[] = [];
   private lastResetDate: string = this.getTodayDate();
   private portfolioStartBalance: number = 0;
+  private demoMode: boolean = true;  // Default to demo mode for testing
 
-  constructor(settings: Partial<RiskSettings> = {}) {
+  // Demo mode settings - relaxed for testing
+  private static readonly DEMO_SETTINGS: Partial<RiskSettings> = {
+    consecutiveLossThreshold: 15,  // 15 consecutive losses before pause (was 5)
+    maxDrawdownPercent: 50,         // 50% drawdown limit (was 20%)
+    maxDailyLoss: 20,              // $20 daily loss limit (was $5)
+    portfolioMaxLoss: 30,           // $30 portfolio loss limit (was $10)
+    portfolioMaxDrawdown: 60,       // 60% portfolio drawdown (was 25%)
+    cooldownAfterLoss: 5,           // 5s cooldown after loss (was 15s)
+    circuitBreakerEnabled: false,   // Disable circuit breaker in demo mode
+    minConfidence: 0.45,            // 45% min confidence in demo (was 55% - strategies need lower to trade)
+  };
+
+  constructor(settings: Partial<RiskSettings> = {}, demoMode: boolean = true) {
+    this.demoMode = demoMode;
+
+    // Start with default settings
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
+
+    // Apply demo mode overrides if enabled
+    if (demoMode) {
+      this.settings = { ...this.settings, ...RiskManager.DEMO_SETTINGS };
+    }
+
     this.initPortfolioStartBalance();
+  }
+
+  /**
+   * Toggle demo mode - call this when switching between demo/live trading
+   */
+  setDemoMode(enabled: boolean): void {
+    this.demoMode = enabled;
+    if (enabled) {
+      // Apply demo mode relaxed settings
+      this.settings = { ...DEFAULT_SETTINGS, ...RiskManager.DEMO_SETTINGS };
+    } else {
+      // Revert to strict live trading settings
+      this.settings = { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  isDemoMode(): boolean {
+    return this.demoMode;
   }
 
   private getTodayDate(): string {

@@ -190,19 +190,17 @@ export class BotManager {
       // 1. Volatility Breakout - trades when BTC volatility is extreme
       { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 3000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
-      // 2. Ultra Low Entry - Andrew's approach: Entry at 4-15¢ (market underestimates)
-      { id: "bot-ultra-low", name: "Ultra Low Entry", strategy: "ultra_low_entry", interval: 5000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      // 2. Smart Mean Reversion - wider zones + BTC fallback (FIXED)
+      { id: "bot-ultra-low", name: "Smart Mean Reversion", strategy: "ultra_low_entry", interval: 4000, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
-      // 3. Price Reversion - bets on Polymarket price mean-reversion (independent of BTC!)
-      { id: "bot-price-reversion", name: "Price Reversion", strategy: "price_reversion", interval: 4000, betSize: 1.0, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
+      // 3. Smart Price Reversion - wider zones + BTC fallback (FIXED)
+      { id: "bot-price-reversion", name: "Smart Price Reversion", strategy: "price_reversion", interval: 4000, betSize: 1.5, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
 
-      // 4. Binance Velocity - uses BTC velocity/acceleration
-      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      // 4. Binance Velocity - BEST PERFORMER (60%+ WR) - increased betSize
+      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 2000, betSize: 2.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
-      // 5. Sniper Value - extreme price sniper (10-15¢ YES, 40-50¢+ NO)
-      // Based on: https://x.com/Mnilax/status/2038626407333417470
-      // 100% win rate, 490 trades, $5 → $15,000
-      { id: "bot-sniper-value", name: "Sniper Value", strategy: "sniper_value", interval: 3000, betSize: 3.0, maxBet: 0.50, useKelly: false, kellyFraction: 0.25 },
+      // 5. Smart Sniper - wider zones + BTC fallback (FIXED)
+      { id: "bot-sniper-value", name: "Smart Sniper", strategy: "sniper_value", interval: 3000, betSize: 2.0, maxBet: 0.35, useKelly: false, kellyFraction: 0.25 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -1606,7 +1604,10 @@ export class BotManager {
     const previousMode = this.tradingMode;
     this.tradingMode = mode;
 
-    console.log(`[BotManager] Trading mode changed: ${previousMode} -> ${mode}`);
+    // Update RiskManager settings based on mode
+    riskManager.setDemoMode(mode === "demo");
+
+    console.log(`[BotManager] Trading mode changed: ${previousMode} -> ${mode} (demo mode: ${mode === "demo"})`);
 
     // Log mode change for all running bots
     if (previousMode !== mode) {
