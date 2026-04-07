@@ -41,17 +41,20 @@ const DEFAULT_CONFIG: CoordinatorConfig = {
   compatibleStrategies: {
     // === NEW STRATEGIES (Option A) ===
     // Volatility breakout is independent - can pair with others
-    volatility_breakout: ["time_pattern", "binance_velocity"],
+    volatility_breakout: ["trend_pullback", "binance_velocity"],
     // Ultra low entry - similar to sniper, uses price extremes
     ultra_low_entry: ["price_reversion", "sniper_value"],
-    // Time pattern is independent - can pair with others
-    time_pattern: ["volatility_breakout", "binance_velocity"],
+    // Trend pullback is independent - can pair with others
+    trend_pullback: ["volatility_breakout", "binance_velocity"],
     // Price reversion is fully independent (uses Polymarket prices, not BTC)
     price_reversion: [], // Standalone - different signal source
     // Binance velocity - momentum-based
-    binance_velocity: ["volatility_breakout", "time_pattern"],
+    binance_velocity: ["volatility_breakout", "trend_pullback"],
     // Sniper value - extreme prices, independent from others
     sniper_value: ["price_reversion"], // Both use price extremes
+
+    // Odds swing - standalone, waits for cheap entry
+    odds_swing: [],
 
     // === LEGACY STRATEGIES ===
     // Momentum strategies are compatible with each other

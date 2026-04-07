@@ -37,10 +37,9 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
     fallbackMinDelta: 0.04,
   },
 
-  time_pattern: {
-    minDelta: 0.02,             // 0.02% minimum BTC delta for direction
+  trend_pullback: {
+    minDelta: 0.05,             // 0.05% minimum BTC delta for direction trend
     minTimeRemaining: 30000,    // Don't trade with <30 seconds remaining
-    avoidWeekend: true,         // Skip weekend trading (low volume)
   },
 
   price_reversion: {
@@ -65,6 +64,12 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
     // Fallback: BTC momentum if in middle zone
     fallbackEnabled: true,
     fallbackMinDelta: 0.04,
+  },
+
+  odds_swing: {
+    minPrice: 0.04,            // Minimum price to buy (4¢)
+    maxPrice: 0.15,            // Maximum price to buy (15¢)
+    minTimeRemaining: 90000,   // Need at least 90 seconds for swing
   },
 
   // ═══════════════════════════════════════════════════════════════

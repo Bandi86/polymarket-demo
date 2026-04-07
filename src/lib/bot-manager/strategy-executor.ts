@@ -90,6 +90,14 @@ export function updateBotTracker(botId: string, won: boolean, pnl: number, curre
 }
 
 /**
+ * Reset all loss trackers - call when competition starts
+ */
+export function resetAllLossTrackers(): void {
+  botLossTrackers.clear();
+  console.log("[LossTracker] All trackers reset for new competition");
+}
+
+/**
  * Get risk multiplier based on bot performance
  * Returns 0 if bot should stop trading (hit loss limits)
  *
@@ -104,30 +112,34 @@ export function getRiskMultiplier(botId: string, currentBalance: number): number
     console.log(`[LossTracker] ${botId}: consecutiveLosses=${tracker.consecutiveLosses}, pendingSettlements=${tracker.pendingSettlements}, drawdown=${tracker.drawdown.toFixed(1)}%`);
   }
 
-  // CRITICAL: Stop after 3 consecutive losses
+  // REMOVED: Stop after 3 consecutive losses - demo mode should test all scenarios
   // Also stop if we have pending settlements (race condition prevention)
-  if (tracker.consecutiveLosses >= 3 || tracker.pendingSettlements > 0) {
-    return 0; // Stop trading
+  if (tracker.pendingSettlements > 0) {
+    return 0; // Stop trading - but will resume after settlement
   }
 
-  // Reduce sizing after 2 consecutive losses
+  // REMOVED: 3 consecutive losses stop - let bots trade in demo mode
+  // Reduced sizing after consecutive losses (but don't stop completely)
+  if (tracker.consecutiveLosses >= 5) {
+    return 0.25; // Very aggressive risk reduction but still trade
+  }
+
   if (tracker.consecutiveLosses === 2) {
     return 0.25; // 25% of normal size
   }
 
-  // Reduce sizing after 1 consecutive loss
   if (tracker.consecutiveLosses === 1) {
     return 0.5; // 50% of normal size
   }
 
-  // Stop if drawdown exceeds 25%
-  if (tracker.drawdown >= 25) {
-    return 0; // Stop trading
+  // REMOVED: 25% drawdown stop - demo mode should test all scenarios
+  // Reduced sizing only (no hard stop)
+  if (tracker.drawdown >= 30) {
+    return 0.25;
   }
 
-  // Reduce sizing if drawdown exceeds 15%
-  if (tracker.drawdown >= 15) {
-    return 0.25;
+  if (tracker.drawdown >= 20) {
+    return 0.5;
   }
 
   // Normal sizing
@@ -136,7 +148,7 @@ export function getRiskMultiplier(botId: string, currentBalance: number): number
 
 /**
  * Adjust confidence based on bot's recent performance
- * Reduces confidence after consecutive losses
+ * Reduces confidence after consecutive losses but NEVER stops trading in demo mode
  */
 export function adjustConfidenceForPerformance(
   botId: string,
@@ -145,17 +157,16 @@ export function adjustConfidenceForPerformance(
 ): number {
   const tracker = getBotTracker(botId, currentBalance);
 
-  // Reduce confidence after consecutive losses
-  if (tracker.consecutiveLosses >= 3) {
-    return 0; // Stop trading entirely
-  }
-
+  // REMOVED: Stop trading after 3 consecutive losses - demo mode keeps testing
+  // Only reduce confidence but always allow trading
   let confidenceMultiplier = 1.0;
 
   if (tracker.consecutiveLosses === 1) {
     confidenceMultiplier = 0.7; // 30% reduction
   } else if (tracker.consecutiveLosses === 2) {
     confidenceMultiplier = 0.5; // 50% reduction
+  } else if (tracker.consecutiveLosses >= 3) {
+    confidenceMultiplier = 0.3; // 70% reduction but still trade
   }
 
   // Also reduce if on a losing streak overall

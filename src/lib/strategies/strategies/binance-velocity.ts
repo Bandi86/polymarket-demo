@@ -36,7 +36,8 @@ export const binanceVelocityStrategy: Strategy = {
     }
 
     // FIX: Avoid high volatility periods (unpredictable)
-    if (btcVolatility > 0.03) {
+    // Values correctly scaled to 0.3% (0.003)
+    if (btcVolatility > 0.003) {
       return noTrade("High volatility - market unpredictable");
     }
 

@@ -707,9 +707,9 @@ export const strategies: Record<StrategyType, Strategy> = {
     execute: () => ({ action: null, confidence: 0, reason: "Use strategy from index.ts" }),
   },
 
-  time_pattern: {
-    name: "Time Pattern",
-    description: "Magas meggyőződésű órákban kereskedik",
+  trend_pullback: {
+    name: "Trend Pullback",
+    description: "Macró trend közbeni regressziós vételek",
     category: "momentum",
     execute: (ctx) => {
       const { timeRemaining, btcPrice, btcWindowOpen, hourOfDay, dayOfWeek, marketPrice } = ctx;
@@ -732,7 +732,8 @@ export const strategies: Record<StrategyType, Strategy> = {
       if (Math.abs(deltaPct) < 0.02) return { action: null, confidence: 0, reason: `Delta kicsi` };
 
       const action = deltaPct > 0 ? "YES" : "NO";
-      return { action, confidence: Math.min(0.82, 0.55 + Math.abs(deltaPct) * 3), reason: `Time pattern: ${hour}:00 UTC` };
+      // Enyhe zajosodást kivéve:
+      return { action, confidence: Math.min(0.82, 0.55 + Math.abs(deltaPct) * 3), reason: `Trend pullback: ${hour}:00 UTC` };
     },
   },
 
@@ -825,5 +826,13 @@ export const strategies: Record<StrategyType, Strategy> = {
 
       return { action: null, confidence: 0, reason: `Közép zóna: ${(yesPrice*100).toFixed(0)}¢` };
     },
+  },
+
+  // Odds Swing - delegated to new strategies module
+  odds_swing: {
+    name: "Odds Swing",
+    description: "Buys low-priced outcomes (<15¢) and auto-exits at 2x via PositionMonitor",
+    category: "other",
+    execute: () => ({ action: null, confidence: 0, reason: "Use new strategies module" }),
   },
 };

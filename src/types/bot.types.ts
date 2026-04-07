@@ -8,13 +8,16 @@ export type StrategyType =
   // === NEW STRATEGIES (Option A - Change the Game) ===
   | "volatility_breakout"   // Trade when BTC volatility is extreme
   | "ultra_low_entry"       // Andrew's approach: Entry at 4-15¢ (market underestimates)
-  | "time_pattern"          // Trade during high-conviction hours
+  | "trend_pullback"        // Trade pullbacks during strong BTC trends
   | "price_reversion"       // Bet on Polymarket price mean-reversion
   | "binance_velocity"      // Use BTC velocity/acceleration
   | "sniper_value"          // Extreme price sniper (10-15¢ YES, 40-50¢+ NO)
   // === LEGACY STRATEGIES (kept for backward compatibility) ===
   | "window_delta"
   | "last_seconds_scalp"
+  | "odds_swing"
+  // === LEGACY STRATEGIES (kept for backward compatibility) ===
+  | "window_delta"
   | "binance_signal"
   | "monte_carlo"
   | "fair_value"

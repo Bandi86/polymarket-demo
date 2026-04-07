@@ -1,11 +1,13 @@
-// Smart Sniper Strategy
-// Fixed version: Wider zones + BTC momentum fallback + no confidence blocking
+// Smart Sniper Strategy - FIXED v4
 //
-// Key insights from testing:
-// - Original zones (15-40¢) too narrow - no trades
-// - Need wider zones: 10-40¢ for YES, 60-90¢ for NO
-// - Add BTC momentum fallback for middle zone
-// - Remove strict confidence blocking (let strategies decide)
+// PROBLEM: v3 assumed "price too low = will revert" which is WRONG
+// The market prices EXTREME values for a reason - they're usually CORRECT
+//
+// FIX v4: Trade AGAINST extreme only with STRONG reversal evidence:
+// - Price must be STABILIZING (not falling further)
+// - PriceVelocity must be POSITIVE (reversing up)
+// - BTC must confirm (not strongly against)
+// - LOW confidence at extreme (the market is usually right!)
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
@@ -13,7 +15,7 @@ import { noTrade, trade } from "../base";
 
 export const sniperValueStrategy: Strategy = {
   name: "Smart Sniper",
-  description: "Extreme price sniper with wider zones + BTC fallback",
+  description: "Snipes reversals with STRONG evidence — market is usually right at extremes",
   category: "mean_reversion",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const yesPrice = ctx.marketPrice.yesPrice;
@@ -21,148 +23,152 @@ export const sniperValueStrategy: Strategy = {
     const priceVelocity = ctx.priceVelocity ?? 0;
     const priceHistory = ctx.priceHistory || [];
 
-    // Get BTC data for fallback
     const btcPrice = ctx.btcPrice ?? 0;
     const btcWindowOpen = ctx.btcWindowOpen ?? btcPrice;
+    const btcDeltaPct =
+      btcWindowOpen > 0 ? ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100 : 0;
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE DEFINITIONS (WIDER for more trades)
+    // ZONE DEFINITIONS - v4 (conservative)
     // ═══════════════════════════════════════════════════════════════
-
-    // YES zones
-    const SNIPER_YES_MAX = 0.40;   // 40¢ max for YES sniper
-    const ULTRA_YES_MAX = 0.15;    // 15¢ max for ultra sniper
-
-    // NO zones
-    const SNIPER_NO_MIN = 0.60;    // 60¢ min for NO sniper
-    const ULTRA_NO_MIN = 0.85;     // 85¢ min for ultra sniper
+    const ULTRA_YES_MAX = 0.05;  // <5¢ ultra (was 8¢)
+    const SNIPER_YES_MAX = 0.15; // 5-15¢ sniper (was 28¢)
+    const ULTRA_NO_MIN = 0.95;   // >95¢ ultra (was 92¢)
+    const SNIPER_NO_MIN = 0.85;  // 85-95¢ sniper (was 72¢)
 
     // ═══════════════════════════════════════════════════════════════
-    // TIME CHECK - Avoid last 20 seconds
+    // TIME CHECK
     // ═══════════════════════════════════════════════════════════════
-    const minTimeRemaining = 20000;
+    const minTimeRemaining = 60000; // 60s minimum (was 30s)
     if (ctx.timeRemaining < minTimeRemaining) {
       return noTrade("Too close to closure");
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 1: ULTRA SNIPER YES (4-15¢) - Maximum edge
+    // ZONE 1: ULTRA SNIPER YES (<5¢)
+    // FIX v4: Don't trade at extreme - market is usually RIGHT!
+    // Only trade with STRONG reversal evidence
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice <= ULTRA_YES_MAX) {
-      // Don't catch falling knife
-      const droppingFast = priceVelocity < -0.02;
-      if (droppingFast) {
-        return noTrade(`Ultra sniper YES but crashing: ${(yesPrice * 100).toFixed(1)}¢`);
+      // FIX: NO trade at ultra extreme - too risky
+      // Market priced it there for a reason
+      return noTrade(
+        `ULTRA-YES skipped: ${(yesPrice * 100).toFixed(1)}¢ is too extreme - market usually right`
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ZONE 2: SNIPER YES (5-15¢) - NEEDS STRONG EVIDENCE
+    // FIX v4: Strict requirements
+    // ═══════════════════════════════════════════════════════════════
+    if (yesPrice <= SNIPER_YES_MAX) {
+      // 1. Price must be stabilizing or reversing (NOT falling)
+      if (priceVelocity < -0.008) {
+        return noTrade(`Sniper YES falling: ${(priceVelocity * 100).toFixed(2)}%/s - no reversal`);
       }
 
-      // Check for stabilization
+      // 2. Need STRONG positive velocity (reversal in progress)
+      const isReversing = priceVelocity > 0.003;
+      if (!isReversing) {
+        return noTrade(`Sniper NO: no reversal signal yet (velocity: ${(priceVelocity * 100).toFixed(2)}%)`);
+      }
+
+      // 3. BTC must not be strongly against
+      if (btcDeltaPct < -0.03) {
+        return noTrade(`BTC too bearish: ${btcDeltaPct.toFixed(2)}%`);
+      }
+
+      // 4. Check stabilization
       let isStabilizing = false;
       if (priceHistory.length >= 5) {
         const recent = priceHistory.slice(-3);
-        const older = priceHistory.slice(-5, -3);
-        const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-        isStabilizing = recentAvg >= olderAvg * 0.95;
+        const older = priceHistory.slice(-5, -2);
+        if (older.length > 0) {
+          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+          const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+          isStabilizing = recentAvg > olderAvg * 0.98;
+        }
       }
 
-      // Higher confidence for lower price
-      const priceDiscount = ULTRA_YES_MAX - yesPrice;
-      let confidence = Math.min(0.90, 0.65 + priceDiscount * 3);
-
+      // FIX v4: LOW confidence at extreme - market is usually right!
+      // Max 45% even with all signals
+      let confidence = 0.35; // Base low confidence
       if (isStabilizing) confidence += 0.05;
-      if (priceVelocity >= 0) confidence += 0.03;
+      if (isReversing) confidence += 0.05;
+      if (btcDeltaPct > 0) confidence += 0.03;
+
+      confidence = Math.min(0.48, confidence); // Cap at 48%
 
       return trade(
         "YES",
         confidence,
-        `ULTRA-SNIPER: YES @ ${(yesPrice * 100).toFixed(1)}¢ (target: 50¢+)`,
-        { yesPrice, priceVelocity, zone: "ultra_sniper" }
+        `SNIPER-YES ${(yesPrice * 100).toFixed(1)}¢ | vel: ${(priceVelocity * 100).toFixed(2)}% | BTC: ${btcDeltaPct.toFixed(2)}%`,
+        { yesPrice, priceVelocity, btcDeltaPct, zone: "sniper_yes_v4" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 2: SNIPER YES (15-40¢) - Good edge
-    // ═══════════════════════════════════════════════════════════════
-    if (yesPrice <= SNIPER_YES_MAX) {
-      const fallingFast = priceVelocity < -0.015;
-      if (fallingFast) {
-        return noTrade(`Sniper YES but falling: ${(yesPrice * 100).toFixed(1)}¢`);
-      }
-
-      const priceDiscount = SNIPER_YES_MAX - yesPrice;
-      const confidence = Math.min(0.75, 0.55 + priceDiscount * 1.5);
-
-      return trade(
-        "YES",
-        confidence,
-        `SNIPER YES: ${(yesPrice * 100).toFixed(1)}¢`,
-        { yesPrice, priceVelocity, zone: "sniper_yes" }
-      );
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // ZONE 3: ULTRA SNIPER NO (YES > 85¢)
+    // ZONE 3: ULTRA SNIPER NO (YES >95¢)
+    // FIX v4: Don't trade at extreme
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice >= ULTRA_NO_MIN) {
-      const risingFast = priceVelocity > 0.02;
-      if (risingFast) {
-        return noTrade(`Ultra sniper NO but soaring: ${(yesPrice * 100).toFixed(1)}¢`);
-      }
-
-      const pricePremium = yesPrice - ULTRA_NO_MIN;
-      const confidence = Math.min(0.90, 0.65 + pricePremium * 3);
-
-      return trade(
-        "NO",
-        confidence,
-        `ULTRA-SNIPER: NO @ ${(noPrice * 100).toFixed(1)}¢ (YES=${(yesPrice * 100).toFixed(1)}¢)`,
-        { yesPrice, noPrice, priceVelocity, zone: "ultra_sniper_no" }
+      return noTrade(
+        `ULTRA-NO skipped: YES=${(yesPrice * 100).toFixed(1)}¢ is too extreme - market usually right`
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 4: SNIPER NO (60-85¢) - Buy NO when YES is expensive
+    // ZONE 4: SNIPER NO (YES 85-95¢) - NEEDS STRONG EVIDENCE
+    // FIX v4: Strict requirements
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice >= SNIPER_NO_MIN) {
-      const risingFast = priceVelocity > 0.015;
-      if (risingFast) {
-        return noTrade(`Sniper NO but rising: ${(yesPrice * 100).toFixed(1)}¢`);
+      // 1. Price must be stabilizing or reversing (NOT rising)
+      if (priceVelocity > 0.008) {
+        return noTrade(`Sniper NO rising: ${(priceVelocity * 100).toFixed(2)}%/s - no reversal`);
       }
 
-      const pricePremium = yesPrice - SNIPER_NO_MIN;
-      const confidence = Math.min(0.75, 0.55 + pricePremium * 1.5);
+      // 2. Need STRONG negative velocity (reversal in progress)
+      const isReversing = priceVelocity < -0.003;
+      if (!isReversing) {
+        return noTrade(`Sniper NO: no reversal signal yet`);
+      }
+
+      // 3. BTC must not be strongly against
+      if (btcDeltaPct > 0.03) {
+        return noTrade(`BTC too bullish: ${btcDeltaPct.toFixed(2)}%`);
+      }
+
+      // 4. Check stabilization
+      let isStabilizing = false;
+      if (priceHistory.length >= 5) {
+        const recent = priceHistory.slice(-3);
+        const older = priceHistory.slice(-5, -2);
+        if (older.length > 0) {
+          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+          const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+          isStabilizing = recentAvg < olderAvg * 1.02;
+        }
+      }
+
+      // FIX v4: LOW confidence at extreme - market is usually right!
+      let confidence = 0.35;
+      if (isStabilizing) confidence += 0.05;
+      if (isReversing) confidence += 0.05;
+      if (btcDeltaPct < 0) confidence += 0.03;
+
+      confidence = Math.min(0.48, confidence);
 
       return trade(
         "NO",
         confidence,
-        `SNIPER NO: NO @ ${(noPrice * 100).toFixed(1)}¢ (YES=${(yesPrice * 100).toFixed(1)}¢)`,
-        { yesPrice, noPrice, priceVelocity, zone: "sniper_no" }
+        `SNIPER-NO YES=${(yesPrice * 100).toFixed(1)}¢ | vel: ${(priceVelocity * 100).toFixed(2)}% | BTC: ${btcDeltaPct.toFixed(2)}%`,
+        { yesPrice, noPrice, priceVelocity, btcDeltaPct, zone: "sniper_no_v4" }
       );
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // ZONE 5: MIDDLE ZONE (40-60¢) - BTC momentum fallback
-    // ═══════════════════════════════════════════════════════════════
-    if (btcPrice && btcWindowOpen) {
-      const btcDeltaPct = ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100;
-
-      const minDelta = 0.05;  // Clear BTC momentum needed
-
-      if (Math.abs(btcDeltaPct) >= minDelta) {
-        const action = btcDeltaPct > 0 ? "YES" : "NO";
-        const confidence = Math.min(0.65, 0.50 + Math.abs(btcDeltaPct) * 2);
-
-        return trade(
-          action,
-          confidence,
-          `SNIPER MOMENTUM: ${action} | BTC ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
-          { btcDeltaPct, zone: "momentum" }
-        );
-      }
-    }
-
-    // No edge in middle zone
-    return noTrade(`Middle zone: YES=${(yesPrice * 100).toFixed(1)}¢ (no sniper edge)`);
+    return noTrade(
+      `No sniper signal: YES=${(yesPrice * 100).toFixed(1)}¢ BTC=${btcDeltaPct.toFixed(2)}%`
+    );
   },
 };
 

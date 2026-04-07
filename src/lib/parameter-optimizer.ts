@@ -88,7 +88,7 @@ const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> =
     interval: [3000, 6000],
     kellyFraction: [0.2, 0.5],
   },
-  time_pattern: {
+  trend_pullback: {
     betSize: [0.5, 2.0],
     interval: [3000, 8000],
     kellyFraction: [0.2, 0.5],
@@ -107,6 +107,11 @@ const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> =
     betSize: [1.0, 5.0],        // Up to $5 per trade as per strategy
     interval: [2000, 5000],
     kellyFraction: [0.2, 0.5],
+  },
+  odds_swing: {
+    betSize: [0.25, 2.0],
+    interval: [1500, 4000],
+    kellyFraction: [0.1, 0.3],
   },
   // === LEGACY STRATEGIES ===
   window_delta: {

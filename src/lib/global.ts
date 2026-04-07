@@ -12,6 +12,7 @@ import { analyticsService } from "./analytics";
 import { binanceKlineProvider, BinanceKlineProvider, KlineProviderConfig } from "./providers/binance-kline-provider";
 import { polymarketProvider, PolymarketProvider } from "./providers/polymarket-provider";
 import { sessionSummaryGenerator, SessionSummaryGenerator } from "./session-summary-generator";
+import { positionMonitor, PositionMonitor } from "./position-monitor";
 import {
   validateSettlement,
   recordSettlementValidation,
@@ -75,6 +76,10 @@ export function getPolymarketProvider(): PolymarketProvider {
 
 export function getSessionSummaryGenerator(): SessionSummaryGenerator {
   return sessionSummaryGenerator;
+}
+
+export function getPositionMonitor(): PositionMonitor {
+  return positionMonitor;
 }
 
 // === SSE Broadcasting ===
@@ -212,15 +217,15 @@ export async function initializeServices(): Promise<void> {
     }, 1000);
     console.log("[Global] Timer broadcasting set up");
 
-    // 4c. Set up periodic bots state broadcast (every 5 seconds)
+    // 4c. Set up periodic bots state broadcast (every 1 second - reduced from 5s for faster UI)
     setInterval(() => {
       const bots = botManager.getBots();
       const totalBalance = bots.reduce((sum: number, b: { portfolio?: { balance?: number } }) => sum + (b.portfolio?.balance || 0), 0);
       if (totalBalance > 0) {
         broadcastToSSE("bots", bots);
       }
-    }, 5000);
-    console.log("[Global] Periodic bots broadcasting set up (5s interval)");
+    }, 1000);
+    console.log("[Global] Periodic bots broadcasting set up (1s interval - fast reactivity)");
 
     // 5. Set up settlement handling
     marketEngine.onSettlement((data) => {
@@ -306,6 +311,7 @@ export {
   binanceKlineProvider,
   polymarketProvider,
   sessionSummaryGenerator,
+  positionMonitor,
   validateSettlement,
   recordSettlementValidation,
   getSettlementStats,

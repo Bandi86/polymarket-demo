@@ -3,10 +3,11 @@
 // NEW STRATEGIES (Option A - Change the Game)
 export { volatilityBreakoutStrategy } from "./volatility-breakout";
 export { ultraLowEntryStrategy } from "./ultra-low-entry";
-export { timePatternStrategy } from "./time-pattern";
+export { trendPullbackStrategy } from "./trend-pullback";
 export { priceReversionStrategy } from "./price-reversion";
 export { binanceVelocityStrategy } from "./binance-velocity";
 export { sniperValueStrategy } from "./sniper-value";
+export { oddsSwingStrategy } from "./odds-swing";
 
 // LEGACY STRATEGIES
 export { windowDeltaStrategy } from "./window-delta";

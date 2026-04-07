@@ -11,7 +11,7 @@ interface Provider {
 }
 
 const PRICE_HISTORY_LIMIT = 1000;
-const DEFAULT_POLL_INTERVAL = 3000;
+const DEFAULT_POLL_INTERVAL = 1000; // Reduced from 3000ms for faster fallback
 
 // === Provider Implementations ===
 
@@ -390,10 +390,12 @@ export class PriceService {
         if (this.pollTimer) {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
+          console.log("[PriceService] WebSocket connected - using real-time stream (no polling needed)");
         }
       });
 
       // Start polling as fallback - will be stopped when WS works
+      console.log("[PriceService] Starting fallback polling (WebSocket may not be connected)");
       this.startPollingFallback();
     }
   }

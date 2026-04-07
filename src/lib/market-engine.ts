@@ -436,7 +436,7 @@ export class MarketEngine {
 
       // Only log if price changed significantly
       if (Math.abs(newYesPrice - oldYesPrice) > 0.001) {
-        console.log(`[MarketEngine] Price update: YES=${prices.yes} NO=${prices.no}`);
+        // console.log(`[MarketEngine] Price update: YES=${prices.yes} NO=${prices.no}`);
       }
 
       // Notify subscribers

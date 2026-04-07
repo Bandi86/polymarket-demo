@@ -23,6 +23,7 @@ import { broadcastToSSE } from "./global";
 import { strategies } from "./strategies";
 import { strategyConfig } from "./strategies/config";
 import { marketAnalyzer } from "./market-analyzer";
+import { positionMonitor } from "./position-monitor";
 import {
   BotLogger,
   type BotLog,
@@ -186,21 +187,25 @@ export class BotManager {
     // NEW BOTS (Option A - Change the Game)
     // These strategies have REAL edges, not just BTC direction prediction
     // ═══════════════════════════════════════════════════════════════
+    // INTERVALS REDUCED for faster reaction to market changes (was 2000-4000ms, now 500-1500ms)
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
       // 1. Volatility Breakout - trades when BTC volatility is extreme
-      { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 3000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
-      // 2. Smart Mean Reversion - wider zones + BTC fallback (FIXED)
-      { id: "bot-ultra-low", name: "Smart Mean Reversion", strategy: "ultra_low_entry", interval: 4000, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
+      // 2. Trend Pullback - trades Polymarket pullbacks during strong BTC trends
+      { id: "bot-trend-pullback", name: "Trend Pullback", strategy: "trend_pullback", interval: 1200, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
-      // 3. Smart Price Reversion - wider zones + BTC fallback (FIXED)
-      { id: "bot-price-reversion", name: "Smart Price Reversion", strategy: "price_reversion", interval: 4000, betSize: 1.5, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
+      // 3. Price Reversion - Fixed and re-balanced
+      { id: "bot-price-reversion", name: "Price Reversion", strategy: "price_reversion", interval: 1500, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
-      // 4. Binance Velocity - BEST PERFORMER (60%+ WR) - increased betSize
-      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 2000, betSize: 2.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
+      // 4. Binance Velocity - Now with fixed volatility thresholds
+      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 800, betSize: 2.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
-      // 5. Smart Sniper - wider zones + BTC fallback (FIXED)
-      { id: "bot-sniper-value", name: "Smart Sniper", strategy: "sniper_value", interval: 3000, betSize: 2.0, maxBet: 0.35, useKelly: false, kellyFraction: 0.25 },
+      // 5. Sniper Value - Now with properly checked BTC confirmations
+      { id: "bot-sniper-value", name: "Sniper Value", strategy: "sniper_value", interval: 1000, betSize: 2.0, maxBet: 0.35, useKelly: true, kellyFraction: 0.35 },
+
+      // 6. Odds Swing - buys low (<15¢) and auto-exits at 2x via PositionMonitor
+      { id: "bot-odds-swing", name: "Odds Swing", strategy: "odds_swing", interval: 800, betSize: 0.5, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
     ];
 
     for (const cfg of defaultConfigs) {
@@ -1406,6 +1411,20 @@ export class BotManager {
           coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
           mode: "demo",
         });
+
+        // TP/SL registration for strategies with auto-exit
+        // Skip for the 2 well-performing bots (as requested)
+        const tpSlSettings = this.getTpSlSettings(bot.strategy);
+        if (tpSlSettings) {
+          positionMonitor.register({
+            positionId: position.id,
+            entryOdds: position.odds,
+            takeProfitMultiplier: tpSlSettings.tp,
+            stopLossMultiplier: tpSlSettings.sl,
+            botId: id,
+          });
+        }
+
         // Broadcast updated bots to all SSE clients
         broadcastToSSE("bots", this.getBots());
       } else {
@@ -1413,6 +1432,31 @@ export class BotManager {
         strategyCoordinator.cancelDecision(market.id, id);
       }
     }
+  }
+
+  /** Get TP/SL settings for a strategy. Returns null if strategy should not use auto-exit. */
+  private getTpSlSettings(strategy: StrategyType): { tp: number; sl: number } | null {
+    // Skip TP/SL for the 2 well-performing bots (user request)
+    // These are the top performers - let them ride without auto-exit
+
+    const settings: Record<string, { tp: number; sl: number }> = {
+      // Ultra-low entry strategies - need room to bounce back
+      odds_swing: { tp: 2.0, sl: 0.5 },
+      sniper_value: { tp: 1.5, sl: 0.6 },  // More aggressive - price already low
+      ultra_low_entry: { tp: 2.0, sl: 0.5 }, // Same as odds_swing
+
+      // Momentum/velocity strategies - faster exit
+      binance_velocity: { tp: 1.3, sl: 0.7 }, // Quick scalp
+      volatility_breakout: { tp: 1.5, sl: 0.6 },
+
+      // Mean reversion
+      price_reversion: { tp: 1.5, sl: 0.7 },
+
+      // Time-based - keep without auto-exit (handled by time)
+      // time_pattern: null,
+    };
+
+    return settings[strategy] ?? null;
   }
 
   /** Execute a live trade on Polymarket */

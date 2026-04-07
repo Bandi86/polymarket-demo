@@ -38,10 +38,11 @@ const STRATEGY_NAMES: Record<StrategyType, string> = {
   // NEW STRATEGIES
   volatility_breakout: "Volatility Breakout",
   ultra_low_entry: "Ultra Low Entry",
-  time_pattern: "Time Pattern",
+  trend_pullback: "Trend Pullback",
   price_reversion: "Price Reversion",
   binance_velocity: "Binance Velocity",
   sniper_value: "Sniper Value",
+  odds_swing: "Odds Swing",
   // LEGACY STRATEGIES
   window_delta: "Window Delta",
   last_seconds_scalp: "Last Seconds Scalp",

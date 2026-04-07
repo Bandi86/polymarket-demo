@@ -1,16 +1,5 @@
-// Smart Mean Reversion Strategy
-// Fixed version: Tighter zones + BTC momentum fallback
-//
-// Key insights from testing:
-// - Original "dead zone" (25-85¢) was too large - 80% of time price was there
-// - Need wider zones: 10-35¢ for YES, 65-90¢ for NO
-// - Add BTC momentum fallback for middle zone
-// - Don't fight strong trends
-//
-// Entry zones:
-// - YES: 10-35¢ (undervalued) - Buy YES expecting reversion to 50¢+
-// - NO: 65-90¢ (overvalued) - Buy NO expecting reversion to 50¢-
-// - Fallback: BTC momentum when in middle zone
+// Smart Mean Reversion Strategy - IMPROVED
+// FIXED: Much tighter zones + strict BTC confirmation
 
 import type { Strategy, StrategyContext } from "../../../types";
 import type { StrategyDecision } from "../types";
@@ -18,50 +7,63 @@ import { noTrade, trade } from "../base";
 
 export const ultraLowEntryStrategy: Strategy = {
   name: "Smart Mean Reversion",
-  description: "Mean reversion with wider zones + BTC momentum fallback",
+  description: "Tight mean reversion with strict BTC confirmation",
   category: "mean_reversion",
   execute: (ctx: StrategyContext): StrategyDecision => {
     const yesPrice = ctx.marketPrice.yesPrice;
     const noPrice = ctx.marketPrice.noPrice;
     const priceVelocity = ctx.priceVelocity ?? 0;
+    const priceHistory = ctx.priceHistory || [];
 
-    // Get BTC data for momentum fallback
+    // Get BTC data
     const btcPrice = ctx.btcPrice ?? 0;
     const btcWindowOpen = ctx.btcWindowOpen ?? btcPrice;
-    const btcVelocity = ctx.btcVelocity ?? 0;
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE DEFINITIONS (WIDER for more trades)
+    // EXTREME ZONE DEFINITIONS - Only at the most extreme prices
     // ═══════════════════════════════════════════════════════════════
 
-    // Low zones (buy YES)
-    const ULTRA_LOW_MAX = 0.10;      // 4-10¢ - Maximum edge
-    const LOW_ENTRY_MAX = 0.35;      // 10-35¢ - Good edge
+    // Low zones (buy YES) - EXTREME ONLY
+    const ULTRA_LOW_MAX = 0.03;      // 3¢ - Maximum edge (was 6¢)
+    const LOW_ENTRY_MAX = 0.10;      // 10¢ - Good edge (was 18¢)
 
-    // High zones (buy NO)
-    const OVERVALUED_MIN = 0.65;     // 65-90¢ - Good edge
-    const ULTRA_HIGH_MIN = 0.90;    // 90¢+ - Maximum edge
+    // High zones (buy NO) - EXTREME ONLY
+    const OVERVALUED_MIN = 0.90;     // 90¢+ - Good edge (was 82¢)
+    const ULTRA_HIGH_MIN = 0.97;    // 97¢+ - Maximum edge (was 94¢)
 
     // ═══════════════════════════════════════════════════════════════
-    // TIME CHECK - Avoid last 15 seconds
+    // TIME CHECK
     // ═══════════════════════════════════════════════════════════════
-    const minTimeRemaining = 15000;
+    const minTimeRemaining = 25000;
     if (ctx.timeRemaining < minTimeRemaining) {
       return noTrade("Too close to closure");
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 1: ULTRA LOW (4-10¢) - Maximum edge
+    // ZONE 1: ULTRA LOW (<6¢) - Maximum edge with stabilization
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice <= ULTRA_LOW_MAX) {
-      const droppingFast = priceVelocity < -0.025;
-      if (droppingFast) {
-        return noTrade(`Ultra-low but crashing: ${(yesPrice * 100).toFixed(1)}¢`);
+      if (priceVelocity < -0.015) {
+        return noTrade(`Ultra-low but crashing: ${(priceVelocity * 100).toFixed(2)}%/s`);
       }
 
-      // Higher confidence for lower price
+      // Check for stabilization
+      let isStabilizing = false;
+      if (priceHistory.length >= 5) {
+        const recent = priceHistory.slice(-3);
+        const older = priceHistory.slice(-5, -3);
+        if (older.length > 0) {
+          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+          const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+          isStabilizing = recentAvg >= olderAvg * 0.96;
+        }
+      }
+
       const priceDiscount = ULTRA_LOW_MAX - yesPrice;
-      const confidence = Math.min(0.90, 0.70 + priceDiscount * 4);
+      let confidence = Math.min(0.90, 0.70 + priceDiscount * 5);
+
+      if (isStabilizing) confidence += 0.1;
+      if (priceVelocity >= 0) confidence += 0.05;
 
       return trade(
         "YES",
@@ -72,90 +74,124 @@ export const ultraLowEntryStrategy: Strategy = {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 2: LOW ENTRY (10-35¢) - Good edge, high probability
+    // ZONE 2: LOW ENTRY (6-18¢) - Needs BTC confirmation
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice <= LOW_ENTRY_MAX) {
-      const fallingFast = priceVelocity < -0.02;
-      if (fallingFast) {
-        return noTrade(`Low but falling fast: ${(yesPrice * 100).toFixed(1)}¢`);
+      if (priceVelocity < -0.01) {
+        return noTrade(`Low but falling: ${(priceVelocity * 100).toFixed(2)}%/s`);
       }
 
-      // Confidence based on how far from "fair" (50¢)
+      // FIX: Need BTC confirmation OR price at extreme
+      const btcDeltaPct = btcWindowOpen > 0 ? ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100 : 0;
+
+      // Only trade if BTC is going up OR price is very low
+      if (btcDeltaPct < 0.03 && yesPrice > 0.12) {
+        return noTrade(`Low but BTC not supporting: ${btcDeltaPct.toFixed(2)}%`);
+      }
+
       const priceDiscount = LOW_ENTRY_MAX - yesPrice;
-      const confidence = Math.min(0.75, 0.55 + priceDiscount * 1.5);
+      let confidence = Math.min(0.75, 0.55 + priceDiscount * 2);
+
+      if (btcDeltaPct >= 0.03) confidence += 0.1;
 
       return trade(
         "YES",
         confidence,
-        `LOW ZONE: YES @ ${(yesPrice * 100).toFixed(1)}¢ (fair: 50¢)`,
-        { yesPrice, priceVelocity, zone: "low_entry" }
+        `LOW ZONE: YES @ ${(yesPrice * 100).toFixed(1)}¢ | BTC: ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
+        { yesPrice, priceVelocity, btcDeltaPct, zone: "low_entry" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 3: OVERVALUED (65-90¢) - Good edge, NO is cheap
+    // ZONE 3: ULTRA HIGH (>94%) - Maximum edge
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice >= ULTRA_HIGH_MIN) {
-      const risingFast = priceVelocity > 0.025;
-      if (risingFast) {
-        return noTrade(`Ultra-high but soaring: ${(yesPrice * 100).toFixed(1)}¢`);
+      if (priceVelocity > 0.015) {
+        return noTrade(`Ultra-high but soaring: ${(priceVelocity * 100).toFixed(2)}%/s`);
+      }
+
+      // Check for stabilization
+      let isStabilizing = false;
+      if (priceHistory.length >= 5) {
+        const recent = priceHistory.slice(-3);
+        const older = priceHistory.slice(-5, -3);
+        if (older.length > 0) {
+          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+          const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+          isStabilizing = recentAvg <= olderAvg * 1.04;
+        }
       }
 
       const pricePremium = yesPrice - ULTRA_HIGH_MIN;
-      const confidence = Math.min(0.90, 0.70 + pricePremium * 4);
+      let confidence = Math.min(0.90, 0.70 + pricePremium * 5);
+
+      if (isStabilizing) confidence += 0.1;
+      if (priceVelocity <= 0) confidence += 0.05;
 
       return trade(
         "NO",
         confidence,
-        `ULTRA-HIGH: YES @ ${(yesPrice * 100).toFixed(1)}¢ (NO cheap)`,
+        `ULTRA-HIGH: YES @ ${(yesPrice * 100).toFixed(1)}¢`,
         { yesPrice, priceVelocity, zone: "ultra_high" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 4: HIGH ZONE (65-90¢) - Buy NO
+    // ZONE 4: HIGH ZONE (82-94%) - Needs BTC confirmation
     // ═══════════════════════════════════════════════════════════════
     if (yesPrice >= OVERVALUED_MIN) {
-      const risingFast = priceVelocity > 0.02;
-      if (risingFast) {
-        return noTrade(`High but rising fast: ${(yesPrice * 100).toFixed(1)}¢`);
+      if (priceVelocity > 0.01) {
+        return noTrade(`High but rising: ${(priceVelocity * 100).toFixed(2)}%/s`);
+      }
+
+      // FIX: Need BTC confirmation OR price at extreme
+      const btcDeltaPct = btcWindowOpen > 0 ? ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100 : 0;
+
+      // Only trade if BTC is going down OR price is very high
+      if (btcDeltaPct > -0.03 && yesPrice < 0.88) {
+        return noTrade(`High but BTC not supporting: ${btcDeltaPct.toFixed(2)}%`);
       }
 
       const pricePremium = yesPrice - OVERVALUED_MIN;
-      const confidence = Math.min(0.75, 0.55 + pricePremium * 1.5);
+      let confidence = Math.min(0.75, 0.55 + pricePremium * 2);
+
+      if (btcDeltaPct <= -0.03) confidence += 0.1;
 
       return trade(
         "NO",
         confidence,
-        `HIGH ZONE: YES @ ${(yesPrice * 100).toFixed(1)}¢ (NO cheap)`,
-        { yesPrice, priceVelocity, zone: "high_entry" }
+        `HIGH ZONE: YES @ ${(yesPrice * 100).toFixed(1)}¢ | BTC: ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
+        { yesPrice, noPrice, priceVelocity, btcDeltaPct, zone: "high_entry" }
       );
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ZONE 5: MIDDLE ZONE (35-65¢) - Use BTC momentum fallback
+    // MIDDLE ZONE - DISABLED
+    // These low-confidence BTC momentum trades caused too many losses
+    // Only trading at extreme price zones now
     // ═══════════════════════════════════════════════════════════════
-    // Only use momentum if there's clear BTC direction
+    /*
     if (btcPrice && btcWindowOpen) {
       const btcDeltaPct = ((btcPrice - btcWindowOpen) / btcWindowOpen) * 100;
 
-      // Strong BTC momentum (> 0.05%) - follow the direction
-      const minDelta = 0.05;
+      // FIX: Much higher threshold - need STRONG BTC momentum
+      const minDelta = 0.10; // 0.10% (was 0.05%)
+
       if (Math.abs(btcDeltaPct) >= minDelta) {
         const action = btcDeltaPct > 0 ? "YES" : "NO";
-        const confidence = Math.min(0.65, 0.50 + Math.abs(btcDeltaPct) * 2);
+        const confidence = Math.min(0.60, 0.45 + Math.abs(btcDeltaPct) * 3);
 
         return trade(
           action,
           confidence,
-          `MOMENTUM FALLBACK: ${action} | BTC ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
+          `MOMENTUM: ${action} | BTC ${btcDeltaPct >= 0 ? '+' : ''}${btcDeltaPct.toFixed(2)}%`,
           { btcDeltaPct, zone: "momentum_fallback" }
         );
       }
     }
+    */
 
-    // No edge in middle zone without BTC momentum
-    return noTrade(`Middle zone: YES=${(yesPrice * 100).toFixed(1)}¢ (no BTC edge)`);
+    return noTrade(`Middle zone: YES=${(yesPrice * 100).toFixed(1)}¢ (middle zone disabled)`);
   },
 };
 

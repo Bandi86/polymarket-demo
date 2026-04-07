@@ -5,10 +5,11 @@ import {
   // NEW STRATEGIES (Option A)
   volatilityBreakoutStrategy,
   ultraLowEntryStrategy,
-  timePatternStrategy,
+  trendPullbackStrategy,
   priceReversionStrategy,
   binanceVelocityStrategy,
   sniperValueStrategy,
+  oddsSwingStrategy,
   // LEGACY STRATEGIES
   windowDeltaStrategy,
   fairValueStrategy,
@@ -31,10 +32,11 @@ export const strategies = {
   // ═══════════════════════════════════════════════════════════════
   volatility_breakout: volatilityBreakoutStrategy,
   ultra_low_entry: ultraLowEntryStrategy,
-  time_pattern: timePatternStrategy,
+  trend_pullback: trendPullbackStrategy,
   price_reversion: priceReversionStrategy,
   binance_velocity: binanceVelocityStrategy,
   sniper_value: sniperValueStrategy,
+  odds_swing: oddsSwingStrategy,
 
   // ═══════════════════════════════════════════════════════════════
   // LEGACY STRATEGIES (kept for backward compatibility)

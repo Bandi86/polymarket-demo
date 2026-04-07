@@ -19,6 +19,7 @@ export {
   getRiskMultiplier,
   adjustConfidenceForPerformance,
   updateBotTracker,
+  resetAllLossTrackers,
   markTradeSent, // RACE CONDITION FIX
   getMarketRegime,
   type MarketInfo,

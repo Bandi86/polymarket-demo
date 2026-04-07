@@ -4,6 +4,7 @@
 import type { BotConfig } from "../../types";
 import { marketEngine } from "../market-engine";
 import { generateId } from "../utils";
+import { resetAllLossTrackers, updateBotTracker } from "./strategy-executor";
 
 export interface LeaderboardEntry {
   botId: string;
@@ -115,6 +116,9 @@ export class CompetitionManager {
     if (onStopAll) onStopAll();
 
     console.log(`[CompetitionManager] Starting competition with ${bots.size} bots`);
+
+    // CRITICAL: Reset all loss trackers so bots can trade immediately
+    resetAllLossTrackers();
 
     // Reset and start all bots
     for (const [id, bot] of bots) {
