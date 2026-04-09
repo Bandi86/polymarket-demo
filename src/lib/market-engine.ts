@@ -755,8 +755,13 @@ export class MarketEngine {
     const currentYesPrice = parseFloat(currentMarket.outcomePrices.yes);
     const currentOdds = position.outcome === "YES" ? currentYesPrice : 1 - currentYesPrice;
 
-    const exitValue = position.amount * (currentOdds / position.odds) * 0.98; // 2% exit fee
-    const pnl = exitValue - position.amount - position.fee;
+    // Calculate exit value: shares (stake) × current odds
+    // NOTE: position.stake is the number of shares, position.amount is the dollar stake
+    const shares = position.stake || position.amount; // fallback to amount for safety
+    const exitValue = shares * currentOdds;
+    const positionCost = position.amount + position.fee; // original dollar cost
+    const exitFee = exitValue * 0.02; // 2% exit fee
+    const pnl = exitValue - positionCost - exitFee;
 
     position.status = "closed";
     position.pnl = pnl;

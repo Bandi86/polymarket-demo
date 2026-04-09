@@ -50,6 +50,11 @@ export interface StrategyThresholds {
   // Fallback configuration (price_reversion, sniper_value, ultra_low_entry)
   fallbackEnabled?: boolean;   // Enable BTC momentum fallback in middle zone
   fallbackMinDelta?: number;   // Minimum BTC delta for fallback trades
+
+  // Position management - TP/SL for short-term strategies
+  supportsPositionManagement?: boolean;  // Enable TP/SL for this strategy
+  takeProfitThreshold?: number;           // TP threshold (e.g., 0.25 = 25%)
+  stopLossThreshold?: number;             // SL threshold (e.g., -0.30 = -30%)
 }
 
 /**
