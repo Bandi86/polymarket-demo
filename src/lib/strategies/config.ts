@@ -22,19 +22,19 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   volatility_breakout: {
     minHighVolatility: 0.003,   // 0.3% BTC price volatility - triggers directional bias
     maxLowVolatility: 0.001,    // 0.1% - consolidation phase, wait for breakout
-    minDelta: 0.03,             // 0.03% BTC delta from window open needed for direction
-    breakoutDelta: 0.05,        // 0.05% delta needed for low-volatility breakout
+    minDelta: 0.05,             // 0.05% BTC delta (raised from 0.03 - per 2026-04-09 plan)
+    breakoutDelta: 0.08,         // 0.08% delta needed for low-vol breakout (raised from 0.05)
     minTimeRemaining: 30000,    // Don't trade with <30 seconds remaining
   },
 
   ultra_low_entry: {
-    ultraLowMax: 0.12,         // Ultra-low zone: 4-12¢ (max edge)
-    lowEntryMax: 0.25,         // Low entry zone: 12-25¢
-    overvaluedMin: 0.85,       // Overvalued zone: YES > 85¢
-    minTimeRemaining: 20000,   // Don't trade with <20 seconds remaining
+    ultraLowMax: 0.05,         // Ultra-low zone: <5¢ (reduced from 12¢ - per 2026-04-09 plan - DON'T trade at extreme lows)
+    lowEntryMax: 0.15,         // Low entry zone: 5-15¢ (reduced from 25¢)
+    overvaluedMin: 0.90,       // Overvalued zone: YES > 90¢ (raised from 85¢)
+    minTimeRemaining: 30000,   // Don't trade with <30 seconds remaining (raised from 20s)
     // Fallback: BTC momentum if in middle zone
     fallbackEnabled: true,
-    fallbackMinDelta: 0.04,
+    fallbackMinDelta: 0.06,    // Higher threshold per plan
   },
 
   trend_pullback: {
@@ -43,12 +43,12 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   price_reversion: {
-    oversoldYes: 0.20,          // Buy YES when price < 20¢ (widened from 25¢)
-    overboughtYes: 0.80,        // Buy NO when YES price > 80¢ (widened from 75¢)
+    oversoldYes: 0.28,          // Buy YES when price < 28¢ (widened from 0.20 - per 2026-04-09 plan)
+    overboughtYes: 0.72,        // Buy NO when YES price > 72¢ (narrowed from 0.80 - per 2026-04-09 plan)
     minTimeRemaining: 15000,    // Don't trade with <15 seconds remaining
     // Fallback: BTC momentum if in middle zone
     fallbackEnabled: true,
-    fallbackMinDelta: 0.03,
+    fallbackMinDelta: 0.02,    // Lowered from 0.03 - more fallback opportunities per plan
   },
 
   binance_velocity: {
@@ -58,18 +58,18 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   sniper_value: {
-    yesBuyMax: 0.12,           // Buy YES if price < 12¢ (widened from 15¢)
-    noBuyMin: 0.45,             // Buy NO if YES price > 45¢ (widened from 40¢)
-    minTimeRemaining: 20000,   // Don't trade with <20 seconds remaining
+    yesBuyMax: 0.22,           // Buy YES if price < 22¢ (widened from 0.12 - per 2026-04-09 plan)
+    noBuyMin: 0.78,             // Buy NO if YES price > 78¢ (widened from 0.45 - per 2026-04-09 plan)
+    minTimeRemaining: 30000,   // Don't trade with <30 seconds remaining (raised from 20s)
     // Fallback: BTC momentum if in middle zone
     fallbackEnabled: true,
-    fallbackMinDelta: 0.04,
+    fallbackMinDelta: 0.03,    // Lowered from 0.04 - more fallback opportunities
   },
 
   odds_swing: {
-    minPrice: 0.04,            // Minimum price to buy (4¢)
-    maxPrice: 0.15,            // Maximum price to buy (15¢)
-    minTimeRemaining: 90000,   // Need at least 90 seconds for swing
+    minPrice: 0.25,            // Minimum price to buy (25¢) (widened from 0.04 - per 2026-04-09 plan)
+    maxPrice: 0.75,            // Maximum price to buy (75¢) (widened from 0.15 - per 2026-04-09 plan)
+    minTimeRemaining: 60000,   // Need at least 60 seconds for swing (reduced from 90s)
   },
 
   // ═══════════════════════════════════════════════════════════════
@@ -83,37 +83,37 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   binance_signal: {
-    signalMaxAge: 8000,    // Binance signal expires after 8 seconds
+    signalMaxAge: 5000,    // 5 seconds (reduced from 8s - per 2026-04-09 plan)
     minTimeRemaining: 3000,   // Don't trade with <3 seconds remaining
-    minDelta: 0.05,        // 0.05% fallback delta threshold
+    minDelta: 0.07,        // 0.07% fallback delta threshold (raised from 0.05 - per 2026-04-09 plan)
   },
 
   last_seconds_scalp: {
-    minDelta: 0.05,        // 0.05% minimum BTC delta (raised from 0.02)
+    minDelta: 0.04,        // 0.04% minimum BTC delta (per 2026-04-09 plan - was 0.05)
     minTimeRemaining: 4000,   // Only trade with 4-30 seconds remaining
     maxTimeRemaining: 30000,  // Only trade with 4-30 seconds remaining
   },
 
   monte_carlo: {
-    minDelta: 0.02,        // 0.02% minimum delta (winner - keep as is)
-    minEdge: 0.03,         // 3% minimum edge (winner - keep as is)
+    minDelta: 0.06,        // 0.06% minimum delta (raised from 0.02 - CRITICAL FIX per 2026-04-09 plan)
+    minEdge: 0.10,         // 10% minimum edge (raised from 0.03 - CRITICAL FIX per 2026-04-09 plan)
     minTimeRemaining: 30000,  // Don't trade with <30 seconds remaining
     maxTimeRemaining: 240000, // Don't trade with >4 minutes remaining
   },
 
   fair_value: {
-    minEdge: 0.07,         // 7% minimum edge (raised from 0.05)
+    minEdge: 0.08,         // 8% minimum edge (raised from 0.07 - CRITICAL FIX per 2026-04-09 plan)
     minTimeRemaining: 15000,  // Don't trade with <15 seconds remaining
   },
 
   momentum: {
-    minDelta: 0.07,        // 0.07% minimum delta (raised from 0.02 - was worst at -$10)
+    minDelta: 0.10,        // 0.10% minimum delta (raised from 0.07 - per 2026-04-09 plan)
     minTimeRemaining: 30000,  // Don't trade with <30 seconds remaining
   },
 
   smart_trend: {
     minTimeRemaining: 30000,  // Don't trade with <30 seconds remaining
-    minDelta: 0.05,        // 0.05% minimum delta (raised from 0.02)
+    minDelta: 0.03,        // 0.03% minimum delta (lowered from 0.05 - per 2026-04-09 plan for more trades)
   },
 
   contrarian: {
@@ -122,8 +122,8 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   },
 
   arbitrage: {
-    minDelta: 0.02,        // 0.02% minimum delta (winner - keep as is)
-    minEdge: 0.03,         // 3% minimum edge (winner - keep as is)
+    minDelta: 0.08,        // 0.08% minimum delta (raised from 0.02 - CRITICAL FIX per 2026-04-09 plan)
+    minEdge: 0.12,         // 12% minimum edge (raised from 0.03 - CRITICAL FIX per 2026-04-09 plan)
     minTimeRemaining: 30000,  // Don't trade with <30 seconds remaining
     maxTimeRemaining: 240000, // Don't trade with >4 minutes remaining
   },

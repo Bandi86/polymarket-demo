@@ -189,17 +189,41 @@ export class BotManager {
     // ═══════════════════════════════════════════════════════════════
     // INTERVALS REDUCED for faster reaction to market changes (was 2000-4000ms, now 500-1500ms)
     const defaultConfigs: Array<Partial<BotConfig> & { id: string; name: string; strategy: StrategyType }> = [
+      // 0. Window Delta - BTC price window comparison (per 2026-04-09 plan - added now)
+      { id: "bot-window-delta", name: "Window Delta", strategy: "window_delta", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.25 },
+
+      // 0b. Fair Value - price deviation from fair probability (per 2026-04-09 plan - added now)
+      { id: "bot-fair-value", name: "Fair Value", strategy: "fair_value", interval: 1500, betSize: 0.8, maxBet: 0.15, useKelly: true, kellyFraction: 0.25 },
+
+      // 0c. T-10 Sniper - last seconds scalping (per 2026-04-09 plan - added now)
+      { id: "bot-t10-sniper", name: "T-10 Sniper", strategy: "last_seconds_scalp", interval: 800, betSize: 1.0, maxBet: 0.15, useKelly: true, kellyFraction: 0.25 },
+
+      // 0d. Momentum - follows recent price momentum (per 2026-04-09 plan - added now)
+      { id: "bot-momentum", name: "Momentum", strategy: "momentum", interval: 2000, betSize: 0.8, maxBet: 0.15, useKelly: true, kellyFraction: 0.25 },
+
+      // 0e. Binance Signal - uses Binance price movement signals (per 2026-04-09 plan - added now)
+      { id: "bot-binance-signal", name: "Binance Signal", strategy: "binance_signal", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.30 },
+
+      // 0f. Contrarian - trades against market consensus (per 2026-04-09 plan - added now)
+      { id: "bot-contrarian", name: "Contrarian", strategy: "contrarian", interval: 2000, betSize: 0.8, maxBet: 0.15, useKelly: true, kellyFraction: 0.20 },
+
+      // 0g. Smart Trend - multi-timeframe trend detection (per 2026-04-09 plan - added now)
+      { id: "bot-smart-trend", name: "Smart Trend", strategy: "smart_trend", interval: 2000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.30 },
+
+      // 0h. Ultra Low Entry - extreme low price trades (per 2026-04-09 plan - added now)
+      { id: "bot-ultra-low", name: "Ultra Low Entry", strategy: "ultra_low_entry", interval: 2000, betSize: 0.5, maxBet: 0.10, useKelly: true, kellyFraction: 0.20 },
+
       // 1. Volatility Breakout - trades when BTC volatility is extreme
       { id: "bot-volatility", name: "Volatility Breakout", strategy: "volatility_breakout", interval: 1000, betSize: 1.0, maxBet: 0.20, useKelly: true, kellyFraction: 0.35 },
 
       // 2. Trend Pullback - trades Polymarket pullbacks during strong BTC trends
-      { id: "bot-trend-pullback", name: "Trend Pullback", strategy: "trend_pullback", interval: 1200, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-trend-pullback", name: "Trend Pullback", strategy: "trend_pullback", interval: 800, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
       // 3. Price Reversion - Fixed and re-balanced
       { id: "bot-price-reversion", name: "Price Reversion", strategy: "price_reversion", interval: 1500, betSize: 1.5, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
 
       // 4. Binance Velocity - Now with fixed volatility thresholds
-      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 800, betSize: 2.0, maxBet: 0.25, useKelly: true, kellyFraction: 0.35 },
+      { id: "bot-velocity", name: "Binance Velocity", strategy: "binance_velocity", interval: 500, betSize: 2.0, maxBet: 0.30, useKelly: true, kellyFraction: 0.40 },
 
       // 5. Sniper Value - Now with properly checked BTC confirmations
       { id: "bot-sniper-value", name: "Sniper Value", strategy: "sniper_value", interval: 1000, betSize: 2.0, maxBet: 0.35, useKelly: true, kellyFraction: 0.35 },
