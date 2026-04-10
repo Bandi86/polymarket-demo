@@ -10,6 +10,7 @@ import {
   binanceVelocityStrategy,
   sniperValueStrategy,
   oddsSwingStrategy,
+  bayesianEvStrategy,
   // LEGACY STRATEGIES
   windowDeltaStrategy,
   fairValueStrategy,
@@ -37,6 +38,7 @@ export const strategies = {
   binance_velocity: binanceVelocityStrategy,
   sniper_value: sniperValueStrategy,
   odds_swing: oddsSwingStrategy,
+  bayesian_ev: bayesianEvStrategy,
 
   // ═══════════════════════════════════════════════════════════════
   // LEGACY STRATEGIES (kept for backward compatibility)

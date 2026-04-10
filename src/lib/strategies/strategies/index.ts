@@ -8,6 +8,7 @@ export { priceReversionStrategy } from "./price-reversion";
 export { binanceVelocityStrategy } from "./binance-velocity";
 export { sniperValueStrategy } from "./sniper-value";
 export { oddsSwingStrategy } from "./odds-swing";
+export { bayesianEvStrategy } from "./bayesian-ev";
 
 // LEGACY STRATEGIES
 export { windowDeltaStrategy } from "./window-delta";

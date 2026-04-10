@@ -56,6 +56,9 @@ const DEFAULT_CONFIG: CoordinatorConfig = {
     // Odds swing - standalone, waits for cheap entry
     odds_swing: [],
 
+    // Bayesian EV - standalone, uses its own 3-condition system
+    bayesian_ev: [],
+
     // === LEGACY STRATEGIES ===
     // Momentum strategies are compatible with each other
     window_delta: ["momentum", "momentum_burst", "binance_signal"],

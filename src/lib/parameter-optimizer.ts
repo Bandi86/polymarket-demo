@@ -113,6 +113,11 @@ const PARAMETER_BOUNDS: Record<StrategyType, Record<string, [number, number]>> =
     interval: [1500, 4000],
     kellyFraction: [0.1, 0.3],
   },
+  bayesian_ev: {
+    betSize: [0.5, 3.0],
+    interval: [500, 2000],
+    kellyFraction: [0.15, 0.35],
+  },
   // === LEGACY STRATEGIES ===
   window_delta: {
     betSize: [0.5, 2.0],

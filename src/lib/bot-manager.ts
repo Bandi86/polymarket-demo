@@ -230,6 +230,9 @@ export class BotManager {
 
       // 6. Odds Swing - buys low (<15¢) and auto-exits at 2x via PositionMonitor
       { id: "bot-odds-swing", name: "Odds Swing", strategy: "odds_swing", interval: 800, betSize: 0.5, maxBet: 0.25, useKelly: false, kellyFraction: 0.25 },
+
+      // 7. Bayesian EV - Bayesian probability + EV filter + Kelly sizing (3 conditions must agree)
+      { id: "bot-bayesian-ev", name: "Bayesian EV", strategy: "bayesian_ev", interval: 1000, betSize: 1.0, maxBet: 0.30, useKelly: true, kellyFraction: 0.25 },
     ];
 
     for (const cfg of defaultConfigs) {

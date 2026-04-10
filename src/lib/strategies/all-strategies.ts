@@ -835,4 +835,12 @@ export const strategies: Record<StrategyType, Strategy> = {
     category: "other",
     execute: () => ({ action: null, confidence: 0, reason: "Use new strategies module" }),
   },
+
+  // Bayesian EV - delegated to new strategies module
+  bayesian_ev: {
+    name: "Bayesian EV",
+    description: "Bayesian probability + EV filter + Kelly sizing - all 3 conditions must agree",
+    category: "arbitrage",
+    execute: () => ({ action: null, confidence: 0, reason: "Use new strategies module" }),
+  },
 };

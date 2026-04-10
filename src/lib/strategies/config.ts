@@ -106,6 +106,14 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
     minTimeRemaining: 15000,  // Don't trade with <15 seconds remaining
   },
 
+  // NEW: Bayesian EV Strategy
+  bayesian_ev: {
+    minEv: 0.08,           // 8% minimum EV to enter
+    skipEv: 0.02,          // Skip if EV < 2%
+    minConfidence: 0.5,   // Minimum Bayesian confidence
+    minTimeRemaining: 10000, // 10 seconds minimum
+  },
+
   momentum: {
     minDelta: 0.10,        // 0.10% minimum delta (raised from 0.07 - per 2026-04-09 plan)
     minTimeRemaining: 30000,  // Don't trade with <30 seconds remaining

@@ -55,6 +55,10 @@ export interface StrategyThresholds {
   supportsPositionManagement?: boolean;  // Enable TP/SL for this strategy
   takeProfitThreshold?: number;           // TP threshold (e.g., 0.25 = 25%)
   stopLossThreshold?: number;             // SL threshold (e.g., -0.30 = -30%)
+
+  // bayesian_ev
+  minEv?: number;           // Minimum Expected Value to enter (e.g., 0.08 = 8%)
+  skipEv?: number;         // Skip if EV below this (e.g., 0.02 = 2%)
 }
 
 /**

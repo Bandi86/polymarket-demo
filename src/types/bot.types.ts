@@ -12,6 +12,7 @@ export type StrategyType =
   | "price_reversion"       // Bet on Polymarket price mean-reversion
   | "binance_velocity"      // Use BTC velocity/acceleration
   | "sniper_value"          // Extreme price sniper (10-15¢ YES, 40-50¢+ NO)
+  | "bayesian_ev"           // Bayesian probability + EV filter + Kelly sizing
   // === LEGACY STRATEGIES (kept for backward compatibility) ===
   | "window_delta"
   | "last_seconds_scalp"
