@@ -354,3 +354,310 @@ function StatBox({ label, value, color = "var(--text-primary)" }: { label: strin
     </div>
   );
 }
+
+// Market Period Summary - Shows when a 5-minute market ends
+export function MarketPeriodSummary({
+  periodPnl,
+  periodTrades,
+  periodWins,
+  periodLosses,
+  periodDuration,
+  topBot,
+  bottomBot,
+}: {
+  periodPnl: number;
+  periodTrades: number;
+  periodWins: number;
+  periodLosses: number;
+  periodDuration: number;
+  topBot?: { name: string; pnl: number };
+  bottomBot?: { name: string; pnl: number };
+}) {
+  const isProfit = periodPnl >= 0;
+  const periodMinutes = Math.floor(periodDuration / 60000);
+  const periodSeconds = Math.floor((periodDuration % 60000) / 1000);
+
+  return (
+    <div style={{
+      background: isProfit
+        ? "linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05))"
+        : "linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05))",
+      border: `1px solid ${isProfit ? "rgba(59, 130, 246, 0.3)" : "rgba(245, 158, 11, 0.3)"}`,
+      borderRadius: 12,
+      padding: "1rem",
+      minWidth: "300px",
+      maxWidth: "360px",
+    }}>
+      {/* Header */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: "0.75rem",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Clock style={{ width: 16, height: 16, color: isProfit ? "#3b82f6" : "#f59e0b" }} />
+          <span style={{ fontWeight: 600, fontSize: "0.8rem" }}>
+            Market Period Summary
+          </span>
+        </div>
+        <div style={{
+          fontSize: "0.65rem",
+          color: "var(--text-muted)",
+        }}>
+          {periodMinutes}:{periodSeconds.toString().padStart(2, '0')}
+        </div>
+      </div>
+
+      {/* P&L Display */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "0.5rem",
+        padding: "0.75rem",
+        borderRadius: 8,
+        background: isProfit ? "rgba(59, 130, 246, 0.1)" : "rgba(245, 158, 11, 0.1)",
+        marginBottom: "0.75rem",
+      }}>
+        <DollarSign style={{ width: 18, height: 18, color: isProfit ? "#3b82f6" : "#f59e0b" }} />
+        <span style={{
+          fontSize: "1.25rem",
+          fontWeight: 800,
+          fontFamily: "ui-monospace, monospace",
+          color: isProfit ? "#3b82f6" : "#f59e0b",
+        }}>
+          {isProfit ? "+" : ""}{periodPnl.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Stats Row */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: "0.5rem",
+        marginBottom: "0.5rem",
+      }}>
+        <StatBox label="Trades" value={periodTrades} />
+        <StatBox label="Wins" value={periodWins} color="#22c55e" />
+        <StatBox label="Losses" value={periodLosses} color="#ef4444" />
+        <StatBox label="Win%" value={periodTrades > 0 ? `${Math.round((periodWins / periodTrades) * 100)}%` : '0%'} color={periodWins >= periodLosses ? "#22c55e" : "#ef4444"} />
+      </div>
+
+      {/* Top/Bottom Bots */}
+      {(topBot || bottomBot) && (
+        <div style={{
+          display: "flex",
+          gap: "0.5rem",
+          paddingTop: "0.5rem",
+          borderTop: "1px solid rgba(255,255,255,0.05)",
+        }}>
+          {topBot && (
+            <div style={{
+              flex: 1,
+              padding: "0.4rem",
+              borderRadius: 6,
+              background: "rgba(34, 197, 94, 0.08)",
+            }}>
+              <div style={{ fontSize: "0.55rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                Top Performer
+              </div>
+              <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                {topBot.name}
+              </div>
+              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#22c55e" }}>
+                +${topBot.pnl.toFixed(2)}
+              </div>
+            </div>
+          )}
+          {bottomBot && bottomBot.pnl < 0 && (
+            <div style={{
+              flex: 1,
+              padding: "0.4rem",
+              borderRadius: 6,
+              background: "rgba(239, 68, 68, 0.08)",
+            }}>
+              <div style={{ fontSize: "0.55rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                Needs Work
+              </div>
+              <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                {bottomBot.name}
+              </div>
+              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#ef4444" }}>
+                ${bottomBot.pnl.toFixed(2)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Hourly Summary - Shows portfolio progress every hour
+export function HourlySummary({
+  hourPnl,
+  hourTrades,
+  hourWins,
+  hourLosses,
+  totalPortfolio,
+  startPortfolio,
+  bestBot,
+  hourlyGrowth,
+}: {
+  hourPnl: number;
+  hourTrades: number;
+  hourWins: number;
+  hourLosses: number;
+  totalPortfolio: number;
+  startPortfolio: number;
+  bestBot?: { name: string; pnl: number };
+  hourlyGrowth?: number;
+}) {
+  const isProfit = hourPnl >= 0;
+  const growthPercent = startPortfolio > 0 ? ((totalPortfolio - startPortfolio) / startPortfolio) * 100 : 0;
+
+  return (
+    <div style={{
+      background: isProfit
+        ? "linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(168, 85, 247, 0.05))"
+        : "linear-gradient(135deg, rgba(107, 114, 128, 0.1), rgba(107, 114, 128, 0.05))",
+      border: `1px solid ${isProfit ? "rgba(168, 85, 247, 0.3)" : "rgba(107, 114, 128, 0.3)"}`,
+      borderRadius: 12,
+      padding: "1rem",
+      minWidth: "320px",
+      maxWidth: "380px",
+    }}>
+      {/* Header */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: "0.75rem",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Clock style={{ width: 16, height: 16, color: isProfit ? "#a855f7" : "#6b7280" }} />
+          <span style={{ fontWeight: 600, fontSize: "0.8rem" }}>
+            Hourly Report
+          </span>
+        </div>
+        <div style={{
+          fontSize: "0.65rem",
+          color: "var(--text-muted)",
+        }}>
+          Last 60 minutes
+        </div>
+      </div>
+
+      {/* Portfolio Value */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "0.5rem",
+        padding: "0.75rem",
+        borderRadius: 8,
+        background: "rgba(168, 85, 247, 0.1)",
+        marginBottom: "0.5rem",
+      }}>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Portfolio:</span>
+        <span style={{
+          fontSize: "1.25rem",
+          fontWeight: 800,
+          fontFamily: "ui-monospace, monospace",
+          color: "#a855f7",
+        }}>
+          ${totalPortfolio.toFixed(2)}
+        </span>
+        <span style={{
+          fontSize: "0.7rem",
+          fontWeight: 600,
+          color: growthPercent >= 0 ? "#22c55e" : "#ef4444",
+        }}>
+          ({growthPercent >= 0 ? "+" : ""}{growthPercent.toFixed(1)}%)
+        </span>
+      </div>
+
+      {/* P&L and Growth */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "0.5rem",
+        marginBottom: "0.75rem",
+      }}>
+        <div style={{
+          padding: "0.5rem",
+          borderRadius: 6,
+          background: isProfit ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
+            This Hour
+          </div>
+          <div style={{
+            fontSize: "0.9rem",
+            fontWeight: 800,
+            fontFamily: "ui-monospace, monospace",
+            color: isProfit ? "#22c55e" : "#ef4444",
+          }}>
+            {isProfit ? "+" : ""}{hourPnl.toFixed(2)}
+          </div>
+        </div>
+        <div style={{
+          padding: "0.5rem",
+          borderRadius: 6,
+          background: "rgba(59, 130, 246, 0.1)",
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
+            Total P&L
+          </div>
+          <div style={{
+            fontSize: "0.9rem",
+            fontWeight: 800,
+            fontFamily: "ui-monospace, monospace",
+            color: totalPortfolio > startPortfolio ? "#22c55e" : "#ef4444",
+          }}>
+            {totalPortfolio > startPortfolio ? "+" : ""}${(totalPortfolio - startPortfolio).toFixed(2)}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Row */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: "0.5rem",
+        marginBottom: "0.5rem",
+      }}>
+        <StatBox label="Trades" value={hourTrades} />
+        <StatBox label="Wins" value={hourWins} color="#22c55e" />
+        <StatBox label="Losses" value={hourLosses} color="#ef4444" />
+        <StatBox label="Win%" value={hourTrades > 0 ? `${Math.round((hourWins / hourTrades) * 100)}%` : '0%'} color={hourWins >= hourLosses ? "#22c55e" : "#ef4444"} />
+      </div>
+
+      {/* Best Bot */}
+      {bestBot && (
+        <div style={{
+          padding: "0.4rem",
+          borderRadius: 6,
+          background: "rgba(34, 197, 94, 0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <TrendingUp style={{ width: 14, height: 14, color: "#22c55e" }} />
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Best this hour:</span>
+            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-primary)" }}>
+              {bestBot.name}
+            </span>
+          </div>
+          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#22c55e" }}>
+            +${bestBot.pnl.toFixed(2)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}

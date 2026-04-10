@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from "react";
-import { ArrowUpDown, TrendingUp, TrendingDown, Target, Flame } from "lucide-react";
+import { ArrowUpDown, TrendingUp, TrendingDown, Target, Flame, Play, Square } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BotStatusCard } from "@/components/BotStatusCard";
 import { BotConfigPanel } from "@/components/BotConfigPanel";
@@ -16,6 +16,7 @@ interface LiveMonitorTabProps {
   positions: Position[];
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
   timeRemaining: number;
+  fetchData?: () => Promise<void>;
 }
 
 type SortField = 'pnl' | 'winRate' | 'trades' | 'balance' | 'ev';
@@ -28,9 +29,69 @@ const SORT_OPTIONS: { field: SortField; label: string }[] = [
   { field: 'ev', label: 'Expected Value' },
 ];
 
-export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState, timeRemaining }: LiveMonitorTabProps) {
+export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState, timeRemaining, fetchData }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [configBot, setConfigBot] = useState<BotData | null>(null);
+  const [selectedBots, setSelectedBots] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Toggle bot selection
+  const toggleBotSelection = useCallback((botId: string) => {
+    setSelectedBots(prev => {
+      const next = new Set(prev);
+      if (next.has(botId)) {
+        next.delete(botId);
+      } else {
+        next.add(botId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Select all / Deselect all
+  const selectAllBots = useCallback(() => {
+    setSelectedBots(new Set(bots.map(b => b.id)));
+  }, [bots]);
+
+  const deselectAllBots = useCallback(() => {
+    setSelectedBots(new Set());
+  }, []);
+
+  // Run selected bots
+  const handleRunSelected = useCallback(async () => {
+    if (selectedBots.size === 0) return;
+    setIsLoading(true);
+    try {
+      await fetch("/api/bots/run-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botIds: Array.from(selectedBots), betSize: 1 })
+      });
+      if (fetchData) await fetchData();
+    } catch (err) {
+      console.error("Failed to run selected bots:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedBots, fetchData]);
+
+  // Stop selected bots
+  const handleStopSelected = useCallback(async () => {
+    if (selectedBots.size === 0) return;
+    setIsLoading(true);
+    try {
+      await fetch("/api/bots/stop-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botIds: Array.from(selectedBots) })
+      });
+      if (fetchData) await fetchData();
+    } catch (err) {
+      console.error("Failed to stop selected bots:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedBots, fetchData]);
 
   // Count bots with YES/NO open positions (not just "active bots minus YES")
   const botIdsWithYes = new Set(positions.filter(p => p.outcome === "YES").map(p => p.botId).filter(Boolean));
@@ -222,6 +283,88 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
             ))}
           </div>
         </div>
+
+        {/* Multi-Select Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "1rem", borderLeft: "1px solid rgba(255,255,255,0.1)" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Select:</span>
+          <button
+            onClick={selectAllBots}
+            style={{
+              padding: "0.25rem 0.5rem",
+              borderRadius: 4,
+              fontSize: "0.65rem",
+              fontWeight: 600,
+              background: "rgba(59, 130, 246, 0.1)",
+              color: "#3b82f6",
+              border: "1px solid rgba(59, 130, 246, 0.2)",
+              cursor: "pointer",
+            }}
+          >
+            All
+          </button>
+          <button
+            onClick={deselectAllBots}
+            style={{
+              padding: "0.25rem 0.5rem",
+              borderRadius: 4,
+              fontSize: "0.65rem",
+              fontWeight: 600,
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--text-muted)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              cursor: "pointer",
+            }}
+          >
+            None
+          </button>
+          {selectedBots.size > 0 && (
+            <>
+              <span style={{ fontSize: "0.7rem", color: "#3b82f6", fontWeight: 600, marginLeft: "0.25rem" }}>
+                {selectedBots.size} selected (${bots.filter(b => selectedBots.has(b.id)).reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0).toFixed(2)})
+              </span>
+              <button
+                onClick={handleRunSelected}
+                disabled={isLoading}
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: 4,
+                  fontSize: "0.65rem",
+                  fontWeight: 600,
+                  background: "linear-gradient(135deg, #22c55e, #16a34a)",
+                  color: "white",
+                  border: "none",
+                  cursor: isLoading ? "not-allowed" : "pointer",
+                  opacity: isLoading ? 0.7 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                }}
+              >
+                <Play style={{ width: 10, height: 10 }} />Run
+              </button>
+              <button
+                onClick={handleStopSelected}
+                disabled={isLoading}
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: 4,
+                  fontSize: "0.65rem",
+                  fontWeight: 600,
+                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  color: "white",
+                  border: "none",
+                  cursor: isLoading ? "not-allowed" : "pointer",
+                  opacity: isLoading ? 0.7 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                }}
+              >
+                <Square style={{ width: 10, height: 10 }} />Stop
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Bot Grid */}
@@ -245,6 +388,8 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
                 onToggle={handleToggleBot}
                 onOpenConfig={setConfigBot}
                 timeRemaining={timeRemaining}
+                isSelected={selectedBots.has(bot.id)}
+                onSelect={toggleBotSelection}
               />
             </motion.div>
           ))}

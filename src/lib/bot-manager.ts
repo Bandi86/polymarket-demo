@@ -1555,6 +1555,28 @@ export class BotManager {
     }
   }
 
+  runSelectedBots(botIds: string[], config?: { betSize?: number; interval?: number }): void {
+    for (const id of botIds) {
+      const bot = this.bots.get(id);
+      if (!bot) continue;
+      if (config?.betSize) bot.betSize = config.betSize;
+      if (config?.interval) bot.interval = config.interval;
+      bot.enabled = true;
+      this.bots.set(id, bot);
+      this.startBot(id);
+    }
+  }
+
+  stopSelectedBots(botIds: string[]): void {
+    for (const id of botIds) {
+      const bot = this.bots.get(id);
+      if (!bot) continue;
+      bot.enabled = false;
+      this.bots.set(id, bot);
+      this.stopBot(id);
+    }
+  }
+
   resetAllBots(): void {
     this.stopAllBots();
     this.bots.clear();

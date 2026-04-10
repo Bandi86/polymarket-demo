@@ -82,6 +82,7 @@ export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab
           positions={positions}
           updateBotState={updateBotState}
           timeRemaining={timeRemaining}
+          fetchData={fetchData}
         />
       )}
 

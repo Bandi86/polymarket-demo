@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useTradingData } from "@/hooks/useTradingData";
 import { useTradingStore } from "@/lib/stores/trading-store";
-import { useSoundNotifications } from "@/hooks/useSoundNotifications";
+import { useFixedSoundNotifications } from "@/hooks/useFixedSoundNotifications";
 import { useNotifications } from "@/lib/notifications";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { MarketCard } from "@/components/MarketCard";
@@ -17,7 +17,8 @@ import { QuickActions } from "@/components/quick-actions";
 import { OrderBook } from "@/components/OrderBook";
 import { SessionSummaryModal } from "@/components/SessionSummaryModal";
 import { useToastActions } from "@/components/ui/toast";
-import { TradeNotification, SettlementNotification, SessionCompleteNotification } from "@/components/ui/notification-components";
+import { TradeNotification, SettlementNotification, SessionCompleteNotification, MarketPeriodSummary, HourlySummary } from "@/components/ui/notification-components";
+import { formatCurrency } from "@/lib/utils";
 
 const ASSETS = [
   { id: "BTC", name: "Bitcoin", color: "#f7931a" },
@@ -36,6 +37,19 @@ export function App() {
   const [tradingMode, setTradingMode] = useState<"demo" | "live">("demo");
   const prevCompetitionActive = useRef(true);
   const lastProcessedLogId = useRef<string>("");
+
+  // Portfolio tracking for summaries
+  const portfolioStartValue = useRef<number>(0);
+  const lastHourlyReport = useRef<number>(0);
+  const lastMarketSettlement = useRef<number>(0);
+  const marketPeriodTrades = useRef<number>(0);
+  const marketPeriodWins = useRef<number>(0);
+  const marketPeriodLosses = useRef<number>(0);
+  const marketPeriodPnl = useRef<number>(0);
+  const hourlyTrades = useRef<number>(0);
+  const hourlyWins = useRef<number>(0);
+  const hourlyLosses = useRef<number>(0);
+  const hourlyPnl = useRef<number>(0);
 
   const {
     marketData,
@@ -63,7 +77,7 @@ export function App() {
 
   // Use enhanced notification system
   const { showTrade, showSettlement, showSessionComplete, showError } = useNotifications();
-  const { enabled: soundEnabled, playTrade, playNotification, toggleEnabled: toggleSound } = useSoundNotifications();
+  const { enabled: soundEnabled, playTrade, playWin, playWinBig, playLoss, toggleEnabled: toggleSound } = useFixedSoundNotifications();
   const toast = useToastActions();
 
   // Track processed log IDs to avoid duplicate notifications
@@ -123,7 +137,64 @@ export function App() {
         const pnl = details.pnl as number || 0;
         const outcome = details.outcome as string || "YES";
 
-        playNotification?.();
+        // Play sound - win for wins, loss notification for losses
+        if (won) {
+          playWin();
+        } else {
+          playLoss();
+        }
+
+        // Track hourly stats
+        hourlyTrades.current++;
+        hourlyPnl.current += pnl;
+        if (won) {
+          hourlyWins.current++;
+        } else {
+          hourlyLosses.current++;
+        }
+
+        // Track market period stats
+        marketPeriodTrades.current++;
+        marketPeriodPnl.current += pnl;
+        if (won) {
+          marketPeriodWins.current++;
+        } else {
+          marketPeriodLosses.current++;
+        }
+
+        // Show market period summary every ~5 minutes (when price likely reset)
+        const now = Date.now();
+        const fiveMinutes = 5 * 60 * 1000;
+        if (now - lastMarketSettlement.current >= fiveMinutes && marketPeriodTrades.current > 0) {
+          // Find best/worst bots in this period
+          const botPerformances = bots.map(b => ({
+            name: b.name,
+            pnl: (b.stats?.pnl || 0),
+          }));
+          const sorted = [...botPerformances].sort((a, b) => b.pnl - a.pnl);
+          const topBot = sorted[0];
+          const bottomBot = sorted.length > 1 ? sorted[sorted.length - 1] : undefined;
+
+          toast.custom(
+            <MarketPeriodSummary
+              periodPnl={marketPeriodPnl.current}
+              periodTrades={marketPeriodTrades.current}
+              periodWins={marketPeriodWins.current}
+              periodLosses={marketPeriodLosses.current}
+              periodDuration={fiveMinutes}
+              topBot={topBot}
+              bottomBot={bottomBot && bottomBot.pnl < 0 ? bottomBot : undefined}
+            />,
+            { duration: 10000 }
+          );
+
+          // Reset market period stats
+          marketPeriodTrades.current = 0;
+          marketPeriodWins.current = 0;
+          marketPeriodLosses.current = 0;
+          marketPeriodPnl.current = 0;
+          lastMarketSettlement.current = now;
+        }
 
         // Find bot for additional stats
         const bot = bots.find(b => b.id === latestLog.botId);
@@ -160,7 +231,7 @@ export function App() {
       const ids = Array.from(processedLogIds.current);
       processedLogIds.current = new Set(ids.slice(-500));
     }
-  }, [botLogs, isBotRunning, bots, showTrade, showSettlement, playTrade, playNotification, toast]);
+  }, [botLogs, isBotRunning, bots, showTrade, showSettlement, playTrade, playWin, playLoss, toast]);
 
   const [botPositions, setBotPositions] = useState<Array<{
     id: string; botId?: string; outcome: "YES" | "NO";
@@ -185,6 +256,66 @@ export function App() {
     const interval = setInterval(fetchPositions, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Track portfolio start value when bots start
+  useEffect(() => {
+    if (isBotRunning && portfolioStartValue.current === 0) {
+      // Capture starting portfolio value when bots first start
+      const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
+      if (totalBalance > 0) {
+        portfolioStartValue.current = totalBalance;
+        lastHourlyReport.current = Date.now();
+      }
+    } else if (!isBotRunning) {
+      // Reset when bots stop
+      portfolioStartValue.current = 0;
+      lastHourlyReport.current = 0;
+    }
+  }, [isBotRunning, bots]);
+
+  // Hourly summary report
+  useEffect(() => {
+    if (!isBotRunning || portfolioStartValue.current === 0) return;
+
+    const checkHourlyReport = () => {
+      const now = Date.now();
+      const hourMs = 60 * 60 * 1000; // 1 hour
+
+      if (now - lastHourlyReport.current >= hourMs && hourlyTrades.current > 0) {
+        const totalPortfolio = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
+
+        // Find best bot this hour
+        const botPerformances = bots.map(b => ({
+          name: b.name,
+          pnl: (b.portfolio?.balance || 0) - 10, // Assuming $10 start
+        }));
+        const bestBot = botPerformances.reduce((best, b) => b.pnl > (best?.pnl || 0) ? b : best, undefined as { name: string; pnl: number } | undefined);
+
+        toast.custom(
+          <HourlySummary
+            hourPnl={hourlyPnl.current}
+            hourTrades={hourlyTrades.current}
+            hourWins={hourlyWins.current}
+            hourLosses={hourlyLosses.current}
+            totalPortfolio={totalPortfolio}
+            startPortfolio={portfolioStartValue.current}
+            bestBot={bestBot}
+          />,
+          { duration: 15000 }
+        );
+
+        // Reset hourly stats
+        hourlyTrades.current = 0;
+        hourlyWins.current = 0;
+        hourlyLosses.current = 0;
+        hourlyPnl.current = 0;
+        lastHourlyReport.current = now;
+      }
+    };
+
+    const interval = setInterval(checkHourlyReport, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, [isBotRunning, bots]);
 
   // Periodic memory cleanup for long-running sessions
   useEffect(() => {
@@ -241,7 +372,12 @@ export function App() {
       const bestBot = sortedBots[0] ? { name: sortedBots[0].name, pnl: sortedBots[0].stats?.pnl || 0 } : undefined;
       const worstBot = sortedBots[sortedBots.length - 1] ? { name: sortedBots[sortedBots.length - 1].name, pnl: sortedBots[sortedBots.length - 1].stats?.pnl || 0 } : undefined;
 
-      playNotification?.();
+      // Play session end sound
+      if (totalPnl >= 0) {
+        playWinBig();
+      } else {
+        playLoss();
+      }
 
       // Show enhanced notification
       showSessionComplete({
@@ -271,7 +407,7 @@ export function App() {
       );
     }
     prevCompetitionActive.current = competition?.active ?? false;
-  }, [competition?.active, competition?.completedAt, bots, playNotification, showSessionComplete, toast]);
+  }, [competition?.active, competition?.completedAt, bots, playWinBig, playLoss, showSessionComplete, toast]);
 
   // Sync timeframe and asset to backend
   useEffect(() => {

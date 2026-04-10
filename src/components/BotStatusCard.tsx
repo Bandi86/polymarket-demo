@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from "react";
-import { Play, Square, Settings, Target } from "lucide-react";
+import { Play, Square, Settings, Target, Check } from "lucide-react";
 import { MiniEquityCurve } from "@/components/charts/MiniEquityCurve";
 import { useBotStatusState, BotCardHeader, BotBalanceCard, BotStatsGrid } from "./bot-card";
 import type { BotData } from "@/hooks/useTradingData";
@@ -14,9 +14,11 @@ interface BotStatusCardProps {
   onToggle: (botId: string) => Promise<void>;
   onOpenConfig: (bot: BotData) => void;
   timeRemaining?: number;
+  isSelected?: boolean;
+  onSelect?: (botId: string) => void;
 }
 
-export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining }: BotStatusCardProps) {
+export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining, isSelected, onSelect }: BotStatusCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
 
@@ -39,10 +41,38 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
       style={{
         borderLeftColor: state.strategyColor,
         borderLeftWidth: "4px",
-        border: `1px solid ${bot.enabled ? 'rgba(34, 197, 94, 0.3)' : 'var(--border)'}`,
+        border: `1px solid ${isSelected ? 'rgba(59, 130, 246, 0.5)' : bot.enabled ? 'rgba(34, 197, 94, 0.3)' : 'var(--border)'}`,
         padding: "1.5rem",
       }}
     >
+      {/* Selection Checkbox */}
+      {onSelect && (
+        <div style={{ display: "flex", alignItems: "center", marginBottom: "0.5rem", gap: "0.5rem" }}>
+          <button
+            onClick={() => onSelect(bot.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              border: isSelected ? "2px solid #3b82f6" : "2px solid rgba(255,255,255,0.2)",
+              background: isSelected ? "#3b82f6" : "rgba(255,255,255,0.05)",
+              cursor: "pointer",
+              padding: 0,
+              transition: "all 0.2s",
+            }}
+            title="Click to select/deselect this bot"
+          >
+            {isSelected && <Check style={{ width: 14, height: 14, color: "white" }} />}
+          </button>
+          <span style={{ fontSize: "0.7rem", color: isSelected ? "#3b82f6" : "var(--text-muted)", fontWeight: isSelected ? 600 : 400 }}>
+            {isSelected ? "Selected" : "Select"}
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <BotCardHeader
         bot={bot}
