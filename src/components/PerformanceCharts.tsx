@@ -179,21 +179,21 @@ export function PerformanceCharts() {
                       {r.trades}
                     </td>
                     <td style={{ padding: "0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
-                      <span style={{ color: r.winRate >= 0.5 ? "#22c55e" : "#ef4444" }}>
-                        {(r.winRate * 100).toFixed(1)}%
+                      <span style={{ color: (r.winRate ?? 0) >= 0.5 ? "#22c55e" : "#ef4444" }}>
+                        {((r.winRate ?? 0) * 100).toFixed(1)}%
                       </span>
                     </td>
                     <td style={{
                       padding: "0.5rem",
                       textAlign: "right",
                       fontFamily: "ui-monospace, monospace",
-                      color: r.avgPnL >= 0 ? "#22c55e" : "#ef4444",
+                      color: (r.avgPnL ?? 0) >= 0 ? "#22c55e" : "#ef4444",
                     }}>
-                      {r.avgPnL >= 0 ? "+" : ""}${r.avgPnL.toFixed(3)}
+                      {(r.avgPnL ?? 0) >= 0 ? "+" : ""}${(r.avgPnL ?? 0).toFixed(3)}
                     </td>
                     <td style={{ padding: "0.5rem", textAlign: "right", fontFamily: "ui-monospace, monospace" }}>
-                      <span style={{ color: r.sharpe >= 1 ? "#22c55e" : r.sharpe >= 0 ? "var(--text-primary)" : "#ef4444" }}>
-                        {r.sharpe.toFixed(2)}
+                      <span style={{ color: (r.sharpe ?? 0) >= 1 ? "#22c55e" : (r.sharpe ?? 0) >= 0 ? "var(--text-primary)" : "#ef4444" }}>
+                        {(r.sharpe ?? 0).toFixed(2)}
                       </span>
                     </td>
                   </tr>
@@ -328,12 +328,12 @@ export function PerformanceCharts() {
                   <div
                     style={{
                       width: "100%",
-                      background: interval.pnl >= 0 ? "#22c55e" : "#ef4444",
+                      background: (interval.pnl ?? 0) >= 0 ? "#22c55e" : "#ef4444",
                       height: `${Math.max(2, height)}%`,
                       borderRadius: "2px 2px 0 0",
                       opacity: interval.trades > 0 ? 1 : 0.2,
                     }}
-                    title={`Hour ${interval.hour}: ${interval.trades} trades, ${(interval.winRate * 100).toFixed(1)}% win rate, $${interval.pnl.toFixed(2)} P&L`}
+                    title={`Hour ${interval.hour}: ${interval.trades} trades, ${((interval.winRate ?? 0) * 100).toFixed(1)}% win rate, $${(interval.pnl ?? 0).toFixed(2)} P&L`}
                   />
                 </div>
               );

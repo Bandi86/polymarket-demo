@@ -314,7 +314,7 @@ export function SessionCompleteNotification({
                 {bestBot.name}
               </div>
               <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#22c55e" }}>
-                +${bestBot.pnl.toFixed(2)}
+                +${(bestBot.pnl ?? 0).toFixed(2)}
               </div>
             </div>
           )}
@@ -332,7 +332,7 @@ export function SessionCompleteNotification({
                 {worstBot.name}
               </div>
               <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#ef4444" }}>
-                ${worstBot.pnl.toFixed(2)}
+                ${(worstBot.pnl ?? 0).toFixed(2)}
               </div>
             </div>
           )}
@@ -466,7 +466,7 @@ export function MarketPeriodSummary({
                 {topBot.name}
               </div>
               <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#22c55e" }}>
-                +${topBot.pnl.toFixed(2)}
+                +${(topBot.pnl ?? 0).toFixed(2)}
               </div>
             </div>
           )}
@@ -484,7 +484,7 @@ export function MarketPeriodSummary({
                 {bottomBot.name}
               </div>
               <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#ef4444" }}>
-                ${bottomBot.pnl.toFixed(2)}
+                ${(bottomBot.pnl ?? 0).toFixed(2)}
               </div>
             </div>
           )}
@@ -654,7 +654,7 @@ export function HourlySummary({
             </span>
           </div>
           <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#22c55e" }}>
-            +${bestBot.pnl.toFixed(2)}
+            +${(bestBot.pnl ?? 0).toFixed(2)}
           </span>
         </div>
       )}

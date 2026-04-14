@@ -53,7 +53,7 @@ export function PositionsPanel({ positions, coinColor, onClosePosition }: Positi
               </span>
               <div>
                 <p style={{ fontWeight: 500, fontSize: "0.75rem", margin: 0 }}>{formatCurrency(pos.amount)}</p>
-                <p style={{ fontSize: "0.625rem", color: "var(--text-muted)", margin: 0 }}>@{pos.odds.toFixed(2)}</p>
+                <p style={{ fontSize: "0.625rem", color: "var(--text-muted)", margin: 0 }}>@{(pos.odds ?? 0).toFixed(2)}</p>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

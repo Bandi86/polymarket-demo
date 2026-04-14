@@ -153,15 +153,15 @@ export function LivePositionsPanel({ coinColor, onRefresh }: LivePositionsPanelP
                 )}
               </span>
               <div>
-                <p style={{ fontWeight: 500, fontSize: "0.75rem", margin: 0 }}>{pos.shares.toFixed(2)} shares</p>
+                <p style={{ fontWeight: 500, fontSize: "0.75rem", margin: 0 }}>{(pos.shares ?? 0).toFixed(2)} shares</p>
                 <p style={{ fontSize: "0.625rem", color: "var(--text-muted)", margin: 0 }}>
-                  @ {pos.avgPrice.toFixed(3)} avg
+                  @ {(pos.avgPrice ?? 0).toFixed(3)} avg
                 </p>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
               <p style={{ fontWeight: 600, fontSize: "0.75rem", margin: 0, color: "var(--text-primary)" }}>
-                ${pos.currentValue.toFixed(2)}
+                ${(pos.currentValue ?? 0).toFixed(2)}
               </p>
               <p style={{ fontSize: "0.625rem", color: "var(--text-muted)", margin: 0 }}>
                 {pos.market.slice(0, 20)}...

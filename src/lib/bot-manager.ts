@@ -1097,6 +1097,12 @@ export class BotManager {
     const bot = this.bots.get(id);
     if (!bot || !bot.enabled) return;
 
+    // Skip if bot has no balance (dead bot optimization)
+    const botPortfolio = marketEngine.getBotPortfolio(id);
+    if (!botPortfolio || botPortfolio.balance <= 0) {
+      return; // Dead bot - don't waste resources watching market
+    }
+
     // Risk check: Is bot paused?
     if (riskManager.shouldPause(id)) {
       const status = riskManager.getBotRiskStatus(id);

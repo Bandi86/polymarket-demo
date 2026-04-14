@@ -145,7 +145,7 @@ export function DepositModal({ isOpen, onClose, polymarketBalance, onRefreshBala
                 Wallet USDC
               </div>
               <div style={{ fontSize: "1.5rem", fontWeight: 700, marginTop: "0.25rem" }}>
-                ${usdcBalance.toFixed(2)}
+                ${(usdcBalance ?? 0).toFixed(2)}
               </div>
             </div>
             <div style={{
@@ -158,7 +158,7 @@ export function DepositModal({ isOpen, onClose, polymarketBalance, onRefreshBala
                 Polymarket Balance
               </div>
               <div style={{ fontSize: "1.5rem", fontWeight: 700, marginTop: "0.25rem" }}>
-                ${polymarketBalance.toFixed(2)}
+                ${(polymarketBalance ?? 0).toFixed(2)}
               </div>
             </div>
           </div>

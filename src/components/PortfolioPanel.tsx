@@ -199,7 +199,7 @@ export function PortfolioPanel({ portfolio, coinColor, pnlHistory, onClosePositi
                   </span>
                   <div>
                     <p style={{ fontWeight: 500, fontSize: "0.875rem" }}>{formatCurrency(pos.amount)}</p>
-                    <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>@{pos.odds.toFixed(3)}</p>
+                    <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>@{(pos.odds ?? 0).toFixed(3)}</p>
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

@@ -153,7 +153,7 @@ export function WalletButton() {
         </div>
         <div style={{ textAlign: "left" }}>
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-            ${usdcBalance.toFixed(2)} USDC
+            ${(usdcBalance ?? 0).toFixed(2)} USDC
           </div>
           <div style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.75rem" }}>
             {formatAddress(address!)}
@@ -195,7 +195,7 @@ export function WalletButton() {
                 USDC Balance
               </div>
               <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                ${usdcBalance.toFixed(2)}
+                ${(usdcBalance ?? 0).toFixed(2)}
               </div>
             </div>
 

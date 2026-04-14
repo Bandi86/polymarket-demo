@@ -231,15 +231,15 @@ export default function LiveModeDashboard() {
         <div className="grid grid-cols-4 gap-4 mb-4">
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-slate-400 text-sm">Total Balance</p>
-            <p className="text-2xl font-bold text-white">${liveState.balance.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-white">${(liveState.balance ?? 0).toFixed(2)}</p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-slate-400 text-sm">Available</p>
-            <p className="text-xl font-semibold text-green-400">${liveState.availableBalance.toFixed(2)}</p>
+            <p className="text-xl font-semibold text-green-400">${(liveState.availableBalance ?? 0).toFixed(2)}</p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-slate-400 text-sm">Locked</p>
-            <p className="text-xl font-semibold text-yellow-400">${liveState.lockedBalance.toFixed(2)}</p>
+            <p className="text-xl font-semibold text-yellow-400">${(liveState.lockedBalance ?? 0).toFixed(2)}</p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-slate-400 text-sm">Open Positions</p>
@@ -280,8 +280,8 @@ export default function LiveModeDashboard() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-slate-400">P&L</span>
-                <span className={liveStats.daily.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                  ${liveStats.daily.pnl.toFixed(2)}
+                <span className={(liveStats.daily.pnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  ${(liveStats.daily.pnl ?? 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between">

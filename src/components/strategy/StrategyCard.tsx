@@ -28,9 +28,11 @@ export function StrategyCard({
   const strategyName = name || getStrategyName(strategy);
   const strategyColor = getStrategyColor(strategy);
 
-  const pnlPercent = stats.pnl >= 0
-    ? `+${stats.pnl.toFixed(2)}`
-    : stats.pnl.toFixed(2);
+  const pnlValue = stats.pnl ?? 0;
+  const winRateValue = stats.winRate ?? 0;
+  const pnlPercent = pnlValue >= 0
+    ? `+${pnlValue.toFixed(2)}`
+    : `${pnlValue.toFixed(2)}`;
 
   return (
     <div
@@ -55,7 +57,7 @@ export function StrategyCard({
         <span
           className={cn(
             'text-sm font-mono font-semibold',
-            stats.pnl >= 0 ? 'text-success' : 'text-danger'
+            pnlValue >= 0 ? 'text-success' : 'text-danger'
           )}
         >
           {pnlPercent}
@@ -64,11 +66,11 @@ export function StrategyCard({
 
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <ProgressRing value={stats.winRate * 100} size={32} strokeWidth={3} />
+          <ProgressRing value={winRateValue * 100} size={32} strokeWidth={3} />
           <div>
             <div className="text-xs text-muted-foreground">Win Rate</div>
             <div className="text-sm font-mono font-semibold">
-              {(stats.winRate * 100).toFixed(1)}%
+              {(winRateValue * 100).toFixed(1)}%
             </div>
           </div>
         </div>
@@ -85,7 +87,7 @@ export function StrategyCard({
             data={pnlHistory}
             width={180}
             height={24}
-            trend={stats.pnl >= 0 ? 'up' : 'down'}
+            trend={pnlValue >= 0 ? 'up' : 'down'}
           />
         </div>
       )}

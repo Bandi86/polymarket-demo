@@ -38,10 +38,10 @@ export function BotBalanceCard({
           fontSize: "1.5rem",
           color: "var(--text-primary)",
         }}>
-          ${balance.toFixed(2)}
+          ${(balance ?? 0).toFixed(2)}
         </div>
         <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-          Started: ${initialBalance.toFixed(2)}
+          Started: ${(initialBalance ?? 0).toFixed(2)}
         </div>
       </div>
       <div style={{ textAlign: "right" }}>
@@ -58,7 +58,7 @@ export function BotBalanceCard({
             <ArrowDownRight style={{ width: 20, height: 20 }} />
           )}
           <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>
-            {isPositive ? "+" : ""}{balanceGrowth.toFixed(2)}
+            {isPositive ? "+" : ""}{(balanceGrowth ?? 0).toFixed(2)}
           </span>
         </div>
         <div style={{
@@ -66,7 +66,7 @@ export function BotBalanceCard({
           fontWeight: 600,
           color: isPositive ? "#22c55e" : "#ef4444",
         }}>
-          ({isPositive ? "+" : ""}{growthPercent.toFixed(1)}%)
+          ({isPositive ? "+" : ""}{(growthPercent ?? 0).toFixed(1)}%)
         </div>
       </div>
     </div>

@@ -11,10 +11,10 @@ interface BotStatsGridProps {
 }
 
 export function BotStatsGrid({
-  winRate,
-  trades,
-  wins,
-  losses,
+  winRate = 0,
+  trades = 0,
+  wins = 0,
+  losses = 0,
   currentStreak,
   avgWin = 0,
   avgLoss = 0,
