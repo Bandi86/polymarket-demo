@@ -5,7 +5,6 @@ import { useTradingData } from "@/hooks/useTradingData";
 import { useTradingStore } from "@/lib/stores/trading-store";
 import { useFixedSoundNotifications } from "@/hooks/useFixedSoundNotifications";
 import { useNotifications } from "@/lib/notifications";
-import { NotificationCenter } from "@/components/NotificationCenter";
 import { MarketCard } from "@/components/MarketCard";
 import { ChartPanel } from "@/components/ChartPanel";
 import { TradingPanel } from "@/components/TradingPanel";
@@ -18,7 +17,6 @@ import { OrderBook } from "@/components/OrderBook";
 import { SessionSummaryModal } from "@/components/SessionSummaryModal";
 import { useToastActions } from "@/components/ui/toast";
 import { TradeNotification, SettlementNotification, SessionCompleteNotification, MarketPeriodSummary, HourlySummary } from "@/components/ui/notification-components";
-import { formatCurrency } from "@/lib/utils";
 
 const ASSETS = [
   { id: "BTC", name: "Bitcoin", color: "#f7931a" },
@@ -36,7 +34,6 @@ export function App() {
   const [showSessionSummary, setShowSessionSummary] = useState(false);
   const [tradingMode, setTradingMode] = useState<"demo" | "live">("demo");
   const prevCompetitionActive = useRef(true);
-  const lastProcessedLogId = useRef<string>("");
 
   // Portfolio tracking for summaries
   const portfolioStartValue = useRef<number>(0);
@@ -76,12 +73,19 @@ export function App() {
   const priceToBeatFromStore = useTradingStore(s => s.priceToBeat);
 
   // Use enhanced notification system
-  const { showTrade, showSettlement, showSessionComplete, showError } = useNotifications();
+  const { showTrade, showSettlement, showSessionComplete } = useNotifications();
   const { enabled: soundEnabled, playTrade, playWin, playWinBig, playLoss, toggleEnabled: toggleSound } = useFixedSoundNotifications();
   const toast = useToastActions();
 
   // Track processed log IDs to avoid duplicate notifications
   const processedLogIds = useRef<Set<string>>(new Set());
+
+  // Throttle trade notifications - prevent flooding when many bots trade
+  const lastTradeNotification = useRef<number>(0);
+  const TRADE_NOTIFICATION_THROTTLE = 3000; // Max 1 trade notification per 3 seconds
+
+  // Track pending trades for batch notification
+  const pendingTrades = useRef<Array<{botName: string, outcome: string, amount: number, price: number}>>([]);
 
   // Handle new bot trade notifications - only when bots are running
   useEffect(() => {
@@ -104,33 +108,54 @@ export function App() {
         const amount = details.amount as number || details.stake as number || 0;
         const price = details.odds as number || details.price as number || details.avgPrice as number || details.marketPrice as number || details.fillPrice as number || 0;
 
-        playTrade();
-
         // Find bot for additional info
         const bot = bots.find(b => b.id === latestLog.botId);
 
-        // Show enhanced notification
-        showTrade({
-          botName: latestLog.botName,
-          outcome,
-          amount,
-          price,
-          balance: bot?.portfolio?.balance,
-          strategy: bot?.strategy,
-        });
+        // THROTTLE: Only show trade notification if enough time has passed
+        const now = Date.now();
+        const timeSinceLastTrade = now - lastTradeNotification.current;
 
-        // Also show toast for backward compatibility
-        toast.custom(
-          <TradeNotification
-            botName={latestLog.botName}
-            outcome={outcome}
-            amount={amount}
-            price={price}
-            balance={bot?.portfolio?.balance}
-            strategy={bot?.strategy}
-          />,
-          { duration: 4000 }
-        );
+        if (timeSinceLastTrade >= TRADE_NOTIFICATION_THROTTLE) {
+          // Enough time passed, show individual notification
+          lastTradeNotification.current = now;
+          playTrade();
+
+          // Show enhanced notification
+          showTrade({
+            botName: latestLog.botName,
+            outcome,
+            amount,
+            price,
+            balance: bot?.portfolio?.balance,
+            strategy: bot?.strategy,
+          });
+
+          // Also show toast for backward compatibility
+          toast.custom(
+            <TradeNotification
+              botName={latestLog.botName}
+              outcome={outcome}
+              amount={amount}
+              price={price}
+              balance={bot?.portfolio?.balance}
+              strategy={bot?.strategy}
+            />,
+            { duration: 4000 }
+          );
+        } else {
+          // Too soon - batch the trade for potential batch notification
+          pendingTrades.current.push({
+            botName: latestLog.botName,
+            outcome,
+            amount,
+            price,
+          });
+
+          // Keep only last 5 pending trades
+          if (pendingTrades.current.length > 5) {
+            pendingTrades.current = pendingTrades.current.slice(-5);
+          }
+        }
       } else if (latestLog.type === "SETTLED") {
         const details = latestLog.details || {};
         const won = details.won as boolean;
@@ -232,6 +257,33 @@ export function App() {
       processedLogIds.current = new Set(ids.slice(-500));
     }
   }, [botLogs, isBotRunning, bots, showTrade, showSettlement, playTrade, playWin, playLoss, toast]);
+
+  // Batch notification for pending trades - runs every 10 seconds
+  useEffect(() => {
+    if (!isBotRunning || pendingTrades.current.length === 0) return;
+
+    const checkPendingTrades = () => {
+      const pending = pendingTrades.current;
+      if (pending.length === 0) return;
+
+      // Only show batch if there are at least 2 pending trades
+      if (pending.length >= 2) {
+        const totalAmount = pending.reduce((sum, t) => sum + t.amount, 0);
+        const botNames = [...new Set(pending.map(t => t.botName))].slice(0, 3).join(', ');
+        const suffix = pending.length > 3 ? ' + more' : '';
+        toast.info(
+          `${pending.length} Trades Batch`,
+          `${botNames}${suffix} - Total: $${totalAmount.toFixed(2)}`
+        );
+      }
+
+      // Clear pending trades
+      pendingTrades.current = [];
+    };
+
+    const interval = setInterval(checkPendingTrades, 10000);
+    return () => clearInterval(interval);
+  }, [isBotRunning, toast]);
 
   const [botPositions, setBotPositions] = useState<Array<{
     id: string; botId?: string; outcome: "YES" | "NO";

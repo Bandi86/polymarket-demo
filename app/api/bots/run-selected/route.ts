@@ -47,10 +47,14 @@ export async function POST(request: NextRequest) {
   }
 
   // Run only the selected bots
-  botManager.runSelectedBots(botIds, { betSize, interval })
+  console.log(`[API] run-selected: starting bots:`, botIds);
+  botManager.runSelectedBots(botIds, { betSize, interval });
+  console.log(`[API] run-selected: bots started, getting updated state`);
 
   // Broadcast updated bots state
-  broadcastToSSE('bots', botManager.getBots())
+  const updatedBots = botManager.getBots();
+  console.log(`[API] run-selected: broadcasting ${updatedBots.length} bots, enabled:`, updatedBots.filter(b => b.enabled).map(b => b.id));
+  broadcastToSSE('bots', updatedBots);
 
-  return NextResponse.json({ success: true, startedBots: botIds })
+  return NextResponse.json({ success: true, startedBots: botIds, enabledCount: updatedBots.filter(b => b.enabled).length })
 }

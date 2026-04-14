@@ -3,9 +3,8 @@
  * Centralized notification management with queue, history, and preferences
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
-import type { ReactNode } from 'react';
 
 // === Types ===
 
@@ -114,7 +113,7 @@ class NotificationStoreClass {
   add(notification: Omit<Notification, 'id' | 'timestamp' | 'read'>): Notification {
     const newNotification: Notification = {
       ...notification,
-      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       timestamp: Date.now(),
       read: false,
     };
@@ -221,14 +220,30 @@ class SoundManagerClass {
     }
   }
 
+  // Frequency mapping for different sound types (when using synthesized tones)
+  private readonly TONE_FREQUENCIES: Record<string, { freq: number; duration: number }> = {
+    trade: { freq: 600, duration: 0.08 },
+    win: { freq: 880, duration: 0.15 },
+    'win-big': { freq: 1200, duration: 0.3 },
+    loss: { freq: 220, duration: 0.15 },
+    settlement: { freq: 440, duration: 0.1 },
+    celebration: { freq: 1000, duration: 0.25 },
+    'session-end': { freq: 330, duration: 0.2 },
+    'streak-good': { freq: 700, duration: 0.12 },
+    'streak-bad': { freq: 200, duration: 0.15 },
+    error: { freq: 150, duration: 0.2 },
+    notification: { freq: 500, duration: 0.1 },
+  };
+
   // Play a loaded sound by name
   playSound(name: string): void {
     if (!this.enabled || !this.audioContext) return;
 
     const buffer = this.audioBuffers.get(name);
     if (!buffer) {
-      // Fallback to synthesized tone
-      this.playSynthesizedTone(440, 0.1);
+      // Fallback to synthesized tone with type-specific frequency
+      const toneConfig = this.TONE_FREQUENCIES[name] || { freq: 440, duration: 0.1 };
+      this.playSynthesizedTone(toneConfig.freq, toneConfig.duration);
       return;
     }
 
@@ -395,19 +410,17 @@ class SoundManagerClass {
 
 const soundManager = new SoundManagerClass();
 
-// Preload sounds on client side
+// Preload sounds - using synthesized tones instead of files to avoid 404 errors
+// The SoundManager has built-in synthesized tone fallback when audio files aren't loaded
 if (typeof window !== 'undefined') {
-  // Load custom sounds if available (will fail gracefully if not found)
-  soundManager.loadSound('trade', '/sounds/trade.mp3').catch(() => {});
-  soundManager.loadSound('win', '/sounds/win.mp3').catch(() => {});
-  soundManager.loadSound('win-big', '/sounds/win-big.mp3').catch(() => {});
-  soundManager.loadSound('loss', '/sounds/loss.mp3').catch(() => {});
-  soundManager.loadSound('settlement', '/sounds/settlement.mp3').catch(() => {});
-  soundManager.loadSound('celebration', '/sounds/celebration.mp3').catch(() => {});
-  soundManager.loadSound('session-end', '/sounds/session-end.mp3').catch(() => {});
-  soundManager.loadSound('streak-good', '/sounds/streak-good.mp3').catch(() => {});
-  soundManager.loadSound('streak-bad', '/sounds/streak-bad.mp3').catch(() => {});
-  soundManager.loadSound('error', '/sounds/error.mp3').catch(() => {});
+  // Initialize audio context on first user interaction
+  const initAudio = () => {
+    if (!soundManager['audioContext']) {
+      soundManager['audioContext'] = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    }
+  };
+  document.addEventListener('click', initAudio, { once: true });
+  document.addEventListener('keydown', initAudio, { once: true });
 }
 
 // === Main Hook ===

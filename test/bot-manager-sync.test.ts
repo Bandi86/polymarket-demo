@@ -56,7 +56,8 @@ describe('BotManager Stats Sync', () => {
         maxDrawdown: 0, sharpeRatio: 0
       },
       createdAt: 0,
-      updatedAt: 0
+      updatedAt: 0,
+      lastTradeTime: 0
     });
 
     // 2. Mock market engine to return a populated portfolio

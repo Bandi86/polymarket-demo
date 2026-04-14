@@ -30,6 +30,8 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
     setIsToggling(true);
     try {
       await onToggle(bot.id);
+    } catch (err) {
+      console.error("[BotStatusCard] Toggle error:", err);
     } finally {
       setIsToggling(false);
     }
@@ -209,7 +211,12 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
               : "0 4px 12px rgba(34, 197, 94, 0.3)",
           }}
         >
-          {bot.enabled ? (
+          {isToggling ? (
+            <>
+              <span style={{ width: 16, height: 16, border: "2px solid white", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite", display: "inline-block" }} />
+              LOADING...
+            </>
+          ) : bot.enabled ? (
             <>
               <Square style={{ width: 16, height: 16 }} />
               STOP BOT

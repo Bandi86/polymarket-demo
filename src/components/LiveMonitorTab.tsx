@@ -34,6 +34,7 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
   const [configBot, setConfigBot] = useState<BotData | null>(null);
   const [selectedBots, setSelectedBots] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [showOnlyRunning, setShowOnlyRunning] = useState(false);
 
   // Toggle bot selection
   const toggleBotSelection = useCallback((botId: string) => {
@@ -99,6 +100,9 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
   const activeBotsYes = botIdsWithYes.size;
   const activeBotsNo = botIdsWithNo.size;
 
+  // Count enabled/running bots
+  const runningBotsCount = bots.filter(b => b.enabled).length;
+
   // Open positions stats
   const openPositions = positions.filter(p => p.botId);
   // FIX: openPositionsValue should be total dollars at risk (amount + fee), NOT stake (shares)
@@ -128,8 +132,9 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
     return (winRate * (b.stats.avgWin || 0)) - ((1 - winRate) * (b.stats.avgLoss || 0));
   };
 
-  // Sort bots
-  const sortedBots = [...bots].sort((a, b) => {
+  // Sort bots - optionally filter to show only running bots
+  const displayBots = showOnlyRunning ? bots.filter(b => b.enabled) : bots;
+  const sortedBots = [...displayBots].sort((a, b) => {
     switch (sortBy) {
       case 'pnl':
         return b.stats.pnl - a.stats.pnl;
@@ -149,14 +154,40 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
   // Toggle individual bot
   const handleToggleBot = useCallback(async (botId: string) => {
     try {
+      console.log(`[UI] Toggle bot: ${botId}`);
       const res = await fetch(`/api/bots/${botId}/toggle`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to toggle bot");
-      const updatedBot = await res.json();
-      updateBotState(botId, { enabled: updatedBot.enabled, runTime: updatedBot.runTime });
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error(`[UI] Toggle failed for ${botId}:`, data);
+        alert(`Failed to toggle bot: ${data.error || 'Unknown error'}`);
+        return;
+      }
+
+      console.log(`[UI] Toggle success for ${botId}: enabled=${data.enabled}, balance=${data.portfolio?.balance}`);
+
+      // Update local state immediately
+      updateBotState(botId, { enabled: data.enabled, runTime: data.runTime });
+
+      // Refresh all data from server to ensure consistency
+      if (fetchData) {
+        await fetchData();
+
+        // After fetch, manually update the specific bot from server response
+        // because fetchData might have stale data
+        const botsRes = await fetch('/api/bots');
+        const botsData = await botsRes.json();
+        const updatedBot = botsData.find((b: BotData) => b.id === botId);
+        if (updatedBot) {
+          console.log(`[UI] Syncing bot ${botId} from server: enabled=${updatedBot.enabled}, balance=${updatedBot.portfolio?.balance}`);
+          updateBotState(botId, { enabled: updatedBot.enabled, runTime: updatedBot.runTime });
+        }
+      }
     } catch (err) {
       console.error("Failed to toggle bot:", err);
+      alert(`Failed to toggle bot: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  }, [updateBotState]);
+  }, [updateBotState, fetchData]);
 
   // Update bot config
   const handleSaveConfig = useCallback(async (botId: string, config: Partial<BotData>) => {
@@ -205,6 +236,13 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
             <TrendingDown style={{ width: 16, height: 16, color: "#ef4444" }} />
             <span style={{ fontSize: "0.8rem", color: "#ef4444", fontWeight: 700 }}>{activeBotsNo} DOWN</span>
           </div>
+          {/* Running bots count */}
+          {runningBotsCount > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginLeft: "0.5rem", paddingLeft: "0.75rem", borderLeft: "1px solid rgba(255,255,255,0.1)" }}>
+              <Play style={{ width: 14, height: 14, color: "#22c55e" }} />
+              <span style={{ fontSize: "0.8rem", color: "#22c55e", fontWeight: 700 }}>{runningBotsCount} running</span>
+            </div>
+          )}
         </div>
 
         <div style={{ width: 1, height: 24, background: "rgba(255,255,255,0.1)" }} />
@@ -283,6 +321,27 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
             ))}
           </div>
         </div>
+
+        {/* Filter: Show Running Only */}
+        <button
+          onClick={() => setShowOnlyRunning(!showOnlyRunning)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+            padding: "0.375rem 0.625rem",
+            borderRadius: 6,
+            fontSize: "0.7rem",
+            fontWeight: 600,
+            background: showOnlyRunning ? "rgba(34, 197, 94, 0.15)" : "rgba(255,255,255,0.04)",
+            color: showOnlyRunning ? "#22c55e" : "var(--text-muted)",
+            border: showOnlyRunning ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid transparent",
+            cursor: "pointer",
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: showOnlyRunning ? "#22c55e" : "var(--text-muted)" }} />
+          {showOnlyRunning ? "Running" : "All"}
+        </button>
 
         {/* Multi-Select Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "1rem", borderLeft: "1px solid rgba(255,255,255,0.1)" }}>

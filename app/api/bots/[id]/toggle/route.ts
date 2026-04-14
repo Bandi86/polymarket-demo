@@ -42,6 +42,8 @@ export async function POST(
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 })
   }
 
+  console.log(`[API] toggle bot ${id}: enabled=${bot.enabled}, portfolio balance=${bot.portfolio?.balance}`)
+
   // Broadcast updated bots state
   broadcastToSSE('bots', botManager.getBots())
 

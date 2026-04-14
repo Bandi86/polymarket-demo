@@ -265,6 +265,7 @@ export class BotManager {
         portfolio: marketEngine.getBotPortfolio(cfg.id),
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        lastTradeTime: 0, // Initialize - no trades yet
       });
     }
   }
@@ -412,8 +413,13 @@ export class BotManager {
       bot.maxBet = optimizedParams.maxBet;
     }
 
-    // Start session
-    const portfolio = marketEngine.getBotPortfolio(id);
+    // Start session - ensure portfolio is initialized with $10 balance
+    // Check if portfolio exists, if not create with default $10
+    let portfolio = marketEngine.getBotPortfolio(id);
+    if (!portfolio || portfolio.initialBalance === 0) {
+      console.log(`[BotManager] Initializing portfolio for bot ${id} with $10 balance`);
+      portfolio = marketEngine.initBotPortfolio(id, 10);
+    }
     const market = marketEngine.getCurrentMarket();
     const session: BotSession = {
       id: generateId("session"),
@@ -454,6 +460,8 @@ export class BotManager {
 
     this.intervals.set(id, intervalId);
     bot.runTime = Date.now();
+
+    console.log(`[BotManager] Bot ${id} started successfully - portfolio balance: ${portfolio.balance}, interval: ${bot.interval}ms`);
   }
 
   private stopBot(id: string): void {
@@ -608,7 +616,25 @@ export class BotManager {
 
     // Get current market state ONCE - all bots see the same snapshot
     const market = marketEngine.getCurrentMarket();
-    if (!market || market.status !== "active") return;
+    if (!market) {
+      // Only log occasionally to avoid spam
+      if (Math.random() < 0.01) {
+        console.log(`[BotManager] No market available for trading`);
+      }
+      return;
+    }
+    if (market.status !== "active") {
+      // Only log occasionally to avoid spam
+      if (Math.random() < 0.01) {
+        console.log(`[BotManager] Market not active: status=${market.status}, marketId=${market.id}`);
+      }
+      return;
+    }
+
+    // Market is active - proceed with trading
+    if (Math.random() < 0.05) {
+      console.log(`[BotManager] Market active, executing ${enabledBots.length} bots`);
+    }
 
     // Phase 1: Collect decisions from all bots in parallel
     const decisions: Array<{
@@ -755,6 +781,26 @@ export class BotManager {
     const action = decision.action;
     const yesPrice = parseFloat(market.outcomePrices?.yes || "0.5");
     const noPrice = parseFloat(market.outcomePrices?.no || "0.5");
+
+    // ═══════════════════════════════════════════════════════════════
+    // COOLDOWN CHECK: Don't trade too frequently on same bot
+    // ═══════════════════════════════════════════════════════════════
+    const now = Date.now();
+    const lastTradeTime = bot.lastTradeTime || 0;
+    const TRADE_COOLDOWN_MS = 8000; // 8 seconds minimum between trades (balanced)
+    if (now - lastTradeTime < TRADE_COOLDOWN_MS) {
+      return; // Skip - too soon since last trade
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MARKET FRESHNESS CHECK: Only trade on fresh markets (first 90 seconds)
+    // Prevents trading on markets that are about to settle
+    // ═══════════════════════════════════════════════════════════════
+    const marketAge = now - market.startTime;
+    const MAX_MARKET_AGE_MS = 90000; // 90 seconds - allows trading in first 30% of 5-min market
+    if (marketAge > MAX_MARKET_AGE_MS) {
+      return; // Market too old - wait for new market
+    }
 
     // Check if bot already has an open position on this market - one position per market
     const existingPositions = marketEngine.getOpenPositions(id);
@@ -1084,6 +1130,11 @@ export class BotManager {
           coordinatorAdjusted: coordination.adjustedBetSize !== undefined,
           mode: "demo",
         });
+
+        // Update last trade time for cooldown
+        bot.lastTradeTime = Date.now();
+        this.bots.set(id, bot);
+
         // Broadcast updated bots to all SSE clients
         broadcastToSSE("bots", this.getBots());
       } else {

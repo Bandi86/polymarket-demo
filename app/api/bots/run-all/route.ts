@@ -38,10 +38,13 @@ export async function POST(request: NextRequest) {
   }
 
   const { betSize, interval } = body as { betSize?: number; interval?: number }
+  console.log(`[API] run-all: starting all bots with betSize=${betSize}, interval=${interval}`)
   botManager.runAllBots({ betSize, interval })
 
   // Broadcast updated bots state
-  broadcastToSSE('bots', botManager.getBots())
+  const updatedBots = botManager.getBots()
+  console.log(`[API] run-all: started ${updatedBots.length} bots`)
+  broadcastToSSE('bots', updatedBots)
 
   return NextResponse.json({ success: true })
 }

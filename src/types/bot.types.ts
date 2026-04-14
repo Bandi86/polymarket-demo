@@ -67,6 +67,7 @@ export interface BotConfig {
   portfolio: Portfolio;
   createdAt: number;
   updatedAt: number;
+  lastTradeTime: number; // Timestamp of last trade (for cooldown)
 }
 
 export interface Strategy {
