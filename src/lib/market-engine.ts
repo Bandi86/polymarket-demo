@@ -12,7 +12,7 @@ import {
 } from "./settlement-validator";
 
 const FEE_RATE = 0.02; // 2%
-const MARKET_PRICE_UPDATE_INTERVAL = 200; // 200ms - faster updates for real-time feel
+const MARKET_PRICE_UPDATE_INTERVAL = 10000; // 200ms - faster updates for real-time feel
 const MARKET_SWITCH_COOLDOWN = 3000; // 3 seconds between switches
 
 export interface MarketEngineConfig {
