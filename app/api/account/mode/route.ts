@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getBotManager, getMarketEngine, getPolymarketProvider } from '@/lib/global'
+import { getBotManager, getMarketEngine } from '@/lib/global'
+import { initializeClobClient, getBalance, getConfig } from '@/lib/providers/clob-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +19,6 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const botManager = getBotManager()
   const marketEngine = getMarketEngine()
-  const polymarketProvider = getPolymarketProvider()
 
   let body = {}
   try {
@@ -48,13 +48,9 @@ export async function POST(request: NextRequest) {
 
   // If switching to live mode, verify credentials
   if (mode === 'live') {
-    if (!polymarketProvider.hasCredentials()) {
-      return NextResponse.json(
-        { success: false, error: 'Missing Polymarket API credentials. Configure POLY_API_KEY and POLY_API_SECRET.' },
-        { status: 400 }
-      )
-    }
-    if (!polymarketProvider.hasPrivateKey()) {
+    const config = getConfig()
+
+    if (!config.hasPrivateKey) {
       return NextResponse.json(
         { success: false, error: 'Missing Polymarket private key. Configure POLY_PRIVATE_KEY for trading.' },
         { status: 400 }
@@ -63,13 +59,16 @@ export async function POST(request: NextRequest) {
 
     // Try to fetch live balance to verify connection
     try {
-      const balanceResult = await polymarketProvider.fetchAccountBalance()
+      await initializeClobClient()
+      const balanceResult = await getBalance()
+
       if (!balanceResult.success) {
         return NextResponse.json(
           { success: false, error: `Failed to connect to Polymarket: ${balanceResult.error || 'Unknown error'}` },
           { status: 400 }
         )
       }
+
       // Block if balance is 0 - cannot trade without funds
       if (balanceResult.balance === 0) {
         return NextResponse.json(

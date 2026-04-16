@@ -42,6 +42,20 @@ export function TopDashboardHeader({
   onDepositClick,
   risk,
 }: TopDashboardHeaderProps) {
+  // Connection status
+  const hasPrivateKey = liveBalance?.hasPrivateKey ?? false;
+  const hasCredentials = liveBalance?.hasCredentials ?? false;
+  const walletAddress = liveBalance?.walletAddress;
+
+  const getConnectionStatus = () => {
+    if (tradingMode === "demo") return null;
+    if (hasPrivateKey) return { color: "#22c55e", label: "Connected", short: "OK" };
+    if (hasCredentials) return { color: "#f59e0b", label: "Partial", short: "?" };
+    return { color: "#ef4444", label: "No Key", short: "X" };
+  };
+
+  const connectionStatus = getConnectionStatus();
+
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
@@ -60,6 +74,59 @@ export function TopDashboardHeader({
               hasApiKey={!!liveBalance?.hasPrivateKey}
               isDisabled={isBotRunning}
             />
+          )}
+
+          {/* Connection Status Badge (only in live mode) */}
+          {tradingMode === "live" && connectionStatus && (
+            <div
+              title={`Wallet: ${walletAddress || "Unknown"}\nStatus: ${connectionStatus.label}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.3rem 0.6rem",
+                background: `${connectionStatus.color}20`,
+                border: `1px solid ${connectionStatus.color}40`,
+                borderRadius: 6,
+                cursor: "help",
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: connectionStatus.color,
+                  boxShadow: `0 0 6px ${connectionStatus.color}`,
+                }}
+              />
+              <span style={{ fontSize: "0.7rem", fontWeight: 600, color: connectionStatus.color }}>
+                {connectionStatus.short}
+              </span>
+            </div>
+          )}
+
+          {/* Live Balance Display */}
+          {tradingMode === "live" && liveBalance && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.3rem 0.75rem",
+              background: liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+              border: `1px solid ${liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+              borderRadius: 8,
+            }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Live:</span>
+              <span style={{
+                fontSize: "0.9rem",
+                fontWeight: 700,
+                fontFamily: "ui-monospace, monospace",
+                color: liveBalance.balance > 0 ? "#22c55e" : "#ef4444",
+              }}>
+                ${liveBalance.balance.toFixed(2)}
+              </span>
+            </div>
           )}
         </div>
 

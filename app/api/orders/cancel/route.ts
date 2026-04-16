@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getPolymarketProvider } from '@/lib/global'
+import { initializeClobClient, cancelOrder as cancelClobOrder, getConfig } from '@/lib/providers/clob-client'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/orders/cancel - Cancel an order
 export async function POST(request: NextRequest) {
-  const polymarketProvider = getPolymarketProvider()
+  const config = getConfig()
+
+  if (!config.hasPrivateKey) {
+    return NextResponse.json(
+      { success: false, error: "No private key configured" },
+      { status: 400 }
+    )
+  }
 
   const body = (await request.json()) as { orderId?: string }
 
@@ -17,6 +24,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const result = await polymarketProvider.cancelOrder(body.orderId)
+  await initializeClobClient()
+  const result = await cancelClobOrder(body.orderId)
   return NextResponse.json(result)
 }

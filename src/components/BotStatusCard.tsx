@@ -16,17 +16,23 @@ interface BotStatusCardProps {
   timeRemaining?: number;
   isSelected?: boolean;
   onSelect?: (botId: string) => void;
+  tradingMode?: "demo" | "live";
+  liveBalance?: number;
 }
 
-export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining, isSelected, onSelect }: BotStatusCardProps) {
+export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig, timeRemaining, isSelected, onSelect, tradingMode = "demo", liveBalance = 0 }: BotStatusCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
+
+  // In live mode, disable start if no live balance
+  const isLiveModeNoBalance = tradingMode === "live" && liveBalance <= 0;
+  const canStart = !isLiveModeNoBalance;
 
   // Use custom hook for state management
   const state = useBotStatusState({ bot, yesPrice, positions });
 
   const handleToggle = async () => {
-    if (isToggling) return;
+    if (isToggling || isLiveModeNoBalance) return;
     setIsToggling(true);
     try {
       await onToggle(bot.id);
@@ -87,10 +93,11 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
 
       {/* Balance Card */}
       <BotBalanceCard
-        balance={bot.portfolio.balance}
-        initialBalance={state.initialBalance}
-        balanceGrowth={state.balanceGrowth}
-        growthPercent={state.growthPercent}
+        balance={tradingMode === "live" ? liveBalance : bot.portfolio.balance}
+        initialBalance={tradingMode === "live" ? liveBalance : state.initialBalance}
+        balanceGrowth={tradingMode === "live" ? 0 : state.balanceGrowth}
+        growthPercent={tradingMode === "live" ? 0 : state.growthPercent}
+        tradingMode={tradingMode}
       />
 
       {/* Stats Grid */}
@@ -188,7 +195,7 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
       <div style={{ display: "flex", gap: "0.5rem" }}>
         <button
           onClick={handleToggle}
-          disabled={isToggling}
+          disabled={isToggling || isLiveModeNoBalance}
           style={{
             flex: 1,
             display: "flex",
@@ -200,15 +207,23 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
             border: "none",
             background: bot.enabled
               ? "linear-gradient(135deg, #ef4444, #dc2626)"
-              : "linear-gradient(135deg, #22c55e, #16a34a)",
-            color: "white",
+              : isLiveModeNoBalance
+                ? "rgba(100, 100, 100, 0.3)"
+                : tradingMode === "live"
+                  ? "linear-gradient(135deg, #f59e0b, #d97706)"
+                  : "linear-gradient(135deg, #22c55e, #16a34a)",
+            color: isLiveModeNoBalance ? "rgba(255,255,255,0.3)" : "white",
             fontWeight: 700,
             fontSize: "0.875rem",
-            cursor: isToggling ? "not-allowed" : "pointer",
+            cursor: isToggling || isLiveModeNoBalance ? "not-allowed" : "pointer",
             opacity: isToggling ? 0.7 : 1,
             boxShadow: bot.enabled
               ? "0 4px 12px rgba(239, 68, 68, 0.3)"
-              : "0 4px 12px rgba(34, 197, 94, 0.3)",
+              : isLiveModeNoBalance
+                ? "none"
+                : tradingMode === "live"
+                  ? "0 4px 12px rgba(245, 158, 11, 0.3)"
+                  : "0 4px 12px rgba(34, 197, 94, 0.3)",
           }}
         >
           {isToggling ? (
@@ -221,10 +236,15 @@ export function BotStatusCard({ bot, yesPrice, positions, onToggle, onOpenConfig
               <Square style={{ width: 16, height: 16 }} />
               STOP BOT
             </>
+          ) : isLiveModeNoBalance ? (
+            <>
+              <span style={{ width: 16, height: 16 }}>⚠</span>
+              NO FUNDS
+            </>
           ) : (
             <>
               <Play style={{ width: 16, height: 16 }} />
-              START BOT
+              {tradingMode === "live" ? "START LIVE" : "START BOT"}
             </>
           )}
         </button>

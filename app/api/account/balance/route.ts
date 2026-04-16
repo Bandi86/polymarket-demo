@@ -1,16 +1,20 @@
 import { NextResponse } from 'next/server'
 
-import { getBotManager, getPolymarketProvider } from '@/lib/global'
+import { getBotManager } from '@/lib/global'
+import { initializeClobClient, getBalance as fetchClobBalance, getConfig } from '@/lib/providers/clob-client'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/account/balance - Fetch live balance from Polymarket
 export async function GET() {
   const botManager = getBotManager()
-  const polymarketProvider = getPolymarketProvider()
 
-  const result = await polymarketProvider.fetchAccountBalance()
-  const config = polymarketProvider.getConfig()
+  // Initialize CLOB client
+  await initializeClobClient()
+  const config = getConfig()
+
+  // Fetch live balance from Polymarket
+  const result = await fetchClobBalance()
 
   // Get demo balance from bots
   const bots = botManager.getBots()
@@ -27,6 +31,7 @@ export async function GET() {
       demoBalance,
       hasCredentials: config.hasCredentials,
       hasPrivateKey: config.hasPrivateKey,
+      walletAddress: config.walletAddress,
     })
   }
 
@@ -39,6 +44,7 @@ export async function GET() {
     demoBalance,
     hasCredentials: config.hasCredentials,
     hasPrivateKey: config.hasPrivateKey,
+    walletAddress: config.walletAddress,
     lastSync: Date.now(),
   })
 }

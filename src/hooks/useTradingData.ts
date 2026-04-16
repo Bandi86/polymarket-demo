@@ -128,6 +128,7 @@ export interface LiveBalance {
   demoBalance: number;
   hasCredentials: boolean;
   hasPrivateKey: boolean;
+  walletAddress?: string | null;
   error: string | null;
   lastSync: number | null;
 }

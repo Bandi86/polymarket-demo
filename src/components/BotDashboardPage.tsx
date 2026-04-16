@@ -20,10 +20,35 @@ import type { BotData, MarketData } from "@/hooks/useTradingData";
 import type { BotLog, Position } from "@/types";
 
 export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab: string; marketData?: MarketData | null; coinColor?: string }) {
-  // Use Zustand stores directly instead of useTradingData 
+  // Use Zustand stores directly instead of useTradingData
   // to avoid creating duplicate interval polling loops
   const { yesPrice, noPrice, timeRemaining, competition, loading } = useTradingStore();
   const { bots, botLogs, updateBot } = useBotStore();
+
+  // Trading mode state
+  const [tradingMode, setTradingMode] = useState<"demo" | "live">("demo");
+  const [liveBalance, setLiveBalance] = useState<number>(0);
+
+  // Fetch trading mode and live balance on mount
+  useEffect(() => {
+    const fetchAccountInfo = async () => {
+      try {
+        const [modeRes, balanceRes] = await Promise.all([
+          fetch("/api/account"),
+          fetch("/api/account/balance"),
+        ]);
+        const modeData = await modeRes.json();
+        const balanceData = await balanceRes.json();
+        setTradingMode(modeData.mode || "demo");
+        setLiveBalance(balanceData.balance || 0);
+      } catch (err) {
+        console.error("Failed to fetch account info:", err);
+      }
+    };
+    fetchAccountInfo();
+    const interval = setInterval(fetchAccountInfo, 10000); // Refresh every 10s
+    return () => clearInterval(interval);
+  }, []);
 
   const updateBotState = async (id: string, updates: Partial<BotData>) => {
     // API call to update bot server-side - specifically for enabling/disabling
@@ -83,6 +108,8 @@ export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab
           updateBotState={updateBotState}
           timeRemaining={timeRemaining}
           fetchData={fetchData}
+          tradingMode={tradingMode}
+          liveBalance={liveBalance}
         />
       )}
 

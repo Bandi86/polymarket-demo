@@ -17,6 +17,8 @@ interface LiveMonitorTabProps {
   updateBotState: (botId: string, updates: Partial<BotData>) => void;
   timeRemaining: number;
   fetchData?: () => Promise<void>;
+  tradingMode?: "demo" | "live";
+  liveBalance?: number;
 }
 
 type SortField = 'pnl' | 'winRate' | 'trades' | 'balance' | 'ev';
@@ -29,12 +31,17 @@ const SORT_OPTIONS: { field: SortField; label: string }[] = [
   { field: 'ev', label: 'Expected Value' },
 ];
 
-export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState, timeRemaining, fetchData }: LiveMonitorTabProps) {
+export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotState, timeRemaining, fetchData, tradingMode = "demo", liveBalance = 0 }: LiveMonitorTabProps) {
   const [sortBy, setSortBy] = useState<SortField>('pnl');
   const [configBot, setConfigBot] = useState<BotData | null>(null);
   const [selectedBots, setSelectedBots] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [showOnlyRunning, setShowOnlyRunning] = useState(false);
+
+  // Calculate total balance based on mode
+  const totalDemoBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0);
+  const displayBalance = tradingMode === "live" ? liveBalance : totalDemoBalance;
+  const balanceLabel = tradingMode === "live" ? "Live Balance" : "Demo Balance";
 
   // Toggle bot selection
   const toggleBotSelection = useCallback((botId: string) => {
@@ -215,6 +222,44 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {/* Trading Mode & Balance Indicator */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0.75rem 1rem",
+        background: tradingMode === "live" ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.15)",
+        borderRadius: "10px",
+        border: `1px solid ${tradingMode === "live" ? "rgba(239, 68, 68, 0.3)" : "rgba(59, 130, 246, 0.3)"}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{
+            padding: "0.25rem 0.5rem",
+            borderRadius: 4,
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            background: tradingMode === "live" ? "#ef4444" : "#3b82f6",
+            color: "white",
+          }}>
+            {tradingMode.toUpperCase()}
+          </span>
+          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+            {balanceLabel}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ fontSize: "1rem", fontWeight: 700, color: tradingMode === "live" ? "#ef4444" : "#3b82f6" }}>
+            ${displayBalance.toFixed(2)}
+          </span>
+          {tradingMode === "live" && liveBalance > 0 && (
+            <span style={{ fontSize: "0.7rem", color: "#22c55e" }}>• LIVE TRADING</span>
+          )}
+          {tradingMode === "live" && liveBalance <= 0 && (
+            <span style={{ fontSize: "0.7rem", color: "#ef4444" }}>• No funds</span>
+          )}
+        </div>
+      </div>
+
       {/* Summary Stats Bar */}
       <div style={{
         display: "flex",
@@ -449,6 +494,8 @@ export function LiveMonitorTab({ bots, botLogs, yesPrice, positions, updateBotSt
                 timeRemaining={timeRemaining}
                 isSelected={selectedBots.has(bot.id)}
                 onSelect={toggleBotSelection}
+                tradingMode={tradingMode}
+                liveBalance={liveBalance}
               />
             </motion.div>
           ))}

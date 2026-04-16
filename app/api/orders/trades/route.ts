@@ -1,12 +1,23 @@
 import { NextResponse } from 'next/server'
 
-import { getPolymarketProvider } from '@/lib/global'
+import { initializeClobClient, getTrades as fetchClobTrades, getConfig } from '@/lib/providers/clob-client'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/orders/trades - Get trade history from Polymarket
 export async function GET() {
-  const polymarketProvider = getPolymarketProvider()
-  const result = await polymarketProvider.fetchTrades()
+  // Initialize CLOB client
+  await initializeClobClient()
+  const config = getConfig()
+
+  if (!config.hasPrivateKey) {
+    return NextResponse.json({
+      trades: [],
+      success: false,
+      error: "No private key configured",
+    })
+  }
+
+  const result = await fetchClobTrades()
   return NextResponse.json(result)
 }

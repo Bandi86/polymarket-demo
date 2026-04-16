@@ -2,7 +2,7 @@
 // Dedicated manager for real Polymarket trading
 // Handles balance sync, risk management, and 24/7 operation
 
-import { polymarketProvider } from "./providers/polymarket-provider";
+import { initializeClobClient, getBalance, getPositions, getConfig } from "./providers/clob-client";
 import { marketEngine } from "./market-engine";
 import { broadcastToSSE } from "./global";
 import type { BotConfig, Position } from "../types";
@@ -168,11 +168,15 @@ export class LiveModeManager {
     }
 
     // Check credentials
-    if (!polymarketProvider.hasPrivateKey()) {
+    const config = getConfig();
+    if (!config.hasPrivateKey) {
       return { success: false, error: "No private key configured. Add POLYMARKET_PRIVATE_KEY to .env" };
     }
 
-    // Test connection and get balance
+    // Initialize and test connection
+    await initializeClobClient();
+
+    // Get balance
     const balanceResult = await this.syncBalance();
     if (!balanceResult.success) {
       return { success: false, error: balanceResult.error || "Failed to connect to Polymarket" };
@@ -225,7 +229,9 @@ export class LiveModeManager {
     const startTime = Date.now();
 
     try {
-      const result = await polymarketProvider.fetchAccountBalance();
+      // Initialize CLOB client and get balance using new clob-client
+      await initializeClobClient();
+      const result = await getBalance();
       const latency = Date.now() - startTime;
 
       if (!result.success) {
@@ -302,7 +308,7 @@ export class LiveModeManager {
     }
 
     try {
-      const result = await polymarketProvider.fetchPositions();
+      const result = await getPositions();
 
       if (!result.success) {
         this.addAlert("error", `Position sync failed: ${result.error}`);

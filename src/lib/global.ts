@@ -202,7 +202,7 @@ export async function initializeServices(): Promise<void> {
     });
     console.log("[Global] Market price broadcasting set up");
 
-    // 4b. Set up timer broadcasting every second
+    // 4b. Set up timer broadcasting every 5 seconds (reduced from 1s to save CPU)
     setInterval(() => {
       const market = marketEngine.getCurrentMarket();
       if (market) {
@@ -214,18 +214,18 @@ export async function initializeServices(): Promise<void> {
           timestamp: Date.now(),
         });
       }
-    }, 1000);
-    console.log("[Global] Timer broadcasting set up");
+    }, 5000);
+    console.log("[Global] Timer broadcasting set up (5s interval - optimized)");
 
-    // 4c. Set up periodic bots state broadcast (every 1 second - reduced from 5s for faster UI)
+    // 4c. Set up periodic bots state broadcast (every 5 seconds - reduced from 1s)
     setInterval(() => {
       const bots = botManager.getBots();
       const totalBalance = bots.reduce((sum: number, b: { portfolio?: { balance?: number } }) => sum + (b.portfolio?.balance || 0), 0);
       if (totalBalance > 0) {
         broadcastToSSE("bots", bots);
       }
-    }, 1000);
-    console.log("[Global] Periodic bots broadcasting set up (1s interval - fast reactivity)");
+    }, 5000);
+    console.log("[Global] Periodic bots broadcasting set up (5s interval - optimized)");
 
     // 5. Set up settlement handling
     marketEngine.onSettlement((data) => {

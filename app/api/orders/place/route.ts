@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getMarketEngine, getPolymarketProvider, broadcastToSSE } from '@/lib/global'
+import { getMarketEngine, broadcastToSSE, getBotManager } from '@/lib/global'
+import { initializeClobClient, placeOrder as placeClobOrder, getConfig } from '@/lib/providers/clob-client'
 
 export const dynamic = 'force-dynamic'
 
 // POST /api/orders/place - Place an order on Polymarket
 export async function POST(request: NextRequest) {
-  const polymarketProvider = getPolymarketProvider()
   const marketEngine = getMarketEngine()
+  const botManager = getBotManager()
+  const tradingMode = botManager.getTradingMode()
 
   const body = (await request.json()) as {
     tokenId?: string
@@ -17,6 +19,7 @@ export async function POST(request: NextRequest) {
     price?: number
     size?: number
     amount?: number
+    mode?: 'demo' | 'live'  // Explicit mode override
   }
 
   // Validate required fields
@@ -44,6 +47,9 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+
+  // Determine mode: explicit body mode > trading mode > default demo
+  const isLiveMode = body?.mode === 'live' || (body?.mode !== 'demo' && tradingMode === 'live')
 
   try {
     // Get token ID from market if not provided
@@ -76,12 +82,36 @@ export async function POST(request: NextRequest) {
       size = body.amount / price
     }
 
-    const result = await polymarketProvider.placeOrder({
-      tokenId,
-      side: body.side,
-      price,
-      size,
-    })
+    let result: { success: boolean; orderId?: string; error?: string }
+
+    if (isLiveMode) {
+      // Use new clob-client for live trading
+      await initializeClobClient()
+      const config = getConfig()
+
+      if (!config.hasPrivateKey) {
+        return NextResponse.json(
+          { success: false, error: 'No private key configured for live trading' },
+          { status: 400 }
+        )
+      }
+
+      result = await placeClobOrder({
+        tokenId,
+        side: body.side,
+        price,
+        size,
+      })
+
+      console.log(`[API] Live order placed: ${body.side} ${size} @ ${price} (token: ${tokenId})`)
+    } else {
+      // Demo mode - simulate order
+      result = {
+        success: true,
+        orderId: `demo-${Date.now()}`,
+      }
+      console.log(`[API] Demo order simulated: ${body.side} ${size} @ ${price}`)
+    }
 
     if (result.success) {
       // Broadcast order event
@@ -91,6 +121,7 @@ export async function POST(request: NextRequest) {
         side: body.side,
         price,
         size,
+        mode: isLiveMode ? 'live' : 'demo',
       })
     }
 
