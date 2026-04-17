@@ -570,10 +570,16 @@ export function App() {
   }, [fetchData]);
 
   const handleModeChange = useCallback(async (mode: "demo" | "live") => {
+    // Get current bot count for demo balance calculation
+    const botsResponse = await fetch("/api/bots");
+    const botsData = await botsResponse.json();
+    const botCount = botsData.bots?.length || 1;
+    const demoBalance = botCount * 10; // $10 per bot in demo mode
+
     const res = await fetch("/api/account/mode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, balance: demoBalance }),
     });
     const data = await res.json();
     if (data.success) {
@@ -581,8 +587,8 @@ export function App() {
       toast.success(
         mode === "live" ? "🔴 Live Mode Enabled" : "🧪 Demo Mode Enabled",
         mode === "live"
-          ? "Bots will trade with real USDC on Polymarket"
-          : "Bots will trade with simulated balance"
+          ? `Bots will trade with real $${data.balance?.toFixed(2) || '0'} USDC on Polymarket`
+          : `Bots will trade with simulated $${demoBalance} balance`
       );
       await fetchLiveBalance();
     } else {

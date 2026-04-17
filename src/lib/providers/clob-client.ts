@@ -8,6 +8,7 @@ import { polygon } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { accountStore } from '@/lib/account-store';
+import { cliWrapper } from "./cli-wrapper";
 
 // Load credentials from environment (legacy fallback)
 const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
@@ -144,10 +145,30 @@ export async function initializeClobClient(privateKeyParam?: string): Promise<bo
 }
 
 /**
- * Get account balance - fetches from CLOB API
- * Uses /value endpoint (no auth required) or /positions (no auth required)
+ * Get account balance - fetches from CLOB via CLI (more reliable)
  */
 export async function getBalance(): Promise<BalanceResult> {
+  // Try CLI first (most reliable)
+  try {
+    const activeAcc = await accountStore.getActiveAccount();
+    if (activeAcc) {
+      const cliResult = await cliWrapper.getClobBalance(activeAcc.privateKey);
+      if (cliResult && cliResult.balance !== undefined) {
+        const balance = parseFloat(cliResult.balance);
+        console.log("[ClobClient] Balance from CLI:", balance);
+        return {
+          balance,
+          available: balance,
+          locked: 0,
+          success: true,
+          isLive: true,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("[ClobClient] CLI balance failed, trying API:", e);
+  }
+
   if (!walletAddress) {
     // Try to initialize first
     const init = await initializeClobClient();
@@ -164,7 +185,7 @@ export async function getBalance(): Promise<BalanceResult> {
   }
 
   try {
-    // First try: use /value endpoint from Data API (no auth required, returns positions value)
+    // Fallback: use /value endpoint from Data API (no auth required, returns positions value)
     console.log("[ClobClient] Fetching balance from Data API /value...");
     const valueResponse = await fetch(
       `${DATA_HOST}/value?user=${walletAddress}`,

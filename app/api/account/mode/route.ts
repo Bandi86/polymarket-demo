@@ -108,6 +108,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Set balance for live mode - fetch real balance via API
+  if (mode === 'live') {
+    try {
+      // Fetch balance directly from our balance API endpoint
+      const balanceRes = await fetch('http://localhost:3001/api/account/balance')
+      const balanceData = await balanceRes.json()
+      const liveBalance = balanceData.balance || 0
+
+      for (const bot of bots) {
+        const portfolio = marketEngine.getBotPortfolio(bot.id)
+        if (portfolio) {
+          portfolio.balance = liveBalance
+          portfolio.initialBalance = liveBalance
+        }
+      }
+
+      console.log(`[ModeSwitch] Live mode: set all bots to balance $${liveBalance}`)
+    } catch (e) {
+      console.error("[ModeSwitch] Failed to fetch live balance:", e)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     mode,
