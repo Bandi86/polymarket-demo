@@ -44,11 +44,29 @@ export class AccountManager {
 
   /**
    * Fast check for available trading balance. Used by bots for sizing.
-   * Relies on native fetch to CLOB API.
+   * Uses polymarket-cli which is more reliable than direct API calls.
    */
   async getTradingBalance() {
     try {
       const { privateKey } = await this.getActiveCredentials();
+
+      // Try CLI first (more reliable)
+      try {
+        const cliResult = await cliWrapper.getClobBalance(privateKey);
+        if (cliResult && cliResult.balance !== undefined) {
+          const balance = parseFloat(cliResult.balance);
+          return {
+            available: balance,
+            locked: 0,
+            total: balance,
+            success: true,
+          };
+        }
+      } catch (cliErr) {
+        console.warn("[AccountManager] CLI balance failed, trying API:", cliErr);
+      }
+
+      // Fallback to direct API
       const result = await fetchAccountBalance(privateKey);
       return {
         available: result.available,
