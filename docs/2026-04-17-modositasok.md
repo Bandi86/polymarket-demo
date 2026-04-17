@@ -30,6 +30,7 @@ Mai napon a következő főbb funkciók lettek implementálva:
 | `src/components/AccountsModal.tsx` | Alternatív account modal |
 | `src/components/BotAnalyticsTab.tsx` | Bot analytics tab |
 | `src/components/BridgeModal.tsx` | Deposit/withdraw modal |
+| `src/components/PaymentGuideModal.tsx` | **ÚJ** Pénzügyi útmutató modal |
 
 ### Backend lib-ek
 | Fájl | Leírás |
@@ -122,6 +123,23 @@ Mai napon a következő főbb funkciók lettek implementálva:
 4. Polymarket feltöltése USDC-vel
 5. Approve contracts (ha szükséges)
 6. Trade!
+
+---
+
+## Új funkció: Pénzügyi útmutató
+
+### Guide gomb a header-ben
+- 💡 **Guide** gomb a Deposit mellett
+- 4 lépéses interaktív útmutató:
+  1. Feltöltés (Bridge, kártya)
+  2. Kereskedés (Demo/Live)
+  3. Kivétel (Bridge -> Exchange)
+  4. Bank (Binance/Bybit/Revolut/PayPal)
+
+### Deposit/Withdraw műveletek
+- `/api/bridge?action=deposit` - Deposit címek
+- `/api/bridge?action=withdraw` - Withdraw létrehozás
+- `/api/account/approvals` - Contract approvals
 
 ---
 

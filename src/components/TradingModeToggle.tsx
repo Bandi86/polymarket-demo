@@ -106,7 +106,7 @@ export function TradingModeToggle({
             opacity: canGoLive ? 1 : 0.5,
             transition: "all 0.2s",
           }}
-          title={!canGoLive ? "Connect wallet and configure API to enable live mode" : ""}
+          title={!canGoLive ? "Click 'Accounts' button in header to add a wallet, then you can enable Live mode" : ""}
         >
           <Zap className="w-4 h-4" />
           LIVE

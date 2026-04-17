@@ -449,7 +449,7 @@ export function SettingsPanel() {
           border: "1px solid rgba(59, 130, 246, 0.3)"
         }}>
           <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary)" }}>
-            Account management is handled in the header. Click <strong>Accounts</strong> button when in Live mode to add, remove, or switch between wallets.
+            Click the <strong>Accounts</strong> button in the header to add, remove, or switch between wallets. Required for Live mode trading.
           </p>
         </div>
 

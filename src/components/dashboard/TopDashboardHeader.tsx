@@ -1,7 +1,8 @@
-import { Zap, AlertTriangle, Plus, Loader2, ShieldAlert, Check, Users } from "lucide-react";
+import { Zap, AlertTriangle, Plus, Loader2, ShieldAlert, Check, Users, HelpCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "@/components/ui/toast";
 import { AccountManagerModal } from "@/components/AccountManagerModal";
+import { PaymentGuideModal } from "@/components/PaymentGuideModal";
 import { PriceTicker } from "@/components/ui/PriceTicker";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { SoundToggle } from "@/components/ui/SoundToggle";
@@ -52,6 +53,7 @@ export function TopDashboardHeader({
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showPaymentGuide, setShowPaymentGuide] = useState(false);
 
   // Check approvals on load and mode change
   useEffect(() => {
@@ -176,8 +178,8 @@ export function TopDashboardHeader({
             </button>
           )}
 
-          {/* Account Manager Button */}
-          {tradingMode === "live" && (
+          {/* Account Manager Button - always visible to add/manage accounts */}
+          {true && (
             <button
               onClick={() => setShowAccountModal(true)}
               style={{
@@ -351,6 +353,28 @@ export function TopDashboardHeader({
           Deposit
         </button>
 
+        {/* Help/Guide Button */}
+        <button
+          onClick={() => setShowPaymentGuide(true)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+            padding: "0.5rem 0.75rem",
+            borderRadius: 8,
+            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2))",
+            border: "1px solid rgba(139, 92, 246, 0.3)",
+            color: "#a78bfa",
+            fontWeight: 500,
+            fontSize: "0.75rem",
+            cursor: "pointer",
+          }}
+          title="Pénzügyi útmutató"
+        >
+          <HelpCircle className="w-4 h-4" />
+          Guide
+        </button>
+
         <SoundToggle enabled={soundEnabled} onToggle={onToggleSound} />
         <NotificationCenter />
         <ThemeToggle />
@@ -361,8 +385,15 @@ export function TopDashboardHeader({
           onClose={() => setShowAccountModal(false)}
           onAccountSwitched={() => {
             if (onModeChange) onModeChange("live");
-            window.location.reload(); 
+            window.location.reload();
           }}
+        />
+      )}
+
+      {showPaymentGuide && (
+        <PaymentGuideModal
+          isOpen={showPaymentGuide}
+          onClose={() => setShowPaymentGuide(false)}
         />
       )}
     </div>

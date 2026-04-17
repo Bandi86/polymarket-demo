@@ -7,10 +7,8 @@
 import { spawn } from 'child_process';
 
 export class PolymarketCliWrapper {
-  private getEnv(privateKey?: string): Record<string, string> {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([_, v]) => v !== undefined)
-    ) as Record<string, string>;
+  private getEnv(privateKey?: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
 
     if (privateKey) {
       env['POLYMARKET_PRIVATE_KEY'] = privateKey;
