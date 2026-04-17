@@ -1,7 +1,8 @@
 'use client'
 
-import { Target, TrendingUp, TrendingDown, RefreshCw, ExternalLink } from "lucide-react";
+import { Target, TrendingUp, TrendingDown, RefreshCw, ExternalLink, Gift, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { toast } from "@/components/ui/toast";
 
 interface LivePosition {
   market: string;
@@ -19,6 +20,7 @@ interface LivePositionsPanelProps {
 export function LivePositionsPanel({ coinColor, onRefresh }: LivePositionsPanelProps) {
   const [positions, setPositions] = useState<LivePosition[]>([]);
   const [loading, setLoading] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPositions = async () => {
@@ -44,6 +46,32 @@ export function LivePositionsPanel({ coinColor, onRefresh }: LivePositionsPanelP
     const interval = setInterval(fetchPositions, 30000); // Refresh every 30s
     return () => clearInterval(interval);
   }, []);
+
+  const handleRedeem = async () => {
+    const conditionId = prompt("Enter the Condition ID of the resolved market to redeem:");
+    if (!conditionId) return;
+
+    setRedeeming(true);
+    try {
+      const res = await fetch("/api/account/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conditionId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Winnings redeemed successfully!", "USDC added to your wallet.");
+        fetchPositions();
+        onRefresh?.();
+      } else {
+        toast.error("Failed to redeem winnings", data.error || "Ensure the market is resolved and you have MATIC for gas.");
+      }
+    } catch (err) {
+      toast.error("Network error during redeem");
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   const totalValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
   const totalPnL = positions.reduce((sum, p) => {
@@ -96,6 +124,27 @@ export function LivePositionsPanel({ coinColor, onRefresh }: LivePositionsPanelP
           }}>POLYMARKET</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button
+            onClick={handleRedeem}
+            disabled={redeeming}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              background: "rgba(59, 130, 246, 0.15)",
+              border: "1px solid rgba(59, 130, 246, 0.3)",
+              color: "#3b82f6",
+              cursor: redeeming ? "wait" : "pointer",
+              padding: "0.25rem 0.5rem",
+              borderRadius: 6,
+              fontSize: "0.75rem",
+              fontWeight: 600,
+            }}
+            title="Redeem winning CTF tokens for USDC. Costs MATIC."
+          >
+            {redeeming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Gift className="w-3 h-3" />}
+            Redeem
+          </button>
           <button
             onClick={() => { fetchPositions(); onRefresh?.(); }}
             disabled={loading}

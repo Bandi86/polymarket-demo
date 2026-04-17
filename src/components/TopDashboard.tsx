@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { DepositModal } from "@/components/DepositModal";
+import { BridgeModal } from "@/components/BridgeModal";
 import { useLocalTimer } from "@/hooks/useLocalTimer";
 import {
   TopDashboardHeader,
@@ -14,7 +14,7 @@ import {
 import type { MarketData, BotData, CompetitionState, LiveBalance } from "@/hooks/useTradingData";
 import type { Portfolio } from "@/types";
 
-export type TabId = 'trade' | 'monitor' | 'live' | 'backtest' | 'leaderboard' | 'config' | 'risk';
+export type TabId = 'trade' | 'monitor' | 'live' | 'backtest' | 'leaderboard' | 'config' | 'risk' | 'analytics';
 
 interface TopDashboardProps {
   // Global
@@ -219,11 +219,12 @@ export function TopDashboard({
       </div>
 
       {/* Deposit Modal */}
-      <DepositModal
+      <BridgeModal
         isOpen={showDepositModal}
         onClose={() => setShowDepositModal(false)}
         polymarketBalance={liveBalance?.balance || 0}
         onRefreshBalance={onRefreshLiveBalance || (async () => {})}
+        mode="deposit"
       />
     </div>
   );

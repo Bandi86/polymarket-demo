@@ -8,10 +8,10 @@ import {
   getDurationForTimeframe,
 } from "./market-fetcher";
 import {
-  fetchAccountBalance as fetchBalance,
   fetchPositions as fetchPositionsList,
   fetchTrades as fetchTradesList,
 } from "./account-client";
+import { accountManager } from "../account-manager";
 import { placeOrder as placeOrderRequest, cancelOrder as cancelOrderRequest } from "./order-client";
 
 // Load credentials from environment (Bun automatically loads .env)
@@ -144,7 +144,7 @@ export class PolymarketProvider {
     return hasPrivateKey;
   }
 
-  /** Fetch account balance */
+  /** Fetch account balance (Trading Balance for bots) */
   async fetchAccountBalance(): Promise<{
     balance: number;
     available: number;
@@ -153,18 +153,25 @@ export class PolymarketProvider {
     isLive: boolean;
     error?: string;
   }> {
-    if (!POLY_PRIVATE_KEY) {
-      return {
-        balance: 0,
-        available: 0,
-        locked: 0,
-        success: false,
-        isLive: false,
-        error: "No private key configured",
-      };
-    }
+    const result = await accountManager.getTradingBalance();
+    return {
+      balance: result.total,
+      available: result.available,
+      locked: result.locked,
+      success: result.success,
+      isLive: result.success, // If successful, it implies we hit the live API
+      error: result.error,
+    };
+  }
 
-    return fetchBalance(POLY_PRIVATE_KEY);
+  /** Fetch comprehensive detailed account (CLOB + On-Chain Wallet) */
+  async getDetailedAccount() {
+    return accountManager.getDetailedAccount();
+  }
+
+  /** Redeem winning tokens for a condition */
+  async redeemWinnings(conditionId: string) {
+    return accountManager.redeemWinnings(conditionId);
   }
 
   /** Fetch positions from Polymarket */

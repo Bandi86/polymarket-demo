@@ -8,6 +8,7 @@ import { CompetitionTab } from "@/components/CompetitionTab";
 import { RiskPanel } from "@/components/RiskPanel";
 import { RiskDashboard } from "@/components/RiskDashboard";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
+import { BotAnalyticsTab } from "@/components/BotAnalyticsTab";
 import { TradingModeToggle } from "@/components/TradingModeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { SettlementStats } from "@/components/SettlementStats";
@@ -143,6 +144,10 @@ export function BotTabsContent({ activeTab, marketData, coinColor }: { activeTab
           totalBalance={bots.reduce((sum: number, b: BotData) => sum + (b.portfolio?.balance || 0), 0)}
           initialBalance={bots.length * 10}
         />
+      )}
+
+      {activeTab === 'analytics' && (
+        <BotAnalyticsTab />
       )}
 
       {activeTab === 'live' && (

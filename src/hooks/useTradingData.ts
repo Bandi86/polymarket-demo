@@ -125,6 +125,7 @@ export interface LiveBalance {
   balance: number;
   available: number;
   locked: number;
+  onChainValue?: number;
   demoBalance: number;
   hasCredentials: boolean;
   hasPrivateKey: boolean;
@@ -172,6 +173,7 @@ export function useTradingData() {
     balance: 0,
     available: 0,
     locked: 0,
+    onChainValue: 0,
     demoBalance: 0,
     hasCredentials: false,
     hasPrivateKey: false,
@@ -284,6 +286,7 @@ export function useTradingData() {
         balance: data.balance || 0,
         available: data.available || 0,
         locked: data.locked || 0,
+        onChainValue: data.onChainValue || 0,
         demoBalance: data.demoBalance || 0,
         hasCredentials: data.hasCredentials || false,
         hasPrivateKey: data.hasPrivateKey || false,

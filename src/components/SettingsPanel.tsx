@@ -2,7 +2,7 @@
 
 // Settings Panel - API key configuration and trading settings
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Key, Wallet, Save, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, DollarSign, RefreshCw, Shield } from "lucide-react";
+import { Settings, Wallet, Save, CheckCircle, AlertCircle, DollarSign, RefreshCw, Shield } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 
 interface PolymarketKeys {
@@ -57,7 +57,6 @@ export function SettingsPanel() {
       consecutiveLossThreshold: 5,
     },
   });
-  const [showSecrets, setShowSecrets] = useState(false);
   const [saving, setSaving] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"unknown" | "connected" | "error">("unknown");
   const [settingBalance, setSettingBalance] = useState(false);
@@ -159,12 +158,6 @@ export function SettingsPanel() {
     }
   };
 
-  const updatePolymarketKey = (key: keyof PolymarketKeys, value: string) => {
-    setSettings(prev => ({
-      ...prev,
-      polymarket: { ...prev.polymarket, [key]: value },
-    }));
-  };
 
   const setAllBotsBalance = async (balance: number) => {
     setSettingBalance(true);
@@ -442,99 +435,39 @@ export function SettingsPanel() {
         </div>
       </div>
 
-      {/* Polymarket API Keys */}
-      <div className="glass-card" style={{ padding: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Key className="w-4 h-4" style={{ color: "var(--primary)" }} />
-            <span style={{ fontWeight: 600 }}>Polymarket API Keys</span>
-          </div>
-          <button
-            onClick={() => setShowSecrets(!showSecrets)}
-            className="quick-btn"
-            style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
-          >
-            {showSecrets ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-            {showSecrets ? "Hide" : "Show"}
-          </button>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <div>
-            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              API Key
-            </label>
-            <input
-              type={showSecrets ? "text" : "password"}
-              value={settings.polymarket.apiKey}
-              onChange={(e) => updatePolymarketKey("apiKey", e.target.value)}
-              placeholder="Enter your Polymarket API key"
-              className="input"
-              style={{ width: "100%", padding: "0.5rem" }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              API Secret
-            </label>
-            <input
-              type={showSecrets ? "text" : "password"}
-              value={settings.polymarket.apiSecret}
-              onChange={(e) => updatePolymarketKey("apiSecret", e.target.value)}
-              placeholder="Enter your Polymarket API secret"
-              className="input"
-              style={{ width: "100%", padding: "0.5rem" }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              API Passphrase
-            </label>
-            <input
-              type={showSecrets ? "text" : "password"}
-              value={settings.polymarket.apiPassphrase}
-              onChange={(e) => updatePolymarketKey("apiPassphrase", e.target.value)}
-              placeholder="Enter your Polymarket API passphrase"
-              className="input"
-              style={{ width: "100%", padding: "0.5rem" }}
-            />
-          </div>
-        </div>
-
-        <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-          <a
-            href="https://polymarket.com/portfolio"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "var(--primary)", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
-          >
-            Get your API keys from Polymarket <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
-
-      {/* Wallet Settings */}
+      {/* Account Management */}
       <div className="glass-card" style={{ padding: "1rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
           <Wallet className="w-4 h-4" style={{ color: "var(--primary)" }} />
-          <span style={{ fontWeight: 600 }}>Wallet Settings</span>
+          <span style={{ fontWeight: 600 }}>Trading Accounts</span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{
+          padding: "0.75rem",
+          background: "rgba(59, 130, 246, 0.1)",
+          borderRadius: 8,
+          border: "1px solid rgba(59, 130, 246, 0.3)"
+        }}>
+          <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+            Account management is handled in the header. Click <strong>Accounts</strong> button when in Live mode to add, remove, or switch between wallets.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.75rem" }}>
           <div>
             <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              Wallet Address
+              Active Wallet
             </label>
-            <input
-              type="text"
-              value={settings.walletAddress}
-              onChange={(e) => setSettings(prev => ({ ...prev, walletAddress: e.target.value }))}
-              placeholder="0x..."
-              className="input"
-              style={{ width: "100%", padding: "0.5rem", fontFamily: "ui-monospace, monospace" }}
-            />
+            <div style={{
+              padding: "0.5rem",
+              background: "var(--bg)",
+              borderRadius: 6,
+              fontFamily: "ui-monospace, monospace",
+              fontSize: "0.875rem",
+              color: "var(--text-primary)"
+            }}>
+              {settings.walletAddress || "No wallet configured"}
+            </div>
           </div>
 
           <div>

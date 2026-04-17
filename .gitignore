@@ -46,3 +46,4 @@ telemetry-id
 
 # Git worktrees
 .worktrees/
+.accounts.json

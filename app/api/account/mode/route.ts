@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getBotManager, getMarketEngine } from '@/lib/global'
 import { initializeClobClient, getBalance, getConfig } from '@/lib/providers/clob-client'
+import { accountStore } from '@/lib/account-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,20 +47,30 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  let warning: string | null = null;
+
   // If switching to live mode, verify credentials
   if (mode === 'live') {
     const config = getConfig()
+    const activeAccount = await accountStore.getActiveAccount()
 
-    if (!config.hasPrivateKey) {
+    // Check both config and account store for private key
+    const hasPrivateKey = config.hasPrivateKey || !!activeAccount?.privateKey
+
+    if (!hasPrivateKey) {
       return NextResponse.json(
-        { success: false, error: 'Missing Polymarket private key. Configure POLY_PRIVATE_KEY for trading.' },
+        { success: false, error: 'No trading account configured. Add an account via the Accounts button in Live mode.' },
         { status: 400 }
       )
     }
 
-    // Try to fetch live balance to verify connection
+    // Try to initialize with account store credentials
     try {
-      await initializeClobClient()
+      const privateKey = activeAccount?.privateKey || process.env.POLYMARKET_PRIVATE_KEY;
+      if (privateKey) {
+        await initializeClobClient(privateKey)
+      }
+
       const balanceResult = await getBalance()
 
       if (!balanceResult.success) {
@@ -69,18 +80,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Block if balance is 0 - cannot trade without funds
+      // Warn if balance is 0 but don't block - user can still test
       if (balanceResult.balance === 0) {
-        return NextResponse.json(
-          { success: false, error: 'Cannot enable live mode: Your Polymarket balance is $0. Deposit USDC to your Polymarket account first.' },
-          { status: 400 }
-        )
+        warning = 'Your Polymarket balance is $0. You can test but cannot execute real trades without funds.';
       }
     } catch (err) {
-      return NextResponse.json(
-        { success: false, error: `Failed to verify Polymarket connection: ${err}` },
-        { status: 400 }
-      )
+      warning = `Could not verify Polymarket connection: ${err}. Proceeding anyway.`;
     }
   }
 
@@ -107,5 +112,6 @@ export async function POST(request: NextRequest) {
     success: true,
     mode,
     balance: balance || 0,
+    warning,
   })
 }

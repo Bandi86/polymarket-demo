@@ -1,4 +1,7 @@
-import { Zap, AlertTriangle, Plus } from "lucide-react";
+import { Zap, AlertTriangle, Plus, Loader2, ShieldAlert, Check, Users } from "lucide-react";
+import { useState, useEffect } from "react";
+import { toast } from "@/components/ui/toast";
+import { AccountManagerModal } from "@/components/AccountManagerModal";
 import { PriceTicker } from "@/components/ui/PriceTicker";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { SoundToggle } from "@/components/ui/SoundToggle";
@@ -42,10 +45,52 @@ export function TopDashboardHeader({
   onDepositClick,
   risk,
 }: TopDashboardHeaderProps) {
-  // Connection status
   const hasPrivateKey = liveBalance?.hasPrivateKey ?? false;
   const hasCredentials = liveBalance?.hasCredentials ?? false;
   const walletAddress = liveBalance?.walletAddress;
+
+  const [isApproved, setIsApproved] = useState<boolean | null>(null);
+  const [isApproving, setIsApproving] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+
+  // Check approvals on load and mode change
+  useEffect(() => {
+    if (tradingMode === "live" && hasPrivateKey) {
+      checkApprovals();
+    } else {
+      setIsApproved(null);
+    }
+  }, [tradingMode, hasPrivateKey]);
+
+  const checkApprovals = async () => {
+    try {
+      const res = await fetch("/api/account/approvals");
+      const data = await res.json();
+      if (data.success) {
+        setIsApproved(data.isApproved);
+      }
+    } catch (e) {
+      console.error("Failed to check approvals", e);
+    }
+  };
+
+  const handleApprove = async () => {
+    setIsApproving(true);
+    try {
+      const res = await fetch("/api/account/approvals", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Contracts approved successfully", "You can now trade in Live mode");
+        setIsApproved(true);
+      } else {
+        toast.error("Failed to approve contracts", data.error || "Ensure you have MATIC for gas");
+      }
+    } catch (e) {
+      toast.error("Network error during approval");
+    } finally {
+      setIsApproving(false);
+    }
+  };
 
   const getConnectionStatus = () => {
     if (tradingMode === "demo") return null;
@@ -106,26 +151,110 @@ export function TopDashboardHeader({
             </div>
           )}
 
-          {/* Live Balance Display */}
-          {tradingMode === "live" && liveBalance && (
+          {/* Approvals Warning */}
+          {tradingMode === "live" && isApproved === false && (
+            <button
+              onClick={handleApprove}
+              disabled={isApproving}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.3rem 0.75rem",
+                background: "rgba(245, 158, 11, 0.15)",
+                border: "1px solid rgba(245, 158, 11, 0.4)",
+                borderRadius: 8,
+                cursor: isApproving ? "not-allowed" : "pointer",
+                color: "#f59e0b",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+              }}
+              title="You must approve Polymarket contracts to trade. Costs MATIC."
+            >
+              {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
+              {isApproving ? "Approving..." : "Approve Contracts"}
+            </button>
+          )}
+
+          {/* Account Manager Button */}
+          {tradingMode === "live" && (
+            <button
+              onClick={() => setShowAccountModal(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.4rem 0.75rem",
+                background: "var(--glass-bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                cursor: "pointer",
+                color: "var(--text-primary)",
+                fontSize: "0.875rem",
+                fontWeight: 600,
+              }}
+            >
+              <Users className="w-4 h-4" style={{ color: "var(--primary)" }} />
+              Accounts
+            </button>
+          )}
+
+          {/* Missing Keys Warning */}
+          {tradingMode === "live" && !hasPrivateKey && (
             <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.3rem 0.75rem",
-              background: liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-              border: `1px solid ${liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
-              borderRadius: 8,
+              display: "flex", alignItems: "center", gap: "0.4rem",
+              padding: "0.4rem 0.75rem", background: "rgba(239, 68, 68, 0.15)",
+              border: "1px solid rgba(239, 68, 68, 0.4)", borderRadius: 8, color: "#ef4444",
+              fontSize: "0.75rem", fontWeight: 600
             }}>
-              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Live:</span>
-              <span style={{
-                fontSize: "0.9rem",
-                fontWeight: 700,
-                fontFamily: "ui-monospace, monospace",
-                color: liveBalance.balance > 0 ? "#22c55e" : "#ef4444",
+              <AlertTriangle className="w-4 h-4" />
+              Missing Private Key
+            </div>
+          )}
+
+          {/* Live Balance Display */}
+          {tradingMode === "live" && hasPrivateKey && liveBalance && (
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.3rem 0.75rem",
+                background: liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                border: `1px solid ${liveBalance.balance > 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                borderRadius: 8,
               }}>
-                ${liveBalance.balance.toFixed(2)}
-              </span>
+                <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }} title="Available for bot trading on the CLOB">Trading:</span>
+                <span style={{
+                  fontSize: "0.9rem",
+                  fontWeight: 700,
+                  fontFamily: "ui-monospace, monospace",
+                  color: liveBalance.balance > 0 ? "#22c55e" : "#ef4444",
+                }}>
+                  ${liveBalance.balance.toFixed(2)}
+                </span>
+              </div>
+              {liveBalance.onChainValue !== undefined && liveBalance.onChainValue >= 0 && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.3rem 0.75rem",
+                  background: "rgba(59, 130, 246, 0.15)",
+                  border: "1px solid rgba(59, 130, 246, 0.3)",
+                  borderRadius: 8,
+                }}>
+                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }} title="Total on-chain value (USDC + CTF)">Wallet:</span>
+                  <span style={{
+                    fontSize: "0.9rem",
+                    fontWeight: 700,
+                    fontFamily: "ui-monospace, monospace",
+                    color: "#3b82f6",
+                  }}>
+                    ${liveBalance.onChainValue.toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -226,6 +355,16 @@ export function TopDashboardHeader({
         <NotificationCenter />
         <ThemeToggle />
       </div>
+
+      {showAccountModal && (
+        <AccountManagerModal
+          onClose={() => setShowAccountModal(false)}
+          onAccountSwitched={() => {
+            if (onModeChange) onModeChange("live");
+            window.location.reload(); 
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,16 +1,17 @@
 // Dashboard constants and configuration
 
 import type { TabId } from "../TopDashboard";
-import { BarChart2, Activity, Shield, FlaskConical, Trophy, Settings, Zap } from "lucide-react";
+import { BarChart2, Activity, Shield, FlaskConical, Trophy, Settings, Zap, PieChart } from "lucide-react";
 
 export const TABS: { id: TabId; label: string; icon: typeof BarChart2 }[] = [
-  { id: 'trade', label: 'Trade', icon: BarChart2 },
-  { id: 'monitor', label: 'Monitor', icon: Activity },
-  { id: 'live', label: 'Live', icon: Zap },
-  { id: 'risk', label: 'Risk', icon: Shield },
-  { id: 'backtest', label: 'Backtest', icon: FlaskConical },
+  { id: 'trade',     label: 'Trade',     icon: BarChart2 },
+  { id: 'monitor',   label: 'Monitor',   icon: Activity },
+  { id: 'live',      label: 'Live',      icon: Zap },
+  { id: 'analytics', label: 'Analytics', icon: PieChart },
+  { id: 'risk',      label: 'Risk',      icon: Shield },
+  { id: 'backtest',  label: 'Backtest',  icon: FlaskConical },
   { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-  { id: 'config', label: 'Config', icon: Settings },
+  { id: 'config',    label: 'Config',    icon: Settings },
 ];
 
 export const ASSETS = ["BTC", "ETH", "SOL", "XRP"];

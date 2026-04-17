@@ -74,6 +74,7 @@ export interface WalletState {
   isCorrectNetwork: boolean;
   usdcBalance: number;
   usdcAllowance: number;
+  maticBalance: number;  // MATIC balance for gas
   isConnecting: boolean;
   error: string | null;
 }
@@ -86,6 +87,7 @@ export function useWallet() {
     isCorrectNetwork: false,
     usdcBalance: 0,
     usdcAllowance: 0,
+    maticBalance: 0,
     isConnecting: false,
     error: null,
   });
@@ -203,6 +205,7 @@ export function useWallet() {
       isCorrectNetwork: false,
       usdcBalance: 0,
       usdcAllowance: 0,
+      maticBalance: 0,
       isConnecting: false,
       error: null,
     });

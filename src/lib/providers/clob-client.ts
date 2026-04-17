@@ -7,13 +7,16 @@ import { createWalletClient, http } from "viem";
 import { polygon } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
-// Load credentials from environment
+import { accountStore } from '@/lib/account-store';
+
+// Load credentials from environment (legacy fallback)
 const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
 const POLY_API_SECRET = process.env.POLYMARKET_API_SECRET || "";
 const POLY_API_PASSPHRASE = process.env.POLYMARKET_API_PASSPHRASE || "";
-const POLY_PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY || "";
+let currentPrivateKey: string | null = null;
 
 const CLOB_HOST = "https://clob.polymarket.com";
+const DATA_HOST = "https://data-api.polymarket.com";
 const CHAIN_ID = 137; // Polygon
 
 // Types
@@ -60,19 +63,37 @@ let signer: any = null; // Store signer for custom requests
 /**
  * Initialize the CLOB client with credentials
  */
-export async function initializeClobClient(): Promise<boolean> {
-  if (initialized && clobClient) {
-    return true;
+export async function initializeClobClient(privateKeyParam?: string): Promise<boolean> {
+  // Determine which key to use
+  let keyToUse = privateKeyParam;
+  if (!keyToUse) {
+    const activeAcc = await accountStore.getActiveAccount();
+    if (activeAcc) {
+      keyToUse = activeAcc.privateKey;
+    } else {
+      keyToUse = process.env.POLYMARKET_PRIVATE_KEY || undefined;
+    }
   }
 
-  if (!POLY_PRIVATE_KEY) {
+  if (!keyToUse) {
     console.error("[ClobClient] No private key configured");
     return false;
   }
 
+  // If we are initialized with a different key, reset first
+  if (initialized && clobClient && currentPrivateKey !== keyToUse) {
+    resetClient();
+  }
+
+  if (initialized && clobClient) {
+    return true;
+  }
+
+  currentPrivateKey = keyToUse;
+
   try {
     // Create account from private key
-    const account = privateKeyToAccount(POLY_PRIVATE_KEY as `0x${string}`);
+    const account = privateKeyToAccount(keyToUse as `0x${string}`);
     walletAddress = account.address;
 
     // Create wallet client
@@ -123,49 +144,96 @@ export async function initializeClobClient(): Promise<boolean> {
 }
 
 /**
- * Get account balance - fetches from CLOB API using authenticated request
+ * Get account balance - fetches from CLOB API
+ * Uses /value endpoint (no auth required) or /positions (no auth required)
  */
 export async function getBalance(): Promise<BalanceResult> {
-  if (!initialized || !clobClient || !walletAddress || !signer || !apiKeyCreds) {
+  if (!walletAddress) {
+    // Try to initialize first
     const init = await initializeClobClient();
-    if (!init || !walletAddress || !signer || !apiKeyCreds) {
+    if (!init || !walletAddress) {
       return {
         balance: 0,
         available: 0,
         locked: 0,
         success: false,
         isLive: false,
-        error: "Failed to initialize client",
+        error: "No wallet address",
       };
     }
   }
 
   try {
-    // Create authenticated headers
-    const timestamp = Math.floor(Date.now() / 1000);
-    const authHeaders = await createL2Headers(signer!, apiKeyCreds!, {
-      method: "GET",
-      requestPath: "/balance",
-    }, timestamp);
-
-    // Fetch balance from CLOB API with authentication
-    const response = await fetch(
-      `${CLOB_HOST}/balance?address=${walletAddress}`,
+    // First try: use /value endpoint from Data API (no auth required, returns positions value)
+    console.log("[ClobClient] Fetching balance from Data API /value...");
+    const valueResponse = await fetch(
+      `${DATA_HOST}/value?user=${walletAddress}`,
       {
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(10000),
       }
     );
 
-    if (!response.ok) {
-      console.log("[ClobClient] /balance returned:", response.status, await response.text().catch(() => ""));
+    if (valueResponse.ok) {
+      const data = await valueResponse.json();
+      // /value returns [{ user: "...", value: 100.5 }]
+      const value = Array.isArray(data) ? data[0]?.value : data?.value;
+      const balance = parseFloat(value || "0");
+      console.log("[ClobClient] Balance from /value:", balance);
+      return {
+        balance,
+        available: balance,
+        locked: 0,
+        success: true,
+        isLive: true,
+      };
+    }
+    console.log("[ClobClient] /value returned:", valueResponse.status);
 
-      // Try alternative endpoint with auth
-      const altResponse = await fetch(
-        `${CLOB_HOST}/api/balances`,
+    // Second try: get positions from Data API and calculate total value
+    console.log("[ClobClient] Fetching balance from Data API /positions...");
+    const positionsResponse = await fetch(
+      `${DATA_HOST}/positions?user=${walletAddress}&limit=100`,
+      {
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (positionsResponse.ok) {
+      const positions = await positionsResponse.json();
+      let totalValue = 0;
+      let totalBought = 0;
+
+      if (Array.isArray(positions)) {
+        for (const pos of positions) {
+          // Use currentValue if available, otherwise calculate from size * price
+          totalValue += pos.currentValue || (pos.size || 0) * (pos.avgPrice || 0);
+          totalBought += pos.totalBought || 0;
+        }
+      }
+      console.log("[ClobClient] Balance from /positions:", totalValue);
+
+      return {
+        balance: totalValue,
+        available: totalValue - totalBought,
+        locked: 0,
+        success: true,
+        isLive: true,
+      };
+    }
+    console.log("[ClobClient] /positions returned:", positionsResponse.status);
+
+    // Third try: authenticated /balance (legacy - may not exist)
+    if (signer && apiKeyCreds) {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const authHeaders = await createL2Headers(signer!, apiKeyCreds!, {
+        method: "GET",
+        requestPath: "/balance",
+      }, timestamp);
+
+      const response = await fetch(
+        `${CLOB_HOST}/balance?address=${walletAddress}`,
         {
           headers: {
             "Content-Type": "application/json",
@@ -175,43 +243,30 @@ export async function getBalance(): Promise<BalanceResult> {
         }
       );
 
-      if (!altResponse.ok) {
-        // Try getting position value as alternative
+      if (response.ok) {
+        const data = await response.json();
+        const balance = parseFloat(data?.USDC || data?.balance || "0") / 1e6;
         return {
-          balance: 0,
-          available: 0,
+          balance,
+          available: balance,
           locked: 0,
           success: true,
           isLive: true,
-          error: `API returned ${response.status}, but may have positions`,
         };
       }
 
-      const data = await altResponse.json();
-      // Parse balance - look for USDC in the response
-      const usdcEntry = Array.isArray(data) ? data.find((b: any) => b.currency === "USDC" || b.asset === "USDC") : null;
-      const balance = usdcEntry ? parseFloat(usdcEntry.balance || "0") / 1e6 : 0;
-      return {
-        balance,
-        available: balance,
-        locked: 0,
-        success: true,
-        isLive: true,
-      };
+      console.log("[ClobClient] /balance (auth) returned:", response.status, await response.text().catch(() => ""));
     }
 
-    const data = await response.json();
-
-    // Parse balance - USDC is in micro units (6 decimals)
-    const balance = parseFloat(data?.USDC || data?.balance || "0") / 1e6;
-    const available = parseFloat(data?.available || data?.USDC || "0") / 1e6;
-
+    // If all else fails, return 0 but don't error
+    console.log("[ClobClient] Could not fetch balance. Using 0.");
     return {
-      balance,
-      available: available || balance,
+      balance: 0,
+      available: 0,
       locked: 0,
       success: true,
       isLive: true,
+      error: "Could not fetch balance - may have no positions",
     };
   } catch (error) {
     console.error("[ClobClient] getBalance error:", error);
@@ -220,7 +275,7 @@ export async function getBalance(): Promise<BalanceResult> {
       available: 0,
       locked: 0,
       success: false,
-      isLive: false,
+      isLive: true,
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }
@@ -371,8 +426,8 @@ export async function placeOrder(params: {
  */
 export function getConfig(): { hasCredentials: boolean; hasPrivateKey: boolean; walletAddress: string | null } {
   return {
-    hasCredentials: !!(POLY_API_KEY && POLY_API_SECRET),
-    hasPrivateKey: !!POLY_PRIVATE_KEY,
+    hasCredentials: !!(POLY_API_KEY && POLY_API_SECRET) || !!currentPrivateKey,
+    hasPrivateKey: !!currentPrivateKey,
     walletAddress,
   };
 }
@@ -391,5 +446,8 @@ export function resetClient(): void {
   clobClient = null;
   apiKeyCreds = null;
   initialized = false;
+  signer = null;
+  walletAddress = null;
+  currentPrivateKey = null;
   console.log("[ClobClient] Reset");
 }
