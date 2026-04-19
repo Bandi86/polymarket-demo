@@ -9,6 +9,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import { accountStore } from '@/lib/account-store';
 import { cliWrapper } from "./cli-wrapper";
+import { placeOrderDirect } from "./account-client";
 
 // Load credentials from environment (legacy fallback)
 const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
@@ -104,29 +105,34 @@ export async function initializeClobClient(privateKeyParam?: string): Promise<bo
       transport: http(),
     });
 
-    // Initialize ClobClient with credentials
-    // Use API key credentials if available, otherwise derive from wallet
+    // Initialize ClobClient - try without API credentials first (wallet-only auth)
+    // Only add credentials if needed
+    let credsToUse = undefined;
     if (POLY_API_KEY && POLY_API_SECRET && POLY_API_PASSPHRASE) {
-      apiKeyCreds = {
+      credsToUse = {
         key: POLY_API_KEY,
         secret: POLY_API_SECRET,
         passphrase: POLY_API_PASSPHRASE,
       };
+      console.log("[ClobClient] Using provided API credentials from env");
     }
 
-    // Initialize ClobClient - signatureType 0 for EOA
     clobClient = new ClobClient(
       CLOB_HOST,
       CHAIN_ID,
       walletClient,
-      apiKeyCreds || undefined,
+      credsToUse,
       0 // signatureType: 0 = EOA
     );
 
-    // Create or derive API key if not provided
-    if (!apiKeyCreds) {
-      apiKeyCreds = await clobClient.createOrDeriveApiKey();
-      console.log("[ClobClient] API key derived");
+    // Try to derive API key if no credentials provided - this helps with some endpoints
+    if (!credsToUse) {
+      try {
+        apiKeyCreds = await clobClient.createOrDeriveApiKey();
+        console.log("[ClobClient] API key derived from wallet");
+      } catch (keyError) {
+        console.warn("[ClobClient] Could not derive API key:", keyError);
+      }
     }
 
     // Get the signer from clobClient for custom authenticated requests
@@ -418,6 +424,7 @@ export async function placeOrder(params: {
   }
 
   try {
+    console.log("[ClobClient] placeOrder: tokenId=", params.tokenId, "side=", params.side, "price=", params.price, "size=", params.size);
     const orderResult = await clobClient!.createAndPostOrder(
       {
         tokenID: params.tokenId,
@@ -429,12 +436,42 @@ export async function placeOrder(params: {
       OrderType.GTC
     );
 
+    console.log("[ClobClient] placeOrder result:", JSON.stringify(orderResult));
+
+    // Check if the response contains an error
+    if (orderResult && (orderResult as any).error) {
+      const errMsg = (orderResult as any).error || "Order placement failed";
+
+      // If auth error, try direct API method as fallback
+      if (errMsg.includes("Unauthorized") || errMsg.includes("Invalid api key")) {
+        console.log("[ClobClient] Auth failed, trying direct API method...");
+        const activeAcc = await accountStore.getActiveAccount();
+        const pk = activeAcc?.privateKey || process.env.POLYMARKET_PRIVATE_KEY;
+        if (pk) {
+          const directResult = await placeOrderDirect({
+            tokenId: params.tokenId,
+            side: params.side,
+            price: params.price,
+            size: params.size,
+            privateKey: pk,
+          });
+          return directResult;
+        }
+      }
+
+      console.error("[ClobClient] placeOrder API error:", errMsg);
+      return {
+        success: false,
+        error: errMsg,
+      };
+    }
+
     return {
       success: true,
       orderId: orderResult?.orderID || orderResult?.id || "",
     };
   } catch (error) {
-    console.error("[ClobClient] placeOrder error:", error);
+    console.error("[ClobClient] placeOrder exception:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",

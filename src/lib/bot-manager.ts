@@ -461,7 +461,7 @@ export class BotManager {
     this.intervals.set(id, intervalId);
     bot.runTime = Date.now();
 
-    console.log(`[BotManager] Bot ${id} started successfully - portfolio balance: ${portfolio.balance}, interval: ${bot.interval}ms`);
+    console.log(`[BotManager] Bot ${id} started successfully - tradingMode: ${this.tradingMode}, portfolio balance: ${portfolio.balance}, interval: ${bot.interval}ms`);
   }
 
   private stopBot(id: string): void {
@@ -701,6 +701,8 @@ export class BotManager {
     // Execute strategy
     try {
       const decision = strategy.execute(context);
+      // DEBUG: Log strategy decision
+      console.log(`[DEBUG-STRATEGY] ${botId}: action=${decision?.action || 'null'}, confidence=${decision?.confidence || 0}, reason=${decision?.reason || 'none'}`);
       // Reset error count on success
       this.consecutiveErrors.delete(botId);
       return decision;
@@ -749,7 +751,15 @@ export class BotManager {
     // PHASE 1 FIX: Check loss limits BEFORE executing strategy
     // ═══════════════════════════════════════════════════════════════
     const portfolio = marketEngine.getBotPortfolio(id);
-    const riskMultiplier = getRiskMultiplier(id, portfolio.balance);
+
+    // CRITICAL FIX: In live mode, use live balance instead of demo portfolio balance
+    const effectiveBalance = this.tradingMode === "live"
+      ? liveModeManager.getState().availableBalance || portfolio.balance
+      : portfolio.balance;
+
+    console.log(`[DEBUG-BALANCE] Bot ${id}: tradingMode=${this.tradingMode}, demoBalance=${portfolio.balance}, liveBalance=${liveModeManager.getState().availableBalance}, effectiveBalance=${effectiveBalance}`);
+
+    const riskMultiplier = getRiskMultiplier(id, effectiveBalance);
 
     if (riskMultiplier === 0) {
       // Bot should stop trading - get tracker details for logging
@@ -931,7 +941,9 @@ export class BotManager {
 
     // Live mode specific checks
     if (this.tradingMode === "live") {
+      console.log(`[DEBUG-LIVE] Bot ${id}: Checking live mode eligibility...`);
       const liveCheck = liveModeManager.canBotTrade(id, bot);
+      console.log(`[DEBUG-LIVE] Bot ${id}: liveCheck = ${JSON.stringify(liveCheck)}`);
       if (!liveCheck.allowed) {
         this.addLog(id, "LIVE_RISK", `Live trade blocked: ${liveCheck.reason}`, {
           betSize,
@@ -988,6 +1000,9 @@ export class BotManager {
     const finalBetSize = coordination.adjustedBetSize ?? betSize;
     const adjustedFee = finalBetSize * 0.02;
 
+    // DEBUG: Log balance and bet size
+    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}`);
+
     if (portfolio.balance < finalBetSize + adjustedFee) {
       strategyCoordinator.cancelDecision(market.id, id);
       this.addLog(id, "ERROR", `Insufficient balance for trade - Required: $${(finalBetSize + adjustedFee).toFixed(2)}, Available: $${portfolio.balance.toFixed(2)}`);
@@ -995,6 +1010,7 @@ export class BotManager {
     }
 
     // Execute trade based on trading mode
+    console.log(`[DEBUG-MODE] Bot ${id}: tradingMode=${this.tradingMode}, action=${action}, betSize=${finalBetSize}`);
     if (this.tradingMode === "live") {
       // LIVE MODE: Place real order on Polymarket with full error handling
       try {
@@ -1296,7 +1312,9 @@ export class BotManager {
 
     // Live mode specific checks
     if (this.tradingMode === "live") {
+      console.log(`[DEBUG-LIVE] Bot ${id}: Checking live mode eligibility...`);
       const liveCheck = liveModeManager.canBotTrade(id, bot);
+      console.log(`[DEBUG-LIVE] Bot ${id}: liveCheck = ${JSON.stringify(liveCheck)}`);
       if (!liveCheck.allowed) {
         this.addLog(id, "LIVE_RISK", `Live trade blocked: ${liveCheck.reason}`, {
           betSize,
@@ -1353,6 +1371,9 @@ export class BotManager {
     const finalBetSize = coordination.adjustedBetSize ?? betSize;
     const adjustedFee = finalBetSize * 0.02;
 
+    // DEBUG: Log balance and bet size
+    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}`);
+
     if (portfolio.balance < finalBetSize + adjustedFee) {
       strategyCoordinator.cancelDecision(market.id, id);
       this.addLog(id, "ERROR", `Insufficient balance for trade - Required: $${(finalBetSize + adjustedFee).toFixed(2)}, Available: $${portfolio.balance.toFixed(2)}`);
@@ -1360,6 +1381,7 @@ export class BotManager {
     }
 
     // Execute trade based on trading mode
+    console.log(`[DEBUG-MODE] Bot ${id}: tradingMode=${this.tradingMode}, action=${action}, betSize=${finalBetSize}`);
     if (this.tradingMode === "live") {
       // LIVE MODE: Place real order on Polymarket with full error handling
       try {

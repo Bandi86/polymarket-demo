@@ -47,3 +47,4 @@ telemetry-id
 # Git worktrees
 .worktrees/
 .accounts.json
+.env.balazs

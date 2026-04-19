@@ -51,6 +51,8 @@ export async function POST(request: NextRequest) {
   // Determine mode: explicit body mode > trading mode > default demo
   const isLiveMode = body?.mode === 'live' || (body?.mode !== 'demo' && tradingMode === 'live')
 
+  console.log(`[DEBUG-ORDER] tradingMode=${tradingMode}, body.mode=${body?.mode}, isLiveMode=${isLiveMode}`);
+
   try {
     // Get token ID from market if not provided
     let tokenId = body.tokenId
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
         size,
       })
 
+      console.log(`[API] Live order result:`, result)
       console.log(`[API] Live order placed: ${body.side} ${size} @ ${price} (token: ${tokenId})`)
     } else {
       // Demo mode - simulate order

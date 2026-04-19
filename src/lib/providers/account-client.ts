@@ -257,3 +257,64 @@ export async function fetchTrades(privateKey: string): Promise<{
     return { trades: [], success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
+/**
+ * Place an order using direct API call with L2 signature auth
+ */
+export async function placeOrderDirect(params: {
+  tokenId: string;
+  side: "BUY" | "SELL";
+  price: number;
+  size: number;
+  privateKey: string;
+}): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const { tokenId, side, price, size, privateKey } = params;
+
+  try {
+    const pk = privateKey.startsWith("0x")
+      ? privateKey as `0x${string}`
+      : `0x${privateKey}` as `0x${string}`;
+
+    const headers = await createAuthHeaders(pk);
+
+    // Order payload
+    const orderData = {
+      token_id: tokenId,
+      side: side.toLowerCase(),
+      price: price.toString(),
+      size: size.toString(),
+    };
+
+    console.log("[AccountClient] Placing order direct:", orderData);
+
+    const response = await fetch(`${CLOB_API}/orders`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(orderData),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    const result = await response.json();
+    console.log("[AccountClient] Order response:", response.status, result);
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: result.error || `HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      success: true,
+      orderId: result.orderID || result.id || "",
+    };
+  } catch (error) {
+    console.error("[AccountClient] placeOrderDirect error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
