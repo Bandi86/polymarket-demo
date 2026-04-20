@@ -168,7 +168,7 @@ export class LiveModeManager {
     }
 
     // Check credentials
-    const config = getConfig();
+    const config = await getConfig();
     if (!config.hasPrivateKey) {
       return { success: false, error: "No private key configured. Add POLYMARKET_PRIVATE_KEY to .env" };
     }

@@ -326,6 +326,22 @@ export async function getPositions(): Promise<{
   try {
     const openOrders = await clobClient!.getOpenOrders();
 
+    // Check if response is an error object
+    if (!openOrders) {
+      return { positions: [], success: true };
+    }
+
+    if (typeof openOrders === 'object' && 'error' in openOrders) {
+      console.error("[ClobClient] getPositions API error:", openOrders.error);
+      return { positions: [], success: false, error: String(openOrders.error) };
+    }
+
+    // Check if it's actually an array
+    if (!Array.isArray(openOrders)) {
+      console.error("[ClobClient] getPositions: unexpected response type", typeof openOrders);
+      return { positions: [], success: false, error: "Unexpected response format" };
+    }
+
     const mappedPositions: Position[] = (openOrders || []).map((order: OpenOrder) => ({
       market: order?.market || "",
       outcome: order?.outcome || "YES",
@@ -362,6 +378,22 @@ export async function getTrades(): Promise<{
 
   try {
     const trades = await clobClient!.getTrades({});
+
+    // Check if response is an error object
+    if (!trades) {
+      return { trades: [], success: true };
+    }
+
+    if (typeof trades === 'object' && 'error' in trades) {
+      console.error("[ClobClient] getTrades API error:", trades.error);
+      return { trades: [], success: false, error: String(trades.error) };
+    }
+
+    // Check if it's actually an array
+    if (!Array.isArray(trades)) {
+      console.error("[ClobClient] getTrades: unexpected response type", typeof trades);
+      return { trades: [], success: false, error: "Unexpected response format" };
+    }
 
     const mappedTrades: TradeResult[] = (trades || []).map((trade: Trade) => ({
       id: trade?.id || "",
@@ -480,13 +512,22 @@ export async function placeOrder(params: {
 }
 
 /**
- * Get configuration status
+ * Get configuration status - now async to read from account store
  */
-export function getConfig(): { hasCredentials: boolean; hasPrivateKey: boolean; walletAddress: string | null } {
+export async function getConfig(): Promise<{ hasCredentials: boolean; hasPrivateKey: boolean; walletAddress: string | null }> {
+  // Try to get active account from store
+  let activeWalletAddress: string | null = null;
+  try {
+    const activeAcc = await accountStore.getActiveAccount();
+    activeWalletAddress = activeAcc?.walletAddress || null;
+  } catch (e) {
+    // Fallback to cached value
+  }
+
   return {
     hasCredentials: !!(POLY_API_KEY && POLY_API_SECRET) || !!currentPrivateKey,
     hasPrivateKey: !!currentPrivateKey,
-    walletAddress,
+    walletAddress: activeWalletAddress || walletAddress,
   };
 }
 

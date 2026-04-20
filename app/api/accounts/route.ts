@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { accountStore } from '@/lib/account-store';
 import { getBotManager } from '@/lib/global';
+import { resetClient } from '@/lib/providers/clob-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,19 +23,18 @@ export async function POST(req: NextRequest) {
     }
 
     const newAccount = await accountStore.addAccount(privateKey, label);
-    
-    // When adding a new account, the store might make it active.
-    // Ensure we trigger a re-initialization of the clob client if needed.
-    // But we'll handle dynamic injection differently, so it's fine.
 
-    return NextResponse.json({ 
-      success: true, 
+    // When adding a new account, reset CLOB client
+    resetClient();
+
+    return NextResponse.json({
+      success: true,
       account: {
         id: newAccount.id,
         walletAddress: newAccount.walletAddress,
         label: newAccount.label,
         isActive: newAccount.isActive
-      } 
+      }
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 400 });
@@ -50,7 +50,10 @@ export async function PUT(req: NextRequest) {
     }
 
     await accountStore.setActiveAccount(id);
-    
+
+    // Reset CLOB client when switching accounts so it reinitializes with new credentials
+    resetClient();
+
     // Stop all bots when switching accounts
     try {
       getBotManager().stopAllBots();

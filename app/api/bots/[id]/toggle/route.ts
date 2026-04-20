@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { broadcastToSSE, getBotManager, getPolymarketProvider } from '@/lib/global'
+import { broadcastToSSE, getBotManager, getPolymarketProvider, getLiveModeManager } from '@/lib/global'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,6 +11,7 @@ export async function POST(
 ) {
   const botManager = getBotManager()
   const polymarketProvider = getPolymarketProvider()
+  const liveModeManager = getLiveModeManager()
   const { id } = await params
 
   // Check if we're enabling a bot
@@ -40,6 +41,12 @@ export async function POST(
   const bot = botManager.toggleBot(id)
   if (!bot) {
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 })
+  }
+
+  // KRITIKUS: Live módban a bot engedélyezésekor frissítsük a liveModeManager beállításait is
+  if (bot.enabled && botManager.getTradingMode() === "live") {
+    liveModeManager.updateBotSettings(id, { enabled: true })
+    console.log(`[API] Enabled live trading for bot: ${id}`)
   }
 
   console.log(`[API] toggle bot ${id}: enabled=${bot.enabled}, portfolio balance=${bot.portfolio?.balance}`)

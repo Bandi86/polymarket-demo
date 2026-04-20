@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (isLiveMode) {
       // Use new clob-client for live trading
       await initializeClobClient()
-      const config = getConfig()
+      const config = await getConfig()
 
       if (!config.hasPrivateKey) {
         return NextResponse.json(

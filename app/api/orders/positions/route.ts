@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   // Initialize CLOB client
   await initializeClobClient()
-  const config = getConfig()
+  const config = await getConfig()
 
   if (!config.hasPrivateKey) {
     return NextResponse.json({

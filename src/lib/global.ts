@@ -13,6 +13,7 @@ import { binanceKlineProvider, BinanceKlineProvider, KlineProviderConfig } from 
 import { polymarketProvider, PolymarketProvider } from "./providers/polymarket-provider";
 import { sessionSummaryGenerator, SessionSummaryGenerator } from "./session-summary-generator";
 import { positionMonitor, PositionMonitor } from "./position-monitor";
+import { liveModeManager, LiveModeManager } from "./live-mode-manager";
 import {
   validateSettlement,
   recordSettlementValidation,
@@ -80,6 +81,10 @@ export function getSessionSummaryGenerator(): SessionSummaryGenerator {
 
 export function getPositionMonitor(): PositionMonitor {
   return positionMonitor;
+}
+
+export function getLiveModeManager(): LiveModeManager {
+  return liveModeManager;
 }
 
 // === SSE Broadcasting ===

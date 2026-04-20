@@ -112,11 +112,10 @@ export function getRiskMultiplier(botId: string, currentBalance: number): number
     console.log(`[LossTracker] ${botId}: consecutiveLosses=${tracker.consecutiveLosses}, pendingSettlements=${tracker.pendingSettlements}, drawdown=${tracker.drawdown.toFixed(1)}%`);
   }
 
-  // REMOVED: Stop after 3 consecutive losses - demo mode should test all scenarios
-  // Also stop if we have pending settlements (race condition prevention)
-  if (tracker.pendingSettlements > 0) {
-    return 0; // Stop trading - but will resume after settlement
-  }
+  // REMOVED: Stop if we have pending settlements (race condition prevention)
+  // TEMPORARILY DISABLED FOR LIVE TESTING: if (tracker.pendingSettlements > 0) {
+  //   return 0; // Stop trading - but will resume after settlement
+  // }
 
   // REMOVED: 3 consecutive losses stop - let bots trade in demo mode
   // Reduced sizing after consecutive losses (but don't stop completely)

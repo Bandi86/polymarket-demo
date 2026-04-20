@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 // POST /api/orders/cancel - Cancel an order
 export async function POST(request: NextRequest) {
-  const config = getConfig()
+  const config = await getConfig()
 
   if (!config.hasPrivateKey) {
     return NextResponse.json(

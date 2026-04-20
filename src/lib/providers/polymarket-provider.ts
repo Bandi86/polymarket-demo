@@ -13,16 +13,33 @@ import {
 } from "./account-client";
 import { accountManager } from "../account-manager";
 import { placeOrder as placeOrderRequest, cancelOrder as cancelOrderRequest } from "./order-client";
+import { accountStore } from "../account-store";
 
-// Load credentials from environment (Bun automatically loads .env)
+// Helper to get private key - check account-store first, then env var
+async function getPrivateKey(): Promise<string> {
+  const activeAcc = await accountStore.getActiveAccount();
+  console.log(`[getPrivateKey] accountStore.getActiveAccount() = ${activeAcc ? 'found' : 'null'}`);
+  if (activeAcc?.privateKey) {
+    console.log(`[getPrivateKey] Using account store key: ${activeAcc.privateKey.substring(0, 8)}...`);
+    return activeAcc.privateKey;
+  }
+  const envKey = process.env.POLYMARKET_PRIVATE_KEY;
+  console.log(`[getPrivateKey] env POLYMARKET_PRIVATE_KEY = ${envKey ? envKey.substring(0, 8) + '...' : 'undefined'}`);
+  return process.env.POLYMARKET_PRIVATE_KEY || "";
+}
+
+// Helper to check if private key is configured (async)
+async function hasPrivateKeyConfigured(): Promise<boolean> {
+  const key = await getPrivateKey();
+  return !!key;
+}
+
+// Debug: Log if credentials are loaded (without revealing them)
 const POLY_API_KEY = process.env.POLYMARKET_API_KEY || "";
 const POLY_API_SECRET = process.env.POLYMARKET_API_SECRET || "";
-const POLY_PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY || "";
 
 // Debug: Log if credentials are loaded (without revealing them)
 const hasCredentials = !!(POLY_API_KEY && POLY_API_SECRET);
-const hasPrivateKey = !!POLY_PRIVATE_KEY;
-console.log(`[PolymarketProvider] Credentials: API=${hasCredentials ? 'YES' : 'NO'} PrivateKey=${hasPrivateKey ? 'YES' : 'NO'}`);
 
 // Re-export types for backward compatibility
 export type { PolymarketEvent, PolymarketMarket } from "../../types/provider.types";
@@ -126,7 +143,8 @@ export class PolymarketProvider {
   }
 
   /** Get configuration status */
-  getConfig(): { apiKey: string; hasCredentials: boolean; hasPrivateKey: boolean } {
+  async getConfig(): Promise<{ apiKey: string; hasCredentials: boolean; hasPrivateKey: boolean }> {
+    const hasPrivateKey = await hasPrivateKeyConfigured();
     return {
       apiKey: POLY_API_KEY ? "configured" : "not configured",
       hasCredentials,
@@ -140,8 +158,8 @@ export class PolymarketProvider {
   }
 
   /** Check if private key is configured */
-  hasPrivateKey(): boolean {
-    return hasPrivateKey;
+  async hasPrivateKey(): Promise<boolean> {
+    return hasPrivateKeyConfigured();
   }
 
   /** Fetch account balance (Trading Balance for bots) */
@@ -186,11 +204,12 @@ export class PolymarketProvider {
     success: boolean;
     error?: string;
   }> {
-    if (!POLY_PRIVATE_KEY) {
+    const privateKey = await getPrivateKey();
+    if (!privateKey) {
       return { positions: [], success: false, error: "No private key configured" };
     }
 
-    return fetchPositionsList(POLY_PRIVATE_KEY);
+    return fetchPositionsList(privateKey);
   }
 
   /** Place an order on Polymarket CLOB */
@@ -200,20 +219,26 @@ export class PolymarketProvider {
     price: number;
     size: number;
   }): Promise<{ success: boolean; orderId?: string; error?: string }> {
-    if (!POLY_PRIVATE_KEY) {
+    const privateKey = await getPrivateKey();
+    console.log(`[PolymarketProvider] placeOrder: privateKey=${privateKey ? privateKey.substring(0, 8) + '...' : 'MISSING'}, tokenId=${params.tokenId}, price=${params.price}, size=${params.size}`);
+    if (!privateKey) {
+      console.error("[PolymarketProvider] placeOrder: No private key available!");
       return { success: false, error: "No private key configured" };
     }
 
-    return placeOrderRequest(POLY_PRIVATE_KEY, params);
+    const result = await placeOrderRequest(privateKey, params);
+    console.log(`[PolymarketProvider] placeOrder result:`, result);
+    return result;
   }
 
   /** Cancel an order on Polymarket CLOB */
   async cancelOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
-    if (!POLY_PRIVATE_KEY) {
+    const privateKey = await getPrivateKey();
+    if (!privateKey) {
       return { success: false, error: "No private key configured" };
     }
 
-    return cancelOrderRequest(POLY_PRIVATE_KEY, orderId);
+    return cancelOrderRequest(privateKey, orderId);
   }
 
   /** Fetch trades from Polymarket */
@@ -230,11 +255,12 @@ export class PolymarketProvider {
     success: boolean;
     error?: string;
   }> {
-    if (!POLY_PRIVATE_KEY) {
+    const privateKey = await getPrivateKey();
+    if (!privateKey) {
       return { trades: [], success: false, error: "No private key configured" };
     }
 
-    return fetchTradesList(POLY_PRIVATE_KEY);
+    return fetchTradesList(privateKey);
   }
 }
 

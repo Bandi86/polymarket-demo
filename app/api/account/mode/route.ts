@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getBotManager, getMarketEngine } from '@/lib/global'
+import { getBotManager, getMarketEngine, getLiveModeManager } from '@/lib/global'
 import { initializeClobClient, getBalance, getConfig } from '@/lib/providers/clob-client'
 import { accountStore } from '@/lib/account-store'
+import { resetAllLossTrackers } from '@/lib/bot-manager/index'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const botManager = getBotManager()
   const marketEngine = getMarketEngine()
+  const liveModeManager = getLiveModeManager()
 
   let body = {}
   try {
@@ -51,7 +53,7 @@ export async function POST(request: NextRequest) {
 
   // If switching to live mode, verify credentials
   if (mode === 'live') {
-    const config = getConfig()
+    const config = await getConfig()
     const activeAccount = await accountStore.getActiveAccount()
 
     // Check both config and account store for private key
@@ -97,6 +99,13 @@ export async function POST(request: NextRequest) {
   // Switch bot manager trading mode
   botManager.setTradingMode(mode)
 
+  // KRITIKUS: Reset loss trackers when switching to live mode
+  // This clears any pendingSettlements from demo/competition mode
+  if (mode === 'live') {
+    resetAllLossTrackers()
+    console.log("[ModeSwitch] Loss trackers reset for live trading")
+  }
+
   // Set balance for demo mode
   if (mode === 'demo' && balance) {
     for (const bot of bots) {
@@ -111,6 +120,14 @@ export async function POST(request: NextRequest) {
   // Set balance for live mode - fetch real balance via API
   if (mode === 'live') {
     try {
+      // Initialize live mode manager and sync balance
+      const liveModeResult = await liveModeManager.enableLiveMode()
+      if (!liveModeResult.success) {
+        console.error("[ModeSwitch] Failed to enable live mode:", liveModeResult.error)
+      } else {
+        console.log("[ModeSwitch] Live mode manager enabled successfully")
+      }
+
       // Fetch balance directly from our balance API endpoint
       const balanceRes = await fetch('http://localhost:3001/api/account/balance')
       const balanceData = await balanceRes.json()

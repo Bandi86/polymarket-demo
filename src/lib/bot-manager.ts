@@ -760,6 +760,7 @@ export class BotManager {
     console.log(`[DEBUG-BALANCE] Bot ${id}: tradingMode=${this.tradingMode}, demoBalance=${portfolio.balance}, liveBalance=${liveModeManager.getState().availableBalance}, effectiveBalance=${effectiveBalance}`);
 
     const riskMultiplier = getRiskMultiplier(id, effectiveBalance);
+    console.log(`[DEBUG-EXEC] Bot ${id}: riskMultiplier=${riskMultiplier}, action=${preCollectedDecision.action}`);
 
     if (riskMultiplier === 0) {
       // Bot should stop trading - get tracker details for logging
@@ -777,7 +778,10 @@ export class BotManager {
       return;
     }
 
-    if (!market || market.status !== "active") return;
+    if (!market || market.status !== "active") {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED - market not active`);
+      return;
+    }
 
     // Use pre-collected decision (strategy already executed in parallel phase)
     const decision = preCollectedDecision;
@@ -799,6 +803,7 @@ export class BotManager {
     const lastTradeTime = bot.lastTradeTime || 0;
     const TRADE_COOLDOWN_MS = 8000; // 8 seconds minimum between trades (balanced)
     if (now - lastTradeTime < TRADE_COOLDOWN_MS) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by cooldown`);
       return; // Skip - too soon since last trade
     }
 
@@ -807,8 +812,9 @@ export class BotManager {
     // Prevents trading on markets that are about to settle
     // ═══════════════════════════════════════════════════════════════
     const marketAge = now - market.startTime;
-    const MAX_MARKET_AGE_MS = 90000; // 90 seconds - allows trading in first 30% of 5-min market
+    const MAX_MARKET_AGE_MS = 290000; // 290 seconds - almost full 5min market (live trading)
     if (marketAge > MAX_MARKET_AGE_MS) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by market age: age=${marketAge}ms, max=${MAX_MARKET_AGE_MS}ms`);
       return; // Market too old - wait for new market
     }
 
@@ -816,12 +822,14 @@ export class BotManager {
     const existingPositions = marketEngine.getOpenPositions(id);
     const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
     if (hasPositionOnMarket) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by existing position`);
       return;
     }
 
     // CRITICAL: Check odds range - avoid 40-60¢ loss zone
     const oddsCheck = checkStrategyOdds(action, yesPrice, noPrice, bot.strategy);
     if (!oddsCheck.valid) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by odds: ${oddsCheck.reason}, yesPrice=${yesPrice}, noPrice=${noPrice}`);
       this.addLog(id, "ODDS", `Odds blocked: ${oddsCheck.reason}`, {
         action,
         odds: oddsCheck.odds,
@@ -981,6 +989,7 @@ export class BotManager {
     );
 
     if (!coordination.allowed) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by coordinator: ${coordination.reason}, action=${action}`);
       this.addLog(id, "COORD", `Trade blocked by coordinator: ${coordination.reason}`, {
         action: action,
         betSize,
@@ -1001,7 +1010,8 @@ export class BotManager {
     const adjustedFee = finalBetSize * 0.02;
 
     // DEBUG: Log balance and bet size
-    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}`);
+    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}, action=${action}`);
+    console.log(`[DEBUG-EXEC] Bot ${id}: About to check balance, tradingMode=${this.tradingMode}`);
 
     if (portfolio.balance < finalBetSize + adjustedFee) {
       strategyCoordinator.cancelDecision(market.id, id);
@@ -1180,7 +1190,10 @@ export class BotManager {
     }
 
     const market = marketEngine.getCurrentMarket();
-    if (!market || market.status !== "active") return;
+    if (!market || market.status !== "active") {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED - market not active`);
+      return;
+    }
 
     const strategy = strategies[bot.strategy];
     if (!strategy) return;
@@ -1256,12 +1269,14 @@ export class BotManager {
     const existingPositions = marketEngine.getOpenPositions(id);
     const hasPositionOnMarket = existingPositions.some(p => p.marketId === market.id);
     if (hasPositionOnMarket) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by existing position`);
       return;
     }
 
     // CRITICAL: Check odds range - avoid 40-60¢ loss zone
     const oddsCheck = checkStrategyOdds(action, yesPrice, noPrice, bot.strategy);
     if (!oddsCheck.valid) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by odds: ${oddsCheck.reason}, yesPrice=${yesPrice}, noPrice=${noPrice}`);
       this.addLog(id, "ODDS", `Odds blocked: ${oddsCheck.reason}`, {
         action,
         odds: oddsCheck.odds,
@@ -1352,6 +1367,7 @@ export class BotManager {
     );
 
     if (!coordination.allowed) {
+      console.log(`[DEBUG-EXEC] Bot ${id}: BLOCKED by coordinator: ${coordination.reason}, action=${action}`);
       this.addLog(id, "COORD", `Trade blocked by coordinator: ${coordination.reason}`, {
         action: action,
         betSize,
@@ -1372,7 +1388,8 @@ export class BotManager {
     const adjustedFee = finalBetSize * 0.02;
 
     // DEBUG: Log balance and bet size
-    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}`);
+    console.log(`[DEBUG-BALANCE] Bot ${id}: portfolio.balance=${portfolio.balance}, finalBetSize=${finalBetSize}, adjustedFee=${adjustedFee}, action=${action}`);
+    console.log(`[DEBUG-EXEC] Bot ${id}: About to check balance, tradingMode=${this.tradingMode}`);
 
     if (portfolio.balance < finalBetSize + adjustedFee) {
       strategyCoordinator.cancelDecision(market.id, id);

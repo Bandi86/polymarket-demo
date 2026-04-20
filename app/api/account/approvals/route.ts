@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 // GET /api/account/approvals - Check if contracts are approved
 export async function GET() {
   try {
-    const config = getConfig()
+    const config = await getConfig()
     const activeAccount = await accountStore.getActiveAccount()
     const walletAddress = config.walletAddress || activeAccount?.walletAddress || null
 
@@ -41,7 +41,7 @@ export async function GET() {
 // POST /api/account/approvals - Set contract approvals
 export async function POST() {
   try {
-    const config = getConfig()
+    const config = await getConfig()
     const activeAccount = await accountStore.getActiveAccount()
     const walletAddress = config.walletAddress || activeAccount?.walletAddress || null
 

@@ -16,7 +16,7 @@ export async function GET() {
 
   const bots = botManager.getBots()
   const totalBalance = bots.reduce((sum, b) => sum + (b.portfolio?.balance || 0), 0)
-  const config = polymarketProvider.getConfig()
+  const config = await polymarketProvider.getConfig()
 
   // Get trading mode from botManager
   const tradingMode = botManager.getTradingMode()

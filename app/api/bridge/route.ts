@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const action = searchParams.get("action");
 
   try {
-    const config = getConfig();
+    const config = await getConfig();
     const activeAccount = await accountStore.getActiveAccount();
     const walletAddress = config.walletAddress || activeAccount?.walletAddress || null
 
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 // POST /api/bridge - Create deposit/withdraw/quote
 export async function POST(request: NextRequest) {
   try {
-    const config = getConfig();
+    const config = await getConfig();
     const activeAccount = await accountStore.getActiveAccount();
     const walletAddress = config.walletAddress || activeAccount?.walletAddress || null
 

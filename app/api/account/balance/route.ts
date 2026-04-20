@@ -18,7 +18,7 @@ export async function GET() {
 
   // Fetch detailed account info (Trading + On-Chain)
   const accountResult = await accountManager.getDetailedAccount()
-  const config = getConfig()
+  const config = await getConfig()
 
   // Get demo balance from bots
   const bots = botManager.getBots()

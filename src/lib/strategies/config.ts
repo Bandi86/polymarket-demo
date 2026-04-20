@@ -77,7 +77,7 @@ export const strategyConfig: Record<StrategyType, StrategyThresholds> = {
   // ═══════════════════════════════════════════════════════════════
 
   window_delta: {
-    minDelta: 0.05,        // 0.05% BTC delta from window open (raised from 0.02)
+    minDelta: 0.01,        // 0.01% BTC delta from window open (lowered for LIVE TEST)
     minTimeRemaining: 3000,   // Don't trade with <3 seconds remaining
     maxTimeRemaining: 270000, // Don't trade with >4.5 minutes remaining
   },

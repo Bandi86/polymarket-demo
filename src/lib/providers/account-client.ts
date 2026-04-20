@@ -2,7 +2,10 @@
 // Handles authentication, balance, positions, and trades
 
 import { privateKeyToAccount } from "viem/accounts";
-import type { PolymarketBalanceResponse, PolymarketPositionResponse, PolymarketTradeResponse } from "../../types/provider.types";
+import { createWalletClient, http } from "viem";
+import { polygon } from "viem/chains";
+import { ClobClient, Chain, AssetType } from "@polymarket/clob-client";
+import type { PolymarketPositionResponse, PolymarketTradeResponse } from "../../types/provider.types";
 
 const CLOB_API = "https://clob.polymarket.com";
 
@@ -80,6 +83,7 @@ export async function createAuthHeaders(privateKey: `0x${string}`): Promise<Reco
 
 /**
  * Fetch account balance using private key
+ * Uses @polymarket/clob-client for proper L2 authentication
  */
 export async function fetchAccountBalance(privateKey: string): Promise<BalanceResult> {
   if (!privateKey) {
@@ -98,72 +102,44 @@ export async function fetchAccountBalance(privateKey: string): Promise<BalanceRe
       ? privateKey as `0x${string}`
       : `0x${privateKey}` as `0x${string}`;
 
-    const headers = await createAuthHeaders(pk);
+    // Create viem wallet client for ClobClient
+    const account = privateKeyToAccount(pk);
+    const walletClient = createWalletClient({
+      account,
+      chain: polygon,
+      transport: http(),
+    });
+    const clobClient = new ClobClient(CLOB_API, Chain.POLYGON, walletClient);
 
-    const response = await fetch(`${CLOB_API}/balances`, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(10000),
+    // Get USDC collateral balance and allowance
+    const collateral = await clobClient.getBalanceAllowance({
+      asset_type: AssetType.COLLATERAL,
     });
 
-    if (!response.ok) {
-      if (response.status === 400 || response.status === 404) {
-        return {
-          balance: 0,
-          available: 0,
-          locked: 0,
-          success: true,
-          isLive: true,
-          error: "No balance found (account may be empty)",
-        };
-      }
+    const balance = parseFloat(collateral.balance || "0");
+    const available = parseFloat(collateral.allowance || collateral.balance || "0");
 
-      return {
-        balance: 0,
-        available: 0,
-        locked: 0,
-        success: false,
-        isLive: false,
-        error: `API error: ${response.status}`,
-      };
-    }
-
-    const data = await response.json();
-
-    let balance = 0;
-    let available = 0;
-    let locked = 0;
-
-    if (Array.isArray(data)) {
-      const usdcBalance = (data as PolymarketBalanceResponse[]).find((b) =>
-        b.currency === "USDC" || b.asset === "USDC" || b.symbol === "USDC"
-      );
-      if (usdcBalance) {
-        balance = parseFloat(usdcBalance.balance ?? usdcBalance.amount ?? "0") / 1e6;
-        available = parseFloat(usdcBalance.available ?? String(balance)) / 1e6;
-        locked = parseFloat(usdcBalance.locked ?? "0") / 1e6;
-      }
-    } else if (data.balance !== undefined) {
-      balance = parseFloat(data.balance);
-      available = parseFloat(data.available || data.balance);
-      locked = parseFloat(data.locked || 0);
-    } else if (data.USDC !== undefined) {
-      balance = parseFloat(data.USDC);
-    }
-
-    return { balance, available, locked, success: true, isLive: true };
+    return {
+      balance,
+      available,
+      locked: 0,
+      success: true,
+      isLive: true,
+    };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[fetchAccountBalance] Error:", errorMessage);
+
     return {
       balance: 0,
       available: 0,
       locked: 0,
       success: false,
       isLive: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorMessage,
     };
   }
 }
-
 /**
  * Fetch positions from Polymarket
  */

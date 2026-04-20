@@ -61,6 +61,8 @@ export async function placeOrder(
 
     const account = privateKeyToAccount(pk);
     const address = account.address;
+    console.log(`[OrderClient] Signing with address: ${address}`);
+    console.log(`[OrderClient] Private key prefix: ${pk.substring(0, 10)}...`);
 
     // Generate order parameters
     const timestamp = Math.floor(Date.now() / 1000);
